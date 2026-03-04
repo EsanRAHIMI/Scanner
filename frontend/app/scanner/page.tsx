@@ -378,133 +378,165 @@ export default function ScannerPage() {
 
   return (
     <main className="min-h-dvh bg-black text-white">
-      <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
-        <div className="flex items-center justify-between">
+      <div className="mx-auto w-full max-w-6xl px-4 py-4 lg:py-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <div className="text-xs tracking-[0.25em] text-white/60">LORENZO</div>
-            <h1 className="text-lg font-semibold">Chandelier Scanner</h1>
+            <h1 className="text-lg font-semibold lg:text-xl">Chandelier Scanner</h1>
           </div>
 
-          {!isStarted ? (
-            <Button onClick={() => void handleStart()} className="bg-white text-black hover:bg-white/90">
-              Start Scanning
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={handlePauseResume}
-              className="border-white/30 bg-transparent text-white hover:bg-white/10"
-            >
-              {isPaused ? 'Resume' : 'Pause'}
-            </Button>
-          )}
-        </div>
-
-        <div className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-black">
-          <video
-            ref={videoRef}
-            className="block h-auto w-full"
-            playsInline
-            muted
-            autoPlay
-          />
-          <canvas
-            ref={overlayCanvasRef}
-            className="pointer-events-none absolute left-0 top-0 h-full w-full"
-          />
-
-          {!isStarted ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 p-6 text-center">
-              <p className="text-sm text-white/80">Tap “Start Scanning” to use your camera.</p>
-            </div>
-          ) : null}
-
-          {apiStatus === 'loading' && !isPaused ? (
-            <div className="absolute right-3 top-3 rounded-full bg-white/10 px-3 py-1 text-xs text-white/80">
-              Detecting…
-            </div>
-          ) : null}
-        </div>
-
-        {error ? (
-          <Card className="border-red-500/30 bg-red-950/30 text-white">
-            <CardHeader className="p-4">
-              <CardTitle className="text-base">Camera / API error</CardTitle>
-              <CardDescription className="text-white/70">{error}</CardDescription>
-            </CardHeader>
-          </Card>
-        ) : null}
-
-        <Card className="border-white/10 bg-white/5 text-white">
-          <CardHeader className="p-4">
-            <CardTitle className="text-base">Detection</CardTitle>
-            <CardDescription className="text-white/70">
-              Product and confidence from the latest frame.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 p-4 pt-0">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-white/70">Product</div>
-              <div className="text-sm font-medium">{displayName}</div>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-white/70">Confidence</div>
-              <div className="text-sm font-medium">{displayConfidence}</div>
-            </div>
-
-            {lastDetection && lowConfidence ? (
-              <div className="rounded-md border border-yellow-500/30 bg-yellow-950/20 p-3 text-sm text-yellow-100">
-                Low confidence. Adjust distance/lighting and try again.
-              </div>
-            ) : null}
-          </CardContent>
-          <CardFooter className="p-4 pt-0">
-            <div className="text-xs text-white/50">
-              Tip: use bright light and keep the chandelier centered.
-            </div>
-          </CardFooter>
-        </Card>
-
-        <Card className="border-white/10 bg-white/5 text-white">
-          <CardHeader className="p-4">
-            <CardTitle className="text-base">Backend Model Status</CardTitle>
-            <CardDescription className="text-white/70">
-              بررسی وجود فایل مدل و دسترسی backend به آن
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 p-4 pt-0">
-            {backendHealth ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-white/70">model_exists</div>
-                  <div className="text-sm font-medium">
-                    {backendHealth.model_exists ? 'true' : 'false'}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-white/70">size</div>
-                  <div className="text-sm font-medium">
-                    {typeof backendHealth.model_size_bytes === 'number'
-                      ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
-                      : '—'}
-                  </div>
-                </div>
-                <div className="text-xs text-white/60">{backendHealth.model_path}</div>
-              </>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isStarted ? (
+              <Button onClick={() => void handleStart()} className="bg-white text-black hover:bg-white/90">
+                Start Scanning
+              </Button>
             ) : (
-              <div className="text-sm text-white/70">{backendHealthError ?? 'Loading…'}</div>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handlePauseResume}
+                  className="border-white/30 bg-transparent text-white hover:bg-white/10"
+                >
+                  {isPaused ? 'Resume' : 'Pause'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void loadBackendHealth()}
+                  className="border-white/30 bg-transparent text-white hover:bg-white/10"
+                >
+                  Refresh status
+                </Button>
+              </>
             )}
-          </CardContent>
-          <CardFooter className="p-4 pt-0">
-            <Button
-              variant="outline"
-              onClick={() => void loadBackendHealth()}
-              className="border-white/30 bg-transparent text-white hover:bg-white/10"
-            >
-              Refresh
-            </Button>
-          </CardFooter>
-        </Card>
+
+            <div className="ml-auto flex items-center gap-2 text-xs text-white/70 lg:ml-0">
+              <span
+                className={
+                  'rounded-full px-2 py-1 ' +
+                  (apiStatus === 'loading'
+                    ? 'bg-white/10 text-white'
+                    : apiStatus === 'error'
+                      ? 'bg-red-500/15 text-red-200'
+                      : 'bg-emerald-500/15 text-emerald-200')
+                }
+              >
+                {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:mt-6 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black">
+              <div className="relative aspect-[3/4] w-full sm:aspect-video">
+                <video
+                  ref={videoRef}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  playsInline
+                  muted
+                  autoPlay
+                />
+                <canvas
+                  ref={overlayCanvasRef}
+                  className="pointer-events-none absolute inset-0 h-full w-full"
+                />
+
+                {!isStarted ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6 text-center">
+                    <p className="max-w-xs text-sm text-white/85">
+                      Tap “Start Scanning” to use your camera.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {error ? (
+              <Card className="mt-4 border-red-500/30 bg-red-950/30 text-white">
+                <CardHeader className="p-4">
+                  <CardTitle className="text-base">Camera / API error</CardTitle>
+                  <CardDescription className="break-words text-white/70">{error}</CardDescription>
+                </CardHeader>
+              </Card>
+            ) : null}
+          </div>
+
+          <div className="space-y-4 lg:col-span-5">
+            <Card className="border-white/10 bg-white/5 text-white">
+              <CardHeader className="p-4">
+                <CardTitle className="text-base">Detection</CardTitle>
+                <CardDescription className="text-white/70">
+                  Product and confidence from the latest frame.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 p-4 pt-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-white/70">Product</div>
+                  <div className="truncate text-sm font-medium">{displayName}</div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-white/70">Confidence</div>
+                  <div className="text-sm font-medium">{displayConfidence}</div>
+                </div>
+
+                {lastDetection && lowConfidence ? (
+                  <div className="rounded-md border border-yellow-500/30 bg-yellow-950/20 p-3 text-sm text-yellow-100">
+                    Low confidence. Adjust distance/lighting and try again.
+                  </div>
+                ) : null}
+              </CardContent>
+              <CardFooter className="p-4 pt-0">
+                <div className="text-xs text-white/50">
+                  Tip: use bright light and keep the chandelier centered.
+                </div>
+              </CardFooter>
+            </Card>
+
+            <Card className="border-white/10 bg-white/5 text-white">
+              <CardHeader className="p-4">
+                <CardTitle className="text-base">Backend Model Status</CardTitle>
+                <CardDescription className="text-white/70">
+                  بررسی وجود فایل مدل و دسترسی backend به آن
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 p-4 pt-0">
+                {backendHealth ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-white/70">model_exists</div>
+                      <div className="text-sm font-medium">
+                        {backendHealth.model_exists ? 'true' : 'false'}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-white/70">size</div>
+                      <div className="text-sm font-medium">
+                        {typeof backendHealth.model_size_bytes === 'number'
+                          ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
+                          : '—'}
+                      </div>
+                    </div>
+                    <div className="break-words text-xs text-white/60">{backendHealth.model_path}</div>
+                  </>
+                ) : (
+                  <div className="break-words text-sm text-white/70">
+                    {backendHealthError ?? 'Loading…'}
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="p-4 pt-0">
+                <Button
+                  variant="outline"
+                  onClick={() => void loadBackendHealth()}
+                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10"
+                >
+                  Refresh
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
+        </div>
       </div>
     </main>
   );
