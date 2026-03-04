@@ -2,7 +2,19 @@ import { getTrainerApiBase } from '@/lib/env';
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const base = getTrainerApiBase();
-  const url = `${base}${path}`;
+  let baseResolved = base;
+  if (base.startsWith('/') && typeof window === 'undefined') {
+    const { headers } = await import('next/headers');
+    const h = await headers();
+    const host = h.get('host');
+    const proto =
+      h.get('x-forwarded-proto') ??
+      (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+    const origin = host ? `${proto}://${host}` : 'http://localhost:3010';
+    baseResolved = `${origin}${base}`;
+  }
+
+  const url = `${baseResolved}${path}`;
 
   const res = await fetch(url, {
     cache: 'no-store',
