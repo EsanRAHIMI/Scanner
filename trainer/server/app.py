@@ -537,7 +537,6 @@ def start_train(body: _TrainBody):
 
   cmd = [
     "yolo",
-    "detect",
     "train",
     "model=yolov8n.pt",
     f"data={str(data_yaml)}",
@@ -545,7 +544,6 @@ def start_train(body: _TrainBody):
     f"epochs={epochs}",
     f"batch={batch}",
     f"project={str(run_dir)}",
-    "name=",
     "exist_ok=True",
   ]
 

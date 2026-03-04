@@ -1,0 +1,8 @@
+path: /Users/ehsanrahimi/Works/scanner/trainer/server/storage/datasets/lorenzo_v1
+train: images/train
+val: images/val
+names:
+- cavio
+- bondo
+- th
+- cubo

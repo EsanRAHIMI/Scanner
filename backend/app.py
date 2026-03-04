@@ -14,6 +14,18 @@ def _env_path(name: str, default: str) -> Path:
   return Path(os.getenv(name, default)).expanduser().resolve()
 
 
+def _resolve_model_path() -> Path:
+  v = os.getenv("MODEL_PATH")
+  if v:
+    return Path(v).expanduser().resolve()
+
+  docker_path = Path("/models/best.pt")
+  if docker_path.exists():
+    return docker_path
+
+  return Path("./models/best.pt").expanduser().resolve()
+
+
 class ProductSpecs(TypedDict):
   type: str
   finish: str
@@ -44,7 +56,7 @@ app.mount("/api", api)
 app.mount("/", api)
 
 _PRODUCTS_PATH = Path(__file__).with_name("products.json")
-_MODEL_PATH = _env_path("MODEL_PATH", "/models/best.pt")
+_MODEL_PATH = _resolve_model_path()
 
 _products_by_class: dict[str, Product] = {}
 _yolo_model: Any | None = None
@@ -73,7 +85,13 @@ def _load_products() -> dict[str, Product]:
 def _ensure_model_loaded() -> None:
   global _yolo_model, _yolo_load_error
 
-  if _yolo_model is not None or _yolo_load_error is not None:
+  if _yolo_model is not None:
+    return
+
+  if _yolo_load_error is not None and _MODEL_PATH.exists():
+    _yolo_load_error = None
+
+  if _yolo_load_error is not None:
     return
 
   if not _MODEL_PATH.exists():

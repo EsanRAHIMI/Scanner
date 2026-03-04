@@ -1,0 +1,15 @@
+{
+  "job_id": "bf93df73-4ae3-40cc-a936-06c846b950c0",
+  "status": "finished",
+  "started_at": "2026-03-04T16:44:12.680592+00:00",
+  "params": {
+    "epochs": 50,
+    "batch": 8,
+    "imgsz": 640
+  },
+  "log_path": "/Users/ehsanrahimi/Works/scanner/trainer/server/storage/runs/bf93df73-4ae3-40cc-a936-06c846b950c0/train.log",
+  "run_dir": "/Users/ehsanrahimi/Works/scanner/trainer/server/storage/runs/bf93df73-4ae3-40cc-a936-06c846b950c0",
+  "exit_code": 0,
+  "finished_at": "2026-03-04T16:54:22.106926+00:00",
+  "best_pt": null
+}
