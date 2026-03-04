@@ -60,7 +60,8 @@ _MODEL_PATH = _resolve_model_path()
 
 _products_by_class: dict[str, Product] = {}
 _yolo_model: Any | None = None
-_yolo_load_error: Literal["MODEL_NOT_FOUND"] | None = None
+_yolo_load_error: Literal["MODEL_NOT_FOUND", "MODEL_LOAD_FAILED"] | None = None
+_yolo_load_error_detail: str | None = None
 
 
 def _load_products() -> dict[str, Product]:
@@ -83,27 +84,30 @@ def _load_products() -> dict[str, Product]:
 
 
 def _ensure_model_loaded() -> None:
-  global _yolo_model, _yolo_load_error
+  global _yolo_model, _yolo_load_error, _yolo_load_error_detail
 
   if _yolo_model is not None:
     return
 
   if _yolo_load_error is not None and _MODEL_PATH.exists():
     _yolo_load_error = None
+    _yolo_load_error_detail = None
 
   if _yolo_load_error is not None:
     return
 
   if not _MODEL_PATH.exists():
     _yolo_load_error = "MODEL_NOT_FOUND"
+    _yolo_load_error_detail = None
     return
 
   try:
     from ultralytics import YOLO  # type: ignore
 
     _yolo_model = YOLO(str(_MODEL_PATH))
-  except Exception:
-    _yolo_load_error = "MODEL_NOT_FOUND"
+  except Exception as e:
+    _yolo_load_error = "MODEL_LOAD_FAILED"
+    _yolo_load_error_detail = f"{type(e).__name__}: {e}"
 
 
 @api.on_event("startup")
@@ -117,12 +121,16 @@ def health():
   model_exists = _MODEL_PATH.exists()
   model_size = _MODEL_PATH.stat().st_size if model_exists else None
   model_mtime = _MODEL_PATH.stat().st_mtime if model_exists else None
+  _ensure_model_loaded()
   return {
     "status": "ok",
     "model_path": str(_MODEL_PATH),
     "model_exists": model_exists,
     "model_size_bytes": model_size,
     "model_mtime": model_mtime,
+    "model_loaded": _yolo_model is not None,
+    "model_load_error": _yolo_load_error,
+    "model_load_error_detail": _yolo_load_error_detail,
     "products_loaded": len(_products_by_class),
   }
 
@@ -140,7 +148,12 @@ def _default_product_for_class(cls: str) -> Product:
 async def detect(file: UploadFile = File(...)):
   _ensure_model_loaded()
 
-  if _yolo_load_error == "MODEL_NOT_FOUND" or _yolo_model is None:
+  if _yolo_model is None:
+    if _yolo_load_error == "MODEL_LOAD_FAILED":
+      return JSONResponse(
+        status_code=500,
+        content={"error": "MODEL_LOAD_FAILED", "detail": _yolo_load_error_detail},
+      )
     return JSONResponse(status_code=500, content={"error": "MODEL_NOT_FOUND"})
 
   try:
