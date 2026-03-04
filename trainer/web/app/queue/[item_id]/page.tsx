@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 import { apiJson } from '@/lib/api';
+import { getTrainerApiBase } from '@/lib/env';
 import type { Annotation, ClassItem, NormalizedBBox, QueueItem } from '@/types/trainer';
 
 function clamp01(v: number) {
@@ -173,7 +174,7 @@ export default function LabelItemPage({ params }: Props) {
     }
   }, [bbox, classId, itemId, load]);
 
-  const imageUrl = item?.image_url ? `http://127.0.0.1:8010${item.image_url}` : null;
+  const imageUrl = item?.image_url ? `${getTrainerApiBase()}${item.image_url}` : null;
 
   return (
     <main className="space-y-6">

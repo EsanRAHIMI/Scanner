@@ -10,6 +10,8 @@ This repository is a multi-service, Docker-friendly monorepo:
 
 - `GET /` -> `frontend` (Next.js on port 3003)
 - `POST /api/detect` -> `backend` `POST /detect` (FastAPI on port 8000)
+- `GET /trainer/*` -> `trainer/web` (Next.js on port 3010)
+- `* /trainer/api/*` -> `trainer/server` (FastAPI on port 8010)
 
 The frontend always calls the detection endpoint using a **relative URL**:
 
@@ -89,7 +91,6 @@ curl http://127.0.0.1:8010/health
 ترمینال 2 — Trainer Web (Dashboard)
 cd ~/Works/scanner/trainer/web
 npm install
-# اگر پورت 3010 آزاد نیست، عدد رو عوض کن (مثلا 3011)
 npm run dev -- -p 3010
 
 ✅ باز کن:
@@ -106,9 +107,28 @@ http://localhost:3010
 
 اگر داشبورد خطای API داد، فایل .env.example داخل trainer/web رو ببین و اگر لازم بود .env.local بساز:
 
-echo "NEXT_PUBLIC_TRAINER_API_BASE=http://127.0.0.1:8010" > .env.local
+echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 
 بعد npm run dev رو ریستارت کن.
+
+----------------------------------------
+
+Dokploy (Domain + Path)
+
+روی دامنه `https://scanner.ehsanrahimi.com` این مسیرها پیشنهاد شده:
+
+- `/` -> `frontend:3003`
+- `/api/*` -> `backend:8000/*`
+- `/trainer/*` -> `trainer/web:3010/*`
+- `/trainer/api/*` -> `trainer/server:8010/*`
+
+برای اینکه frontend روی هاست backend را درست صدا بزند، در سرویس `frontend` این env را تنظیم کن:
+
+- `BACKEND_DETECT_URL=https://scanner.ehsanrahimi.com/api/detect`
+
+و برای اینکه Trainer Web API را درست صدا بزند، در سرویس `trainer/web` این env را تنظیم کن:
+
+- `NEXT_PUBLIC_TRAINER_API_BASE=https://scanner.ehsanrahimi.com/trainer/api`
 
 ترمینال 3 — Backend اصلی (Inference /detect)
 cd ~/Works/scanner/backend

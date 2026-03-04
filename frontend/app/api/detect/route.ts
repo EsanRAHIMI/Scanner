@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 
-const BACKEND_DETECT_URL = 'http://127.0.0.1:8000/detect';
+function getBackendDetectUrl() {
+  const v = process.env.BACKEND_DETECT_URL;
+  if (v) return v;
+  if (process.env.NODE_ENV === 'production') return 'http://backend:8000/detect';
+  return 'http://127.0.0.1:8000/detect';
+}
 
 export async function POST(request: Request) {
   try {
@@ -40,7 +45,7 @@ export async function POST(request: Request) {
 
     let backendRes: Response;
     try {
-      backendRes = await fetch(BACKEND_DETECT_URL, {
+      backendRes = await fetch(getBackendDetectUrl(), {
         method: 'POST',
         body: forwardForm,
       });

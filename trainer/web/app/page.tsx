@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { apiJson } from '@/lib/api';
+import { getTrainerApiBase } from '@/lib/env';
 import type { QueueItem, TrainStatusResponse } from '@/types/trainer';
 
 function Card({ title, value, hint }: { title: string; value: string; hint?: string }) {
@@ -36,6 +37,8 @@ export default async function DashboardPage() {
   const pending = queue ? queue.filter((q) => q.status === 'pending').length : 0;
   const labeled = queue ? queue.filter((q) => q.status === 'labeled').length : 0;
 
+  const apiBase = getTrainerApiBase();
+
   const lastJob = await getLastJob();
 
   return (
@@ -54,7 +57,7 @@ export default async function DashboardPage() {
         <Card
           title="Trainer API"
           value={queue ? 'Online' : 'Offline'}
-          hint={queue ? 'http://127.0.0.1:8010' : 'Start trainer/server on port 8010'}
+          hint={queue ? apiBase : 'Start trainer/server on port 8010'}
         />
       </div>
 
