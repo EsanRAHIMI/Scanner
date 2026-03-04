@@ -11,7 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+  && pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless || true \
+  && pip install --no-cache-dir --force-reinstall opencv-python-headless==4.10.0.84
 
 COPY app.py ./
 COPY products.json ./
