@@ -1,4 +1,3 @@
-```markdown
 # Lorenzo Scanner Monorepo
 
 YOLOv8-based chandelier detection system with integrated training dashboard.
@@ -10,6 +9,41 @@ This repository is a multi-service monorepo including:
 - `trainer/server/` → Training API + dataset storage (FastAPI)
 - `trainer/web/` → Training dashboard (Next.js)
 - `nginx/` → Reverse proxy (Docker deployment)
+
+---
+
+# Tech Stack
+
+## Frontend (Scanner UI)
+
+- Next.js (App Router)
+- React
+- TailwindCSS
+
+## Backend (Inference)
+
+- FastAPI + Uvicorn
+- Ultralytics YOLOv8
+- Pillow (image decoding)
+
+## Trainer
+
+- FastAPI (dataset storage + training orchestration)
+- Next.js dashboard (labeling + training UI)
+
+---
+
+# Key Features
+
+- **Real-time scanning UI** (mobile-first) with camera capture and overlay boxes.
+- **Same-origin API** routing (works behind reverse proxy) for clean deployments.
+- **Training dashboard**:
+  - Create classes
+  - Upload images
+  - Label (draw one bounding box)
+  - Export YOLO dataset
+  - Train
+  - Publish model (`best.pt`) for inference
 
 ---
 
@@ -36,36 +70,49 @@ Routing is handled by Nginx (Docker) or your reverse proxy.
 
 ---
 
+# Services & Ports (Local)
+
+| Service | Folder | Default Port |
+|---|---|---:|
+| Scanner UI | `frontend/` | 3003 |
+| Inference API | `backend/` | 8000 |
+| Trainer Server API | `trainer/server/` | 8010 |
+| Trainer Web (Dashboard) | `trainer/web/` | 3010 |
+
+---
+
 # YOLO Model Location
 
 Model file must exist at:
 
 ```
-
 backend/models/best.pt
-
 ```
 
 Backend loads model from:
 
 ```
-
 MODEL_PATH=/models/best.pt (Docker)
 MODEL_PATH=./models/best.pt (Local)
-
-````
+```
 
 If missing, backend returns:
 
 ```json
 { "error": "MODEL_NOT_FOUND" }
-````
+```
 
 ---
 
 # Local Development (Without Docker)
 
 You need **4 terminals**.
+
+## Prerequisites
+
+- Node.js (recommended: 20+)
+- Python 3.10+
+- (Optional) Docker + Docker Compose
 
 ---
 
@@ -145,6 +192,59 @@ http://localhost:3003/scanner
 
 ---
 
+# Quick User Guide (Simple)
+
+## Scanner (تشخیص)
+
+1. برو به:
+
+   - `http://localhost:3003/scanner`
+
+2. دسترسی دوربین رو Allow کن.
+3. دوربین رو به لوستر بگیر.
+4. نتیجه‌ی تشخیص (کلاس/کانفیدنس/باکس) روی تصویر نمایش داده می‌شه.
+
+## Training (آموزش مدل)
+
+1. برو به داشبورد:
+
+   - `http://localhost:3010`
+
+2. **Classes**: چند کلاس بساز (مثلاً `spark`, `adyl_central`).
+3. **Upload**: چند عکس آپلود کن.
+4. **Queue**: هر عکس رو باز کن:
+
+   - یک باکس دور لوستر بکش
+   - کلاس رو انتخاب کن
+   - Save
+
+5. **Train**:
+
+   - Export Dataset (YOLO)
+   - Start Training
+
+6. بعد از `finished` شدن:
+
+   - Publish
+
+خروجی مدل اینجا ذخیره می‌شه:
+
+- `backend/models/best.pt`
+
+و بعد از Publish باید سرویس inference رو ریستارت کنی.
+
+---
+
+# Outputs
+
+- **Inference output**: JSON شامل `detections` (bbox + class + confidence + product)
+- **Trainer output**:
+  - Dataset export under: `trainer/server/storage/datasets/...`
+  - Training runs/logs under: `trainer/server/storage/runs/...`
+  - Published model: `backend/models/best.pt`
+
+---
+
 # Docker Run (All Services)
 
 ```bash
@@ -187,160 +287,19 @@ BACKEND_DETECT_URL=https://scanner.ehsanrahimi.com/api/detect
 ### trainer/web
 
 ```
-NEXT_PUBLIC_TRAINER_API_BASE=https://scanner.ehsanrahimi.com/trainer/api
+NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
+# or
+# NEXT_PUBLIC_TRAINER_API_BASE=https://scanner.ehsanrahimi.com/trainer/api
 ```
 
 ---
 
-# How Training Works
+# Useful Links
 
-The system includes a built-in YOLO training pipeline.
-
-## Step 1 — Create Classes
-
-Go to:
-
-```
-http://localhost:3010
-```
-
-Open **Classes** and create object names (e.g. `spark`, `adyl_central`).
-
-Rules:
-
-* lowercase
-* no spaces
-* use underscore if needed
-
----
-
-## Step 2 — Upload Images
-
-Open **Upload** and add product images.
-
-Images move to **Queue**.
-
----
-
-## Step 3 — Label Images
-
-Open **Queue**:
-
-For each image:
-
-* Draw **one bounding box**
-* Select class
-* Save
-
-Label at least 10–20 images per class (minimum for testing).
-
----
-
-## Step 4 — Export Dataset
-
-Open **Train** → Click:
-
-```
-Export Dataset (YOLO)
-```
-
-System generates:
-
-* images/
-* labels/
-* data.yaml
-
----
-
-## Step 5 — Train
-
-In **Train** page:
-
-Recommended test config:
-
-```
-epochs: 10
-batch: 4
-img size: 640
-```
-
-Click:
-
-```
-Start Training
-```
-
-Wait until status becomes:
-
-```
-finished
-```
-
----
-
-## Step 6 — Publish Model
-
-Click:
-
-```
-Publish
-```
-
-This writes:
-
-```
-backend/models/best.pt
-```
-
----
-
-## Step 7 — Restart Backend
-
-Stop and restart backend:
-
-```bash
-Ctrl + C
-uvicorn app:app --host 127.0.0.1 --port 8000 --reload
-```
-
----
-
-# How to Use the Scanner
-
-1. Open:
-
-   ```
-   http://localhost:3003/scanner
-   ```
-2. Allow camera access
-3. Point camera at chandelier
-4. Detection results appear in real time
-5. If confidence threshold met → product recognized
-
-The frontend sends frames to:
-
-```
-POST /api/detect
-```
-
-Backend loads `best.pt` and returns bounding boxes + class predictions.
-
----
-
-# Development Flow Summary
-
-```
-Upload → Label → Export → Train → Publish → Restart → Scan
-```
-
----
-
-# Notes
-
-* Training runs locally on your machine.
-* No cloud dependency required.
-* Docker provides clean production routing.
-* Model must exist before inference works.
+- Scanner UI: `/scanner`
+- Service status: `/status`
+- Backend docs: `/api/docs`
+- Trainer docs: `/trainer/api/docs`
 
 ---
 
