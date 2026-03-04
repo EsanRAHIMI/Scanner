@@ -1,0 +1,16 @@
+{
+  "products": [
+    {
+      "class": "spark",
+      "product": {
+        "id": "SKU-001",
+        "name": "SPARK",
+        "collection": "Lorenzo",
+        "specs": {
+          "type": "Custom chandelier",
+          "finish": "Brass + Crystal"
+        }
+      }
+    }
+  ]
+}
