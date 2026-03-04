@@ -234,6 +234,14 @@ def _save_queue(items: list[QueueItem]) -> None:
   _safe_write_json(QUEUE_PATH, items)
 
 
+def _unlink_if_exists(p: Path) -> None:
+  try:
+    if p.exists():
+      p.unlink()
+  except Exception:
+    return
+
+
 @api.post("/uploads")
 async def upload_image(file: UploadFile = File(...)):
   if not file.content_type or not file.content_type.startswith("image/"):
@@ -284,6 +292,35 @@ def get_queue_item(item_id: str):
       item["image_url"] = f"/files/uploads/{item['filename']}"
       return item
   raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
+
+
+@api.delete("/queue/{item_id}")
+def delete_queue_item(item_id: str):
+  items = _load_queue()
+  target: QueueItem | None = None
+  new_items: list[QueueItem] = []
+  for it in items:
+    if it.get("item_id") == item_id:
+      target = it
+      continue
+    new_items.append(it)
+
+  if target is None:
+    raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
+
+  _save_queue(new_items)
+
+  filename = target.get("filename")
+  if isinstance(filename, str) and filename:
+    _unlink_if_exists(UPLOADS_DIR / filename)
+
+    ds_dir = _dataset_dir()
+    stem = Path(filename).stem
+    for split in ("train", "val"):
+      _unlink_if_exists(ds_dir / "images" / split / filename)
+      _unlink_if_exists(ds_dir / "labels" / split / f"{stem}.txt")
+
+  return {"deleted": True}
 
 
 class _SaveAnnotationBody(TypedDict):

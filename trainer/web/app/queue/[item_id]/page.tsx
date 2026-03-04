@@ -40,6 +40,7 @@ export default function LabelItemPage({ params }: Props) {
   const [bbox, setBbox] = React.useState<NormalizedBBox | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   const imgRef = React.useRef<HTMLImageElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -213,6 +214,30 @@ export default function LabelItemPage({ params }: Props) {
     }
   }, [bbox, classId, itemId, load]);
 
+  const hardDelete = React.useCallback(async () => {
+    const ok = window.confirm('این تصویر و اطلاعات مربوطه از سرور حذف می‌شود. ادامه می‌دهید؟');
+    if (!ok) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await apiJson(`/queue/${encodeURIComponent(itemId)}`, {
+        method: 'DELETE',
+      });
+
+      const go = nav.nextId ?? nav.prevId;
+      if (go) {
+        router.push(`/queue/${encodeURIComponent(go)}`);
+      } else {
+        router.push('/queue');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }, [itemId, nav.nextId, nav.prevId, router]);
+
   const imageUrl = item?.image_url ? `${getTrainerApiBase()}${item.image_url}` : null;
 
   return (
@@ -249,6 +274,15 @@ export default function LabelItemPage({ params }: Props) {
               title="Next (ArrowRight)"
             >
               Next
+            </button>
+            <button
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
+              type="button"
+              onClick={() => void hardDelete()}
+              disabled={deleting}
+              title="Delete this image from server"
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         </div>
