@@ -16,9 +16,10 @@ function Card({ title, value, hint }: { title: string; value: string; hint?: str
 
 async function getQueue() {
   try {
-    return await apiJson<QueueItem[]>('/queue');
+    const q = await apiJson<QueueItem[]>('/queue');
+    return { queue: q, error: null as string | null };
   } catch {
-    return null;
+    return { queue: null as QueueItem[] | null, error: 'Failed to reach Trainer API (/queue)' };
   }
 }
 
@@ -33,11 +34,12 @@ async function getLastJob() {
 }
 
 export default async function DashboardPage() {
-  const queue = await getQueue();
+  const apiBase = getTrainerApiBase();
+
+  const queueRes = await getQueue();
+  const queue = queueRes.queue;
   const pending = queue ? queue.filter((q) => q.status === 'pending').length : 0;
   const labeled = queue ? queue.filter((q) => q.status === 'labeled').length : 0;
-
-  const apiBase = getTrainerApiBase();
 
   const lastJob = await getLastJob();
 
@@ -57,7 +59,7 @@ export default async function DashboardPage() {
         <Card
           title="Trainer API"
           value={queue ? 'Online' : 'Offline'}
-          hint={queue ? apiBase : 'Start trainer/server on port 8010'}
+          hint={queue ? apiBase : queueRes.error ?? `API base: ${apiBase}`}
         />
       </div>
 
