@@ -221,9 +221,20 @@ export default function LabelItemPage({ params }: Props) {
     setDeleting(true);
     setError(null);
     try {
-      await apiJson(`/queue/${encodeURIComponent(itemId)}`, {
-        method: 'DELETE',
-      });
+      try {
+        await apiJson(`/queue/${encodeURIComponent(itemId)}`, {
+          method: 'DELETE',
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.includes('405')) {
+          await apiJson(`/queue/${encodeURIComponent(itemId)}/delete`, {
+            method: 'POST',
+          });
+        } else {
+          throw e;
+        }
+      }
 
       const go = nav.nextId ?? nav.prevId;
       if (go) {

@@ -323,6 +323,11 @@ def delete_queue_item(item_id: str):
   return {"deleted": True}
 
 
+@api.post("/queue/{item_id}/delete")
+def delete_queue_item_post(item_id: str):
+  return delete_queue_item(item_id)
+
+
 class _SaveAnnotationBody(TypedDict):
   class_id: str
   bbox: NormalizedBBox
