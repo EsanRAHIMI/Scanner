@@ -1,55 +1,68 @@
 # Lorenzo Scanner Monorepo
 
-YOLOv8-based chandelier detection system with integrated training dashboard.
+سیستم تشخیص لوستر مبتنی بر YOLOv8 به‌همراه داشبورد آموزش (Label/Train/Publish).
 
-This repository is a multi-service monorepo including:
+این ریپو یک monorepo چندسرویسی است:
 
-- `frontend/` → Scanner UI (Next.js)
-- `backend/` → YOLOv8 inference API (FastAPI)
-- `trainer/server/` → Training API + dataset storage (FastAPI)
-- `trainer/web/` → Training dashboard (Next.js)
-- `nginx/` → Reverse proxy (Docker deployment)
+- `frontend/` : رابط کاربری اسکنر (Next.js)
+- `backend/` : API تشخیص (FastAPI + YOLOv8)
+- `trainer/server/` : API آموزش + مدیریت دیتاست (FastAPI)
+- `trainer/web/` : داشبورد آموزش (Next.js)
+- `nginx/` : Reverse proxy برای اجرای Docker/Production
 
 ---
 
-# Tech Stack
+# فهرست
 
-## Frontend (Scanner UI)
+- [ویژگی‌ها](#ویژگیها)
+- [مسیرها در Production](#مسیرها-در-production)
+- [سرویس‌ها و پورت‌ها (لوکال)](#سرویسها-و-پورتها-لوکال)
+- [محل مدل YOLO](#محل-مدل-yolo)
+- [اجرای لوکال (بدون Docker)](#اجرای-لوکال-بدون-docker)
+- [اجرای Docker](#اجرای-docker)
+- [تنظیمات Production (Dokploy)](#تنظیمات-production-dokploy)
+- [راهنمای کاربر (فارسی)](#راهنمای-کاربر-فارسی)
+- [خروجی‌ها و مسیر فایل‌ها](#خروجیها-و-مسیر-فایلها)
+- [لینک‌های مفید](#لینکهای-مفید)
+
+---
+
+# تکنولوژی‌ها (Tech Stack)
+
+## فرانت‌اند (Scanner UI)
 
 - Next.js (App Router)
 - React
 - TailwindCSS
 
-## Backend (Inference)
+## بک‌اند (Inference)
 
 - FastAPI + Uvicorn
 - Ultralytics YOLOv8
-- Pillow (image decoding)
+- Pillow (decode کردن تصویر)
 
 ## Trainer
 
-- FastAPI (dataset storage + training orchestration)
-- Next.js dashboard (labeling + training UI)
+- FastAPI (ذخیره‌سازی دیتاست + orchestration آموزش)
+- Next.js dashboard (لیبل‌گذاری + UI آموزش)
 
 ---
 
-# Key Features
+# ویژگی‌ها
 
-- **Real-time scanning UI** (mobile-first) with camera capture and overlay boxes.
-- **Same-origin API** routing (works behind reverse proxy) for clean deployments.
-- **Training dashboard**:
-  - Create classes
-  - Upload images
-  - Label (draw one bounding box)
-  - Export YOLO dataset
-  - Train
-  - Publish model (`best.pt`) for inference
+- **اسکن زنده (موبایل‌فرست)** با دوربین و نمایش باکس‌ها روی تصویر
+- **مسیر‌دهی Same-origin** (سازگار با reverse proxy) برای Deploy تمیز
+- **داشبورد آموزش**:
+  - ساخت کلاس‌ها
+  - آپلود تصاویر
+  - لیبل (کشیدن یک باکس)
+  - خروجی گرفتن دیتاست YOLO
+  - آموزش
+  - Publish مدل (`best.pt`) برای inference
 
 ---
 
-# Architecture Overview
-
-## Public Routes (Production / Docker)
+# مسیرها در Production
 
 | Path | Service |
 |------|---------|
@@ -58,19 +71,17 @@ This repository is a multi-service monorepo including:
 | `/trainer/*` | trainer/web (Dashboard) |
 | `/trainer/api/*` | trainer/server (Training API) |
 
-Frontend always calls detection using:
+فرانت‌اند همیشه درخواست تشخیص را با این مسیر می‌زند:
 
 ```
-
 fetch('/api/detect')
-
 ```
 
-Routing is handled by Nginx (Docker) or your reverse proxy.
+مسیر‌دهی در حالت Docker توسط Nginx و در Production توسط reverse proxy انجام می‌شود.
 
 ---
 
-# Services & Ports (Local)
+# سرویس‌ها و پورت‌ها (لوکال)
 
 | Service | Folder | Default Port |
 |---|---|---:|
@@ -81,22 +92,22 @@ Routing is handled by Nginx (Docker) or your reverse proxy.
 
 ---
 
-# YOLO Model Location
+# محل مدل YOLO
 
-Model file must exist at:
+فایل مدل باید در این مسیر وجود داشته باشد:
 
 ```
 backend/models/best.pt
 ```
 
-Backend loads model from:
+بک‌اند مدل را از این مسیر می‌خواند:
 
 ```
 MODEL_PATH=/models/best.pt (Docker)
 MODEL_PATH=./models/best.pt (Local)
 ```
 
-If missing, backend returns:
+اگر فایل وجود نداشته باشد، بک‌اند این خطا را برمی‌گرداند:
 
 ```json
 { "error": "MODEL_NOT_FOUND" }
@@ -104,15 +115,15 @@ If missing, backend returns:
 
 ---
 
-# Local Development (Without Docker)
+# اجرای لوکال (بدون Docker)
 
-You need **4 terminals**.
+برای اجرای کامل، به **۴ ترمینال** نیاز داری.
 
-## Prerequisites
+## پیش‌نیازها
 
-- Node.js (recommended: 20+)
+- Node.js (پیشنهادی: 20+)
 - Python 3.10+
-- (Optional) Docker + Docker Compose
+- (اختیاری) Docker + Docker Compose
 
 ---
 
@@ -126,7 +137,7 @@ pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8010 --reload
 ```
 
-Test:
+تست:
 
 ```bash
 curl http://127.0.0.1:8010/health
@@ -142,19 +153,19 @@ npm install
 npm run dev -- -p 3010
 ```
 
-Open:
+باز کردن:
 
 ```
 http://localhost:3010
 ```
 
-If API error occurs:
+اگر داشبورد وضعیت API را `Offline` نشان داد:
 
 ```bash
 echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 ```
 
-Restart dev server.
+سرویس را ریستارت کن.
 
 ---
 
@@ -168,7 +179,7 @@ pip install -r requirements.txt
 MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Test:
+تست:
 
 ```bash
 curl http://127.0.0.1:8000/health
@@ -184,7 +195,7 @@ npm install
 npm run dev -- -p 3003
 ```
 
-Open:
+باز کردن:
 
 ```
 http://localhost:3003/scanner
@@ -192,66 +203,78 @@ http://localhost:3003/scanner
 
 ---
 
-# Quick User Guide (Simple)
+# راهنمای کاربر (فارسی)
 
-## Scanner (تشخیص)
+## 1) استفاده از اسکنر (Scanner)
 
-1. برو به:
-
+1. آدرس را باز کن:
    - `http://localhost:3003/scanner`
+2. دسترسی دوربین را `Allow` کن.
+3. دوربین را روی لوستر بگیر.
+4. نتیجه‌ی تشخیص به‌صورت زنده روی تصویر نمایش داده می‌شود:
+   - کلاس (نام محصول)
+   - confidence
+   - bounding box
 
-2. دسترسی دوربین رو Allow کن.
-3. دوربین رو به لوستر بگیر.
-4. نتیجه‌ی تشخیص (کلاس/کانفیدنس/باکس) روی تصویر نمایش داده می‌شه.
+نکته: فرانت‌اند درخواست‌ها را به این مسیر می‌فرستد:
 
-## Training (آموزش مدل)
+```
+POST /api/detect
+```
 
-1. برو به داشبورد:
+## 2) آموزش مدل (Training) — قدم به قدم
 
+1. داشبورد آموزش را باز کن:
    - `http://localhost:3010`
-
-2. **Classes**: چند کلاس بساز (مثلاً `spark`, `adyl_central`).
-3. **Upload**: چند عکس آپلود کن.
-4. **Queue**: هر عکس رو باز کن:
-
-   - یک باکس دور لوستر بکش
-   - کلاس رو انتخاب کن
-   - Save
-
-5. **Train**:
-
-   - Export Dataset (YOLO)
-   - Start Training
-
-6. بعد از `finished` شدن:
-
-   - Publish
-
-خروجی مدل اینجا ذخیره می‌شه:
-
-- `backend/models/best.pt`
-
-و بعد از Publish باید سرویس inference رو ریستارت کنی.
+2. در صفحه **Classes** کلاس‌ها را بساز.
+   - قوانین نام‌گذاری:
+     - حروف کوچک
+     - بدون فاصله
+     - در صورت نیاز `_`
+3. در صفحه **Upload** تصاویر محصولات را آپلود کن.
+4. در صفحه **Queue** برای هر تصویر:
+   - دقیقاً یک باکس دور لوستر بکش
+   - کلاس را انتخاب کن
+   - `Save`
+5. در صفحه **Train**:
+   - اول `Export Dataset (YOLO)` را بزن
+   - بعد `Start Training` را بزن
+6. وقتی وضعیت `finished` شد:
+   - `Publish` را بزن
+7. بعد از Publish، سرویس inference را ریستارت کن تا مدل جدید لود شود.
 
 ---
 
-# Outputs
+# خروجی‌ها و مسیر فایل‌ها
 
-- **Inference output**: JSON شامل `detections` (bbox + class + confidence + product)
-- **Trainer output**:
-  - Dataset export under: `trainer/server/storage/datasets/...`
-  - Training runs/logs under: `trainer/server/storage/runs/...`
-  - Published model: `backend/models/best.pt`
+- **خروجی تشخیص (Inference)**: پاسخ JSON شامل `detections` (bbox + class + confidence + product)
+- **خروجی آموزش (Trainer)**:
+  - خروجی دیتاست (Export) در:
+    - `trainer/server/storage/datasets/...`
+  - خروجی Train/Log در:
+    - `trainer/server/storage/runs/...`
+  - مدل نهایی Publish شده در:
+    - `backend/models/best.pt`
+
+## بعد از Publish دقیقاً چه اتفاقی می‌افتد؟
+
+1. فایل `best.pt` در مسیر زیر ساخته/جایگزین می‌شود:
+
+```
+backend/models/best.pt
+```
+
+2. برای اینکه API تشخیص از مدل جدید استفاده کند باید `backend` را ریستارت کنی.
 
 ---
 
-# Docker Run (All Services)
+# اجرای Docker
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+باز کردن:
 
 ```
 http://localhost/
@@ -259,15 +282,15 @@ http://localhost/
 
 ---
 
-# Production Routing Example (Dokploy)
+# تنظیمات Production (Dokploy)
 
-Domain:
+دامنه:
 
 ```
 https://scanner.ehsanrahimi.com
 ```
 
-Suggested routing:
+مسیر‌دهی پیشنهادی:
 
 | Path             | Target              |
 | ---------------- | ------------------- |
@@ -276,7 +299,7 @@ Suggested routing:
 | `/trainer/*`     | trainer/web:3010    |
 | `/trainer/api/*` | trainer/server:8010 |
 
-Environment variables:
+متغیرهای محیطی:
 
 ### frontend
 
@@ -294,7 +317,7 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 
 ---
 
-# Useful Links
+# لینک‌های مفید
 
 - Scanner UI: `/scanner`
 - Service status: `/status`
