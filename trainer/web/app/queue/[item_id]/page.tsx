@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 
 import { apiJson } from '@/lib/api';
 import { getTrainerApiBase } from '@/lib/env';
@@ -14,10 +15,26 @@ type Props = {
   params: { item_id: string };
 };
 
+function StatusPill({ status }: { status: string }) {
+  const isPending = status === 'pending';
+  return (
+    <span
+      className={
+        'inline-flex items-center rounded-full px-2 py-1 text-xs ' +
+        (isPending ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800')
+      }
+    >
+      {status}
+    </span>
+  );
+}
+
 export default function LabelItemPage({ params }: Props) {
   const itemId = params.item_id;
+  const router = useRouter();
 
   const [item, setItem] = React.useState<QueueItem | null>(null);
+  const [queue, setQueue] = React.useState<QueueItem[]>([]);
   const [classes, setClasses] = React.useState<ClassItem[]>([]);
   const [classId, setClassId] = React.useState<string>('');
   const [bbox, setBbox] = React.useState<NormalizedBBox | null>(null);
@@ -35,12 +52,14 @@ export default function LabelItemPage({ params }: Props) {
   const load = React.useCallback(async () => {
     setError(null);
     try {
-      const [it, cls] = await Promise.all([
+      const [it, cls, q] = await Promise.all([
         apiJson<QueueItem>(`/queue/${encodeURIComponent(itemId)}`),
         apiJson<ClassItem[]>('/classes'),
+        apiJson<QueueItem[]>('/queue'),
       ]);
       setItem(it);
       setClasses(cls);
+      setQueue(Array.isArray(q) ? q : []);
 
       const existing = it.annotation;
       if (existing) {
@@ -53,6 +72,26 @@ export default function LabelItemPage({ params }: Props) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     }
   }, [itemId]);
+
+  const nav = React.useMemo(() => {
+    const idx = queue.findIndex((q) => q.item_id === itemId);
+    const prevId = idx > 0 ? queue[idx - 1]?.item_id ?? null : null;
+    const nextId = idx >= 0 && idx < queue.length - 1 ? queue[idx + 1]?.item_id ?? null : null;
+    return { idx, prevId, nextId, total: queue.length };
+  }, [queue, itemId]);
+
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && nav.prevId) {
+        router.push(`/queue/${encodeURIComponent(nav.prevId)}`);
+      }
+      if (e.key === 'ArrowRight' && nav.nextId) {
+        router.push(`/queue/${encodeURIComponent(nav.nextId)}`);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [nav.nextId, nav.prevId, router]);
 
   React.useEffect(() => {
     void load();
@@ -181,6 +220,38 @@ export default function LabelItemPage({ params }: Props) {
       <div>
         <h1 className="text-2xl font-semibold">Label item</h1>
         <p className="mt-1 text-sm text-black/60">Draw one bounding box and choose a class.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <div className="text-black/60">
+            Item: <span className="font-mono text-black">{itemId}</span>
+          </div>
+          {item?.status ? <StatusPill status={item.status} /> : null}
+          {nav.idx >= 0 ? (
+            <div className="text-black/50">
+              {nav.idx + 1}/{nav.total}
+            </div>
+          ) : null}
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 disabled:opacity-50"
+              type="button"
+              onClick={() => nav.prevId && router.push(`/queue/${encodeURIComponent(nav.prevId)}`)}
+              disabled={!nav.prevId}
+              title="Previous (ArrowLeft)"
+            >
+              Prev
+            </button>
+            <button
+              className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 disabled:opacity-50"
+              type="button"
+              onClick={() => nav.nextId && router.push(`/queue/${encodeURIComponent(nav.nextId)}`)}
+              disabled={!nav.nextId}
+              title="Next (ArrowRight)"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       {error ? (

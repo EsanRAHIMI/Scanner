@@ -8,8 +8,6 @@
 - `backend/` : API تشخیص (FastAPI + YOLOv8)
 - `trainer/server/` : API آموزش + مدیریت دیتاست (FastAPI)
 - `trainer/web/` : داشبورد آموزش (Next.js)
-- `nginx/` : Reverse proxy برای اجرای Docker/Production
-
 ---
 
 # فهرست
