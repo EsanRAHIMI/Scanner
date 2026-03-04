@@ -268,20 +268,20 @@ async def upload_image(file: UploadFile = File(...)):
   }
 
 
-@app.get("/queue")
+@api.get("/queue")
 def get_queue():
   items = _load_queue()
   for item in items:
-    item["image_url"] = f"/files/uploads/{item['filename']}"  # type: ignore[index]
+    item["image_url"] = f"/files/uploads/{item['filename']}"
   return items
 
 
-@app.get("/queue/{item_id}")
+@api.get("/queue/{item_id}")
 def get_queue_item(item_id: str):
   items = _load_queue()
   for item in items:
-    if item.get("item_id") == item_id:
-      item["image_url"] = f"/files/uploads/{item['filename']}"  # type: ignore[index]
+    if item["item_id"] == item_id:
+      item["image_url"] = f"/files/uploads/{item['filename']}"
       return item
   raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
 
@@ -302,7 +302,7 @@ def _validate_bbox(b: NormalizedBBox) -> None:
     raise HTTPException(status_code=400, detail="INVALID_BBOX")
 
 
-@app.post("/queue/{item_id}/annotation")
+@api.post("/queue/{item_id}/annotation")
 def save_annotation(item_id: str, body: _SaveAnnotationBody):
   class_id = body.get("class_id")
   bbox = body.get("bbox")
@@ -318,7 +318,7 @@ def save_annotation(item_id: str, body: _SaveAnnotationBody):
   items = _load_queue()
   found = False
   for item in items:
-    if item.get("item_id") == item_id:
+    if item["item_id"] == item_id:
       item["annotation"] = {"class_id": class_id, "bbox": bbox}  # type: ignore[assignment]
       item["status"] = "labeled"
       found = True
@@ -335,7 +335,7 @@ def _dataset_dir() -> Path:
   return DATASETS_DIR / "lorenzo_v1"
 
 
-@app.post("/export")
+@api.post("/export")
 def export_dataset():
   ds_dir = _dataset_dir()
   images_train = ds_dir / "images" / "train"
@@ -473,7 +473,7 @@ class _TrainBody(TypedDict, total=False):
   imgsz: int
 
 
-@app.post("/train")
+@api.post("/train")
 def start_train(body: _TrainBody):
   ds_dir = _dataset_dir()
   data_yaml = ds_dir / "data.yaml"
@@ -570,7 +570,7 @@ def _read_metrics(run_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-@app.get("/train/{job_id}")
+@api.get("/train/{job_id}")
 def get_train_status(job_id: str, lines: int = 120):
   meta = _read_job_meta(job_id)
   if meta is None:
@@ -591,7 +591,7 @@ def get_train_status(job_id: str, lines: int = 120):
   }
 
 
-@app.post("/train/{job_id}/publish")
+@api.post("/train/{job_id}/publish")
 def publish(job_id: str):
   meta = _read_job_meta(job_id)
   if meta is None:
