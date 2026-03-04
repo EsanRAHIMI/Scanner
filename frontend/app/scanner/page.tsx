@@ -33,6 +33,13 @@ type DetectResponse = {
   detections: Detection[];
 };
 
+type BackendHealth = {
+  status: string;
+  model_path: string;
+  model_exists: boolean;
+  model_size_bytes: number | null;
+};
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -113,6 +120,21 @@ export default function ScannerPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [lastDetection, setLastDetection] = React.useState<Detection | null>(null);
   const [apiStatus, setApiStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [backendHealth, setBackendHealth] = React.useState<BackendHealth | null>(null);
+  const [backendHealthError, setBackendHealthError] = React.useState<string | null>(null);
+
+  const loadBackendHealth = React.useCallback(async () => {
+    try {
+      setBackendHealthError(null);
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Health failed (${res.status})`);
+      setBackendHealth(JSON.parse(text) as BackendHealth);
+    } catch (e) {
+      setBackendHealth(null);
+      setBackendHealthError(e instanceof Error ? e.message : 'Health failed');
+    }
+  }, []);
 
   const syncOverlayToVideo = React.useCallback(() => {
     const video = videoRef.current;
@@ -224,7 +246,13 @@ export default function ScannerPage() {
       });
 
       if (!res.ok) {
-        throw new Error(`Detection API error (${res.status}).`);
+        let details = '';
+        try {
+          details = await res.text();
+        } catch {
+          details = '';
+        }
+        throw new Error(`Detection API error (${res.status}). ${details}`.trim());
       }
 
       const data: DetectResponse = (await res.json()) as DetectResponse;
@@ -281,6 +309,7 @@ export default function ScannerPage() {
     setIsPaused(false);
 
     try {
+      await loadBackendHealth();
       await ensureCamera();
       setIsStarted(true);
       startLoop();
@@ -294,6 +323,10 @@ export default function ScannerPage() {
       streamRef.current = null;
     }
   }, [clearOverlay, ensureCamera, startLoop, stopLoop]);
+
+  React.useEffect(() => {
+    void loadBackendHealth();
+  }, [loadBackendHealth]);
 
   const handlePauseResume = React.useCallback(() => {
     setError(null);
@@ -429,6 +462,47 @@ export default function ScannerPage() {
             <div className="text-xs text-white/50">
               Tip: use bright light and keep the chandelier centered.
             </div>
+          </CardFooter>
+        </Card>
+
+        <Card className="border-white/10 bg-white/5 text-white">
+          <CardHeader className="p-4">
+            <CardTitle className="text-base">Backend Model Status</CardTitle>
+            <CardDescription className="text-white/70">
+              بررسی وجود فایل مدل و دسترسی backend به آن
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 p-4 pt-0">
+            {backendHealth ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-white/70">model_exists</div>
+                  <div className="text-sm font-medium">
+                    {backendHealth.model_exists ? 'true' : 'false'}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-white/70">size</div>
+                  <div className="text-sm font-medium">
+                    {typeof backendHealth.model_size_bytes === 'number'
+                      ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="text-xs text-white/60">{backendHealth.model_path}</div>
+              </>
+            ) : (
+              <div className="text-sm text-white/70">{backendHealthError ?? 'Loading…'}</div>
+            )}
+          </CardContent>
+          <CardFooter className="p-4 pt-0">
+            <Button
+              variant="outline"
+              onClick={() => void loadBackendHealth()}
+              className="border-white/30 bg-transparent text-white hover:bg-white/10"
+            >
+              Refresh
+            </Button>
           </CardFooter>
         </Card>
       </div>

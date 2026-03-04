@@ -115,10 +115,14 @@ def _startup() -> None:
 @api.get("/health")
 def health():
   model_exists = _MODEL_PATH.exists()
+  model_size = _MODEL_PATH.stat().st_size if model_exists else None
+  model_mtime = _MODEL_PATH.stat().st_mtime if model_exists else None
   return {
     "status": "ok",
     "model_path": str(_MODEL_PATH),
     "model_exists": model_exists,
+    "model_size_bytes": model_size,
+    "model_mtime": model_mtime,
     "products_loaded": len(_products_by_class),
   }
 
