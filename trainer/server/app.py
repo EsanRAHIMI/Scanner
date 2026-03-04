@@ -78,9 +78,13 @@ def _validate_class_id(value: str) -> None:
     raise HTTPException(status_code=400, detail="INVALID_CLASS_ID")
 
 
-app = FastAPI(title="Lorenzo Trainer Server")
+api = FastAPI(title="Lorenzo Trainer Server")
 
-app.add_middleware(
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/trainer/api", api)
+app.mount("/", api)
+
+api.add_middleware(
   CORSMiddleware,
   allow_origins=[
     "http://localhost:3010",
@@ -104,10 +108,11 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 DATASETS_DIR.mkdir(parents=True, exist_ok=True)
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
-app.mount("/files", StaticFiles(directory=str(STORAGE_DIR)), name="files")
+
+api.mount("/files", StaticFiles(directory=str(STORAGE_DIR)), name="files")
 
 
-@app.get("/health")
+@api.get("/health")
 def health():
   return {"status": "ok"}
 
@@ -131,7 +136,7 @@ def _save_classes(items: list[ClassItem]) -> None:
   _safe_write_json(CLASSES_PATH, items)
 
 
-@app.get("/classes")
+@api.get("/classes")
 def get_classes():
   return _load_classes()
 
@@ -141,7 +146,7 @@ class _CreateClassBody(TypedDict):
   name: str
 
 
-@app.post("/classes")
+@api.post("/classes")
 def create_class(body: _CreateClassBody):
   cid = body.get("id")
   name = body.get("name")
@@ -162,7 +167,7 @@ class _RenameClassBody(TypedDict):
   name: str
 
 
-@app.put("/classes/{class_id}")
+@api.put("/classes/{class_id}")
 def rename_class(class_id: str, body: _RenameClassBody):
   name = body.get("name")
   if not isinstance(name, str) or not name:
@@ -183,7 +188,7 @@ def rename_class(class_id: str, body: _RenameClassBody):
   return {"updated": True}
 
 
-@app.delete("/classes/{class_id}")
+@api.delete("/classes/{class_id}")
 def delete_class(class_id: str):
   items = _load_classes()
   new_items = [c for c in items if c["id"] != class_id]
@@ -229,7 +234,7 @@ def _save_queue(items: list[QueueItem]) -> None:
   _safe_write_json(QUEUE_PATH, items)
 
 
-@app.post("/uploads")
+@api.post("/uploads")
 async def upload_image(file: UploadFile = File(...)):
   if not file.content_type or not file.content_type.startswith("image/"):
     raise HTTPException(status_code=400, detail="INVALID_IMAGE")

@@ -37,7 +37,11 @@ class DetectResponse(TypedDict):
   detections: list[dict[str, Any]]
 
 
-app = FastAPI(title="Lorenzo YOLOv8 Detect Service")
+api = FastAPI(title="Lorenzo YOLOv8 Detect Service")
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/api", api)
+app.mount("/", api)
 
 _PRODUCTS_PATH = Path(__file__).with_name("products.json")
 _MODEL_PATH = _env_path("MODEL_PATH", "/models/best.pt")
@@ -84,13 +88,13 @@ def _ensure_model_loaded() -> None:
     _yolo_load_error = "MODEL_NOT_FOUND"
 
 
-@app.on_event("startup")
+@api.on_event("startup")
 def _startup() -> None:
   global _products_by_class
   _products_by_class = _load_products()
 
 
-@app.get("/health")
+@api.get("/health")
 def health():
   model_exists = _MODEL_PATH.exists()
   return {
@@ -110,7 +114,7 @@ def _default_product_for_class(cls: str) -> Product:
   }
 
 
-@app.post("/detect")
+@api.post("/detect")
 async def detect(file: UploadFile = File(...)):
   _ensure_model_loaded()
 
