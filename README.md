@@ -1,47 +1,151 @@
+```markdown
 # Lorenzo Scanner Monorepo
 
-This repository is a multi-service, Docker-friendly monorepo:
+YOLOv8-based chandelier detection system with integrated training dashboard.
 
-- `frontend/`: Next.js app (App Router)
-- `backend/`: FastAPI YOLOv8 detection service
-- `nginx/`: Reverse proxy routing
+This repository is a multi-service monorepo including:
 
-## Routing
+- `frontend/` → Scanner UI (Next.js)
+- `backend/` → YOLOv8 inference API (FastAPI)
+- `trainer/server/` → Training API + dataset storage (FastAPI)
+- `trainer/web/` → Training dashboard (Next.js)
+- `nginx/` → Reverse proxy (Docker deployment)
 
-- `GET /` -> `frontend` (Next.js on port 3003)
-- `POST /api/detect` -> `backend` `POST /detect` (FastAPI on port 8000)
-- `GET /trainer/*` -> `trainer/web` (Next.js on port 3010)
-- `* /trainer/api/*` -> `trainer/server` (FastAPI on port 8010)
+---
 
-The frontend always calls the detection endpoint using a **relative URL**:
+# Architecture Overview
 
-- `fetch('/api/detect', ...)`
+## Public Routes (Production / Docker)
 
-Nginx handles forwarding to the backend.
+| Path | Service |
+|------|---------|
+| `/` | frontend (Scanner UI) |
+| `/api/*` | backend (YOLO detect API) |
+| `/trainer/*` | trainer/web (Dashboard) |
+| `/trainer/api/*` | trainer/server (Training API) |
 
-## YOLO model
+Frontend always calls detection using:
 
-Place your YOLOv8 model at:
+```
 
-- `backend/models/best.pt`
+fetch('/api/detect')
 
-In Docker, this is mounted read-only into the backend container as:
+```
 
-- `/models/best.pt`
+Routing is handled by Nginx (Docker) or your reverse proxy.
 
-The backend loads the model from:
+---
 
-- `MODEL_PATH=/models/best.pt`
+# YOLO Model Location
 
-If the model file is missing, the backend returns:
+Model file must exist at:
+
+```
+
+backend/models/best.pt
+
+```
+
+Backend loads model from:
+
+```
+
+MODEL_PATH=/models/best.pt (Docker)
+MODEL_PATH=./models/best.pt (Local)
+
+````
+
+If missing, backend returns:
 
 ```json
 { "error": "MODEL_NOT_FOUND" }
+````
+
+---
+
+# Local Development (Without Docker)
+
+You need **4 terminals**.
+
+---
+
+## Terminal 1 — Trainer Server (API + storage)
+
+```bash
+cd trainer/server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8010 --reload
 ```
 
-## Local run (Docker)
+Test:
 
-Build and start everything:
+```bash
+curl http://127.0.0.1:8010/health
+```
+
+---
+
+## Terminal 2 — Trainer Web (Dashboard)
+
+```bash
+cd trainer/web
+npm install
+npm run dev -- -p 3010
+```
+
+Open:
+
+```
+http://localhost:3010
+```
+
+If API error occurs:
+
+```bash
+echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
+```
+
+Restart dev server.
+
+---
+
+## Terminal 3 — Backend (YOLO Inference)
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Test:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+---
+
+## Terminal 4 — Frontend (Scanner UI)
+
+```bash
+cd frontend
+npm install
+npm run dev -- -p 3003
+```
+
+Open:
+
+```
+http://localhost:3003/scanner
+```
+
+---
+
+# Docker Run (All Services)
 
 ```bash
 docker compose up --build
@@ -49,141 +153,198 @@ docker compose up --build
 
 Open:
 
-- http://localhost/
-
-## Local run (without Docker)
-
-### Frontend
-
-```bash
-cd frontend
-npm ci
-npm run dev
+```
+http://localhost/
 ```
 
-### Backend
+---
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-MODEL_PATH=./models/best.pt uvicorn app:app --reload --port 8000
+# Production Routing Example (Dokploy)
+
+Domain:
+
+```
+https://scanner.ehsanrahimi.com
 ```
 
-When running without Docker you’ll need your own reverse proxy (or update the frontend to call the backend directly). In Docker, Nginx provides same-origin routing.
-----------------------------------------
+Suggested routing:
 
+| Path             | Target              |
+| ---------------- | ------------------- |
+| `/`              | frontend:3003       |
+| `/api/*`         | backend:8000        |
+| `/trainer/*`     | trainer/web:3010    |
+| `/trainer/api/*` | trainer/server:8010 |
 
-ترمینال 1 — Trainer Server (API + storage)
-cd ~/Works/scanner/trainer/server
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 8010 --reload
+Environment variables:
 
-✅ تست:
+### frontend
 
-curl http://127.0.0.1:8010/health
+```
+BACKEND_DETECT_URL=https://scanner.ehsanrahimi.com/api/detect
+```
 
-باید {"status":"ok"} بده.
+### trainer/web
 
-ترمینال 2 — Trainer Web (Dashboard)
-cd ~/Works/scanner/trainer/web
-npm install
-npm run dev -- -p 3010
+```
+NEXT_PUBLIC_TRAINER_API_BASE=https://scanner.ehsanrahimi.com/trainer/api
+```
 
-✅ باز کن:
+---
 
+# How Training Works
+
+The system includes a built-in YOLO training pipeline.
+
+## Step 1 — Create Classes
+
+Go to:
+
+```
 http://localhost:3010
+```
 
-و داخل داشبورد باید بتونی:
+Open **Classes** and create object names (e.g. `spark`, `adyl_central`).
 
-کلاس بسازی
+Rules:
 
-عکس آپلود کنی
+* lowercase
+* no spaces
+* use underscore if needed
 
-بری صف لیبلینگ
+---
 
-اگر داشبورد خطای API داد، فایل .env.example داخل trainer/web رو ببین و اگر لازم بود .env.local بساز:
+## Step 2 — Upload Images
 
-echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
+Open **Upload** and add product images.
 
-بعد npm run dev رو ریستارت کن.
+Images move to **Queue**.
 
-----------------------------------------
+---
 
-Dokploy (Domain + Path)
+## Step 3 — Label Images
 
-روی دامنه `https://scanner.ehsanrahimi.com` این مسیرها پیشنهاد شده:
+Open **Queue**:
 
-- `/` -> `frontend:3003`
-- `/api/*` -> `backend:8000/*`
-- `/trainer/*` -> `trainer/web:3010/*`
-- `/trainer/api/*` -> `trainer/server:8010/*`
+For each image:
 
-برای اینکه frontend روی هاست backend را درست صدا بزند، در سرویس `frontend` این env را تنظیم کن:
+* Draw **one bounding box**
+* Select class
+* Save
 
-- `BACKEND_DETECT_URL=https://scanner.ehsanrahimi.com/api/detect`
+Label at least 10–20 images per class (minimum for testing).
 
-و برای اینکه Trainer Web API را درست صدا بزند، در سرویس `trainer/web` این env را تنظیم کن:
+---
 
-- `NEXT_PUBLIC_TRAINER_API_BASE=https://scanner.ehsanrahimi.com/trainer/api`
+## Step 4 — Export Dataset
 
-ترمینال 3 — Backend اصلی (Inference /detect)
-cd ~/Works/scanner/backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+Open **Train** → Click:
+
+```
+Export Dataset (YOLO)
+```
+
+System generates:
+
+* images/
+* labels/
+* data.yaml
+
+---
+
+## Step 5 — Train
+
+In **Train** page:
+
+Recommended test config:
+
+```
+epochs: 10
+batch: 4
+img size: 640
+```
+
+Click:
+
+```
+Start Training
+```
+
+Wait until status becomes:
+
+```
+finished
+```
+
+---
+
+## Step 6 — Publish Model
+
+Click:
+
+```
+Publish
+```
+
+This writes:
+
+```
+backend/models/best.pt
+```
+
+---
+
+## Step 7 — Restart Backend
+
+Stop and restart backend:
+
+```bash
+Ctrl + C
 uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+```
 
-✅ تست:
+---
 
-curl http://127.0.0.1:8000/health
+# How to Use the Scanner
 
-تا وقتی backend/models/best.pt نداری، /detect ممکنه 500 بده (طبیعی).
+1. Open:
 
-ترمینال 4 — Frontend اصلی (Scanner UI)
-cd ~/Works/scanner/frontend
-npm install
-# اگر پورت آزاد نیست، مثلا 3003
-npm run dev -- -p 3003
+   ```
+   http://localhost:3003/scanner
+   ```
+2. Allow camera access
+3. Point camera at chandelier
+4. Detection results appear in real time
+5. If confidence threshold met → product recognized
 
-✅ باز کن:
+The frontend sends frames to:
 
-http://localhost:3003/scanner
+```
+POST /api/detect
+```
 
+Backend loads `best.pt` and returns bounding boxes + class predictions.
 
+---
 
----------------------------------------------------
+# Development Flow Summary
 
+```
+Upload → Label → Export → Train → Publish → Restart → Scan
+```
 
-حالا “Training” دقیقاً چطور کار می‌کنه؟
+---
 
-داخل Trainer Web (پورت 3010) این ترتیب رو برو:
+# Notes
 
-Classes → چند کلاس بساز (مثلاً spark, adyl_central, …)
+* Training runs locally on your machine.
+* No cloud dependency required.
+* Docker provides clean production routing.
+* Model must exist before inference works.
 
-Upload → چند عکس آپلود کن
+---
 
-Queue → هر عکس رو باز کن و:
+# License
 
-با موس/تاچ یک باکس دور لوستر بکش
+Private internal project.
 
-کلاس رو انتخاب کن
-
-Save
-
-Export Dataset → دیتاست YOLO ساخته میشه
-
-Train → epochs/batch رو بذار و Start
-
-وقتی Train تموم شد → Publish رو بزن
-
-خروجی میره داخل: backend/models/best.pt
-
-بعد از Publish:
-
-بک‌اند inference رو ریستارت کن (ترمینال 3 یک بار Ctrl+C و دوباره uvicorn)
-
-بعد scanner UI تشخیص میده.
