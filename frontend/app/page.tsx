@@ -19,6 +19,9 @@ export default function Home() {
           <Button asChild className="w-full bg-black text-white hover:bg-black/90">
             <Link href="/scanner">Open Scanner</Link>
           </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href="/status">Backend status</Link>
+          </Button>
           <p className="text-xs text-black/50">
             For best results, allow camera access and use good lighting.
           </p>
