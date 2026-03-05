@@ -35,6 +35,12 @@
 
 ## بک‌اند (Inference)
 
+نکته‌ی مهم برای Production (Dokploy / Nixpacks):
+
+اگر مدل را به‌صورت فایل داخل ریپو و داخل سرویس `backend/` نگه می‌دارید، باید در Environment سرویس بک‌اند مقدار زیر را ست کنید تا بک‌اند مدل را پیدا کند:
+
+`MODEL_PATH=/app/models/best.pt`
+
 - FastAPI + Uvicorn
 - Ultralytics YOLOv8
 - Pillow (decode کردن تصویر)
