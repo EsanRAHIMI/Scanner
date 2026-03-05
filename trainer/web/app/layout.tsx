@@ -4,6 +4,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
+import { DamCacheProvider } from './dam-cache-provider';
+
 export const metadata: Metadata = {
   title: 'Lorenzo Trainer',
   description: 'Admin dashboard for labeling and training',
@@ -23,9 +25,10 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh bg-white text-black">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-5 py-8">
-          <header className="flex flex-col gap-3 border-b border-black/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <body className="h-dvh overflow-hidden bg-white text-black">
+        <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-6 box-border px-5 py-6">
+          <header className="sticky top-0 z-30 -mx-5 border-b border-black/10 bg-white/90 px-5 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/70 sm:mx-0 sm:px-0">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-xs tracking-[0.35em] text-black/60">LORENZO</div>
               <div className="text-lg font-semibold">Trainer</div>
@@ -36,12 +39,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavLink href="/queue" label="Queue" />
               <NavLink href="/classes" label="Classes" />
               <NavLink href="/train" label="Train" />
+              <NavLink href="/dam" label="DAM" />
             </nav>
+            </div>
           </header>
-          {children}
-          <footer className="border-t border-black/10 pt-4 text-xs text-black/50">
-            Trainer/Admin service
-          </footer>
+          <DamCacheProvider>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+          </DamCacheProvider>
         </div>
       </body>
     </html>

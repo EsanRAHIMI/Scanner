@@ -10,6 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 from typing_extensions import TypedDict
 
@@ -96,6 +98,14 @@ api.add_middleware(
 )
 
 BASE_DIR = Path(__file__).resolve().parent
+
+try:
+  from dotenv import load_dotenv  # type: ignore
+
+  load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
+except Exception:
+  pass
+
 STORAGE_DIR = BASE_DIR / "storage"
 UPLOADS_DIR = STORAGE_DIR / "uploads"
 DATASETS_DIR = STORAGE_DIR / "datasets"
@@ -115,6 +125,58 @@ api.mount("/files", StaticFiles(directory=str(STORAGE_DIR)), name="files")
 @api.get("/health")
 def health():
   return {"status": "ok"}
+
+
+@api.get("/dam/assets")
+def dam_assets():
+  api_key = os.environ.get("AIRTABLE_API_KEY")
+  base_id = os.environ.get("AIRTABLE_BASE_ID")
+  table = os.environ.get("AIRTABLE_TABLE")
+  if not api_key or not base_id or not table:
+    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
+
+  records: list[dict[str, Any]] = []
+  offset: str | None = None
+  for _ in range(20):
+    params: dict[str, str] = {"pageSize": "100"}
+    if offset:
+      params["offset"] = offset
+
+    url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
+    req = Request(url)
+    req.add_header("Authorization", f"Bearer {api_key}")
+    req.add_header("Accept", "application/json")
+
+    try:
+      with urlopen(req, timeout=20) as resp:
+        body = resp.read().decode("utf-8")
+    except Exception as e:
+      raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
+
+    try:
+      data = json.loads(body)
+    except Exception:
+      raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
+
+    batch = data.get("records")
+    if isinstance(batch, list):
+      records.extend(batch)
+
+    off = data.get("offset")
+    offset = off if isinstance(off, str) else None
+    if not offset:
+      break
+
+  columns_set: set[str] = set()
+  for r in records:
+    f = r.get("fields") if isinstance(r, dict) else None
+    if isinstance(f, dict):
+      for k in f.keys():
+        if isinstance(k, str):
+          columns_set.add(k)
+
+  columns = sorted(columns_set)
+  return {"columns": columns, "records": records, "count": len(records)}
 
 
 def _load_classes() -> list[ClassItem]:

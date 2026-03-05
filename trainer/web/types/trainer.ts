@@ -45,3 +45,15 @@ export type TrainStatusResponse = {
   metrics: Record<string, number | string> | null;
   log: string[];
 };
+
+export type DamAirtableRecord = {
+  id: string;
+  createdTime?: string;
+  fields: Record<string, unknown>;
+};
+
+export type DamAssetsResponse = {
+  columns: string[];
+  records: DamAirtableRecord[];
+  count: number;
+};

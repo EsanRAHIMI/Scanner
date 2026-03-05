@@ -33,7 +33,7 @@ export default function ClassesPage() {
     setError(null);
     const body: CreateBody = { id: newId.trim(), name: newName.trim() };
     if (!body.id || !body.name) {
-      setError('Class id and name are required.');
+      setError('Collection Code and name are required.');
       return;
     }
 
@@ -103,7 +103,7 @@ export default function ClassesPage() {
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <input
             className="rounded-md border border-black/15 px-3 py-2 text-sm"
-            placeholder="id (e.g. spark)"
+            placeholder="Collection Code (e.g. spark)"
             value={newId}
             onChange={(e) => setNewId(e.target.value)}
           />
@@ -127,7 +127,7 @@ export default function ClassesPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-black/5 text-xs uppercase tracking-wide text-black/60">
             <tr>
-              <th className="px-4 py-3">ID</th>
+              <th className="px-4 py-3">Collection Code</th>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Actions</th>
             </tr>
