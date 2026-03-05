@@ -7,5 +7,6 @@ cmds = [
   ". /opt/venv/bin/activate && pip install --upgrade pip",
   ". /opt/venv/bin/activate && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt",
   ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless || true",
-  ". /opt/venv/bin/activate && pip install --no-cache-dir --force-reinstall opencv-python-headless==4.10.0.84"
+  ". /opt/venv/bin/activate && pip install --no-cache-dir --force-reinstall --no-deps opencv-python-headless==4.10.0.84",
+  ". /opt/venv/bin/activate && pip install --no-cache-dir --force-reinstall 'numpy<2.0.0'"
 ]
