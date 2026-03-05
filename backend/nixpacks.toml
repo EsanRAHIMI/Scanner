@@ -1,0 +1,11 @@
+[phases.setup]
+# Keep defaults detected by Nixpacks; we only override install to control pip resolution.
+
+[phases.install]
+cmds = [
+  "python -m venv --copies /opt/venv",
+  ". /opt/venv/bin/activate && pip install --upgrade pip",
+  ". /opt/venv/bin/activate && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt",
+  ". /opt/venv/bin/activate && pip uninstall -y opencv-python opencv-contrib-python opencv-contrib-python-headless || true",
+  ". /opt/venv/bin/activate && pip install --no-cache-dir --force-reinstall opencv-python-headless==4.10.0.84"
+]
