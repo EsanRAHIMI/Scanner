@@ -525,11 +525,11 @@ export default function ScannerPage() {
           <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 backdrop-blur">
             <div className="text-xs tracking-[0.25em] text-white/70">LORENZO</div>
             <div className="text-sm font-semibold">Chandelier Scanner</div>
-            <details className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 backdrop-blur">
-              <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-white/90">
+            <details className="mt-2 w-full">
+              <summary className="cursor-pointer select-none text-xs font-medium text-white/90 [&::-webkit-details-marker]:hidden [&::marker]:content-['']">
                 Backend status
               </summary>
-              <div className="px-3 pb-3">
+              <div className="pt-2">
                 <div className="space-y-2">
                   {backendHealth ? (
                     <>
@@ -598,20 +598,20 @@ export default function ScannerPage() {
             <div className="overflow-hidden rounded-xl border border-white/10 bg-black/10">
               <div className="grid grid-cols-4 gap-px bg-white/10">
                 <div className="bg-black/20 px-3 py-2">
-                  <div className="text-[11px] font-medium text-white/70">Collection Name</div>
-                  <div className="mt-1 truncate text-sm font-semibold text-white">{displayName}</div>
+                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Collection Name</div>
+                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{displayName}</div>
                 </div>
                 <div className="bg-black/20 px-3 py-2">
-                  <div className="text-[11px] font-medium text-white/70">Collection Code</div>
-                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedCollectionCode}</div>
+                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Collection Code</div>
+                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedCollectionCode}</div>
                 </div>
                 <div className="bg-black/20 px-3 py-2">
-                  <div className="text-[11px] font-medium text-white/70">Variant Number</div>
-                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedVariantNumber}</div>
+                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Variant Number</div>
+                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedVariantNumber}</div>
                 </div>
                 <div className="bg-black/20 px-3 py-2">
-                  <div className="text-[11px] font-medium text-white/70">Price</div>
-                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedPrice}</div>
+                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Price</div>
+                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedPrice}</div>
                 </div>
               </div>
             </div>
