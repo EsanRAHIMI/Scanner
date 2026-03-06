@@ -202,6 +202,8 @@ def dam_collection_code(collection_name: str):
       ("pageSize", "1"),
       ("filterByFormula", formula),
       ("fields[]", "Collection Code"),
+      ("fields[]", "Variant Number"),
+      ("fields[]", "Price"),
       ("fields[]", "Collection Name"),
     ]
   )
@@ -224,15 +226,15 @@ def dam_collection_code(collection_name: str):
 
   records = data.get("records")
   if not isinstance(records, list) or not records:
-    return {"collection_name": name, "collection_code": None}
+    return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
 
   first = records[0]
   if not isinstance(first, dict):
-    return {"collection_name": name, "collection_code": None}
+    return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
 
   fields = first.get("fields")
   if not isinstance(fields, dict):
-    return {"collection_name": name, "collection_code": None}
+    return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
 
   code = fields.get("Collection Code")
   if isinstance(code, (int, float)):
@@ -242,7 +244,23 @@ def dam_collection_code(collection_name: str):
   else:
     code = None
 
-  return {"collection_name": name, "collection_code": code}
+  variant = fields.get("Variant Number")
+  if isinstance(variant, (int, float)):
+    variant = str(int(variant)) if float(variant).is_integer() else str(variant)
+  if isinstance(variant, str):
+    variant = variant.strip()
+  else:
+    variant = None
+
+  price = fields.get("Price")
+  if isinstance(price, (int, float)):
+    price = str(int(price)) if float(price).is_integer() else str(price)
+  if isinstance(price, str):
+    price = price.strip()
+  else:
+    price = None
+
+  return {"collection_name": name, "collection_code": code, "variant_number": variant, "price": price}
 
 
 def _load_classes() -> list[ClassItem]:

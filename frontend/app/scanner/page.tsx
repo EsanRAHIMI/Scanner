@@ -113,6 +113,8 @@ export default function ScannerPage() {
   const [trainerClasses, setTrainerClasses] = React.useState<Array<{ id: string; name: string }> | null>(null);
   const [trainerClassesError, setTrainerClassesError] = React.useState<string | null>(null);
   const [airtableCollectionCode, setAirtableCollectionCode] = React.useState<string | null>(null);
+  const [airtableVariantNumber, setAirtableVariantNumber] = React.useState<string | null>(null);
+  const [airtablePrice, setAirtablePrice] = React.useState<string | null>(null);
   const [airtableCollectionCodeError, setAirtableCollectionCodeError] = React.useState<string | null>(null);
   const [apiStatus, setApiStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
   const [backendHealth, setBackendHealth] = React.useState<BackendHealth | null>(null);
@@ -456,14 +458,22 @@ export default function ScannerPage() {
       if (!res.ok) throw new Error(text || `Lookup failed (${res.status})`);
 
       const data = JSON.parse(text) as unknown;
-      const code =
-        data && typeof data === 'object' && typeof (data as { collection_code?: unknown }).collection_code === 'string'
-          ? ((data as { collection_code: string }).collection_code || '').trim()
-          : '';
+      const parsed =
+        data && typeof data === 'object'
+          ? (data as { collection_code?: unknown; variant_number?: unknown; price?: unknown })
+          : null;
+
+      const code = typeof parsed?.collection_code === 'string' ? parsed.collection_code.trim() : '';
+      const variant = typeof parsed?.variant_number === 'string' ? parsed.variant_number.trim() : '';
+      const price = typeof parsed?.price === 'string' ? parsed.price.trim() : '';
 
       setAirtableCollectionCode(code || null);
+      setAirtableVariantNumber(variant || null);
+      setAirtablePrice(price || null);
     } catch (e) {
       setAirtableCollectionCode(null);
+      setAirtableVariantNumber(null);
+      setAirtablePrice(null);
       setAirtableCollectionCodeError(e instanceof Error ? e.message : 'Lookup failed');
     }
   }, []);
@@ -493,6 +503,8 @@ export default function ScannerPage() {
   const collectionName = matchedClass?.name ?? '—';
 
   const resolvedCollectionCode = airtableCollectionCode ?? collectionCode;
+  const resolvedVariantNumber = airtableVariantNumber ?? '—';
+  const resolvedPrice = airtablePrice ?? '—';
 
   return (
     <main className="fixed inset-0 h-screen min-h-dvh overflow-hidden bg-black text-white">
@@ -583,16 +595,25 @@ export default function ScannerPage() {
           ) : null}
 
           <div className="mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-xs text-white/60">Collection Code</div>
-                <div className="mt-0.5 truncate text-lg font-semibold">{resolvedCollectionCode}</div>
+            <div className="overflow-hidden rounded-xl border border-white/10 bg-black/10">
+              <div className="grid grid-cols-4 gap-px bg-white/10">
+                <div className="bg-black/20 px-3 py-2">
+                  <div className="text-[11px] font-medium text-white/70">Collection Name</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-white">{displayName}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2">
+                  <div className="text-[11px] font-medium text-white/70">Collection Code</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedCollectionCode}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2">
+                  <div className="text-[11px] font-medium text-white/70">Variant Number</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedVariantNumber}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2">
+                  <div className="text-[11px] font-medium text-white/70">Price</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-white">{resolvedPrice}</div>
+                </div>
               </div>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-xs text-white/60">Collection Name</div>
-              <div className="mt-0.5 truncate text-base font-medium">{displayName}</div>
             </div>
 
             {trainerClassesError ? (
