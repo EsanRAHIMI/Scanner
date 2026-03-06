@@ -481,7 +481,10 @@ export default function ScannerPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {!isStarted ? (
-              <Button onClick={() => void handleStart()} className="bg-white text-black hover:bg-white/90">
+              <Button
+                onClick={() => void handleStart()}
+                className="w-full bg-white text-black hover:bg-white/90 sm:w-auto"
+              >
                 Start Scanning
               </Button>
             ) : (
@@ -489,14 +492,14 @@ export default function ScannerPage() {
                 <Button
                   variant="outline"
                   onClick={handlePauseResume}
-                  className="border-white/30 bg-transparent text-white hover:bg-white/10"
+                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 sm:w-auto"
                 >
                   {isPaused ? 'Resume' : 'Pause'}
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => void loadBackendHealth()}
-                  className="border-white/30 bg-transparent text-white hover:bg-white/10"
+                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 sm:w-auto"
                 >
                   Refresh status
                 </Button>
@@ -560,9 +563,7 @@ export default function ScannerPage() {
             <Card className="border-white/10 bg-white/5 text-white">
               <CardHeader className="p-4">
                 <CardTitle className="text-base">Detection</CardTitle>
-                <CardDescription className="text-white/70">
-                  Product and confidence from the latest frame.
-                </CardDescription>
+                <CardDescription className="text-white/70">Latest detection result.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 p-4 pt-0">
                 <div className="flex items-center justify-between gap-3">
@@ -618,48 +619,48 @@ export default function ScannerPage() {
               </CardFooter>
             </Card>
 
-            <Card className="border-white/10 bg-white/5 text-white">
-              <CardHeader className="p-4">
-                <CardTitle className="text-base">Backend Model Status</CardTitle>
-                <CardDescription className="text-white/70">
-                  بررسی وجود فایل مدل و دسترسی backend به آن
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 p-4 pt-0">
-                {backendHealth ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-white/70">model_exists</div>
-                      <div className="text-sm font-medium">
-                        {backendHealth.model_exists ? 'true' : 'false'}
+            <details className="rounded-xl border border-white/10 bg-white/5">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-white/90">
+                Backend Model Status
+              </summary>
+              <div className="px-4 pb-4">
+                <div className="space-y-2">
+                  {backendHealth ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-white/70">model_exists</div>
+                        <div className="text-sm font-medium">
+                          {backendHealth.model_exists ? 'true' : 'false'}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-white/70">size</div>
-                      <div className="text-sm font-medium">
-                        {typeof backendHealth.model_size_bytes === 'number'
-                          ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
-                          : '—'}
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-white/70">size</div>
+                        <div className="text-sm font-medium">
+                          {typeof backendHealth.model_size_bytes === 'number'
+                            ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
+                            : '—'}
+                        </div>
                       </div>
+                      <div className="break-words text-xs text-white/60">{backendHealth.model_path}</div>
+                    </>
+                  ) : (
+                    <div className="break-words text-sm text-white/70">
+                      {backendHealthError ?? 'Loading…'}
                     </div>
-                    <div className="break-words text-xs text-white/60">{backendHealth.model_path}</div>
-                  </>
-                ) : (
-                  <div className="break-words text-sm text-white/70">
-                    {backendHealthError ?? 'Loading…'}
-                  </div>
-                )}
-              </CardContent>
-              <CardFooter className="p-4 pt-0">
-                <Button
-                  variant="outline"
-                  onClick={() => void loadBackendHealth()}
-                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10"
-                >
-                  Refresh
-                </Button>
-              </CardFooter>
-            </Card>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => void loadBackendHealth()}
+                    className="w-full border-white/30 bg-transparent text-white hover:bg-white/10"
+                  >
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       </div>
