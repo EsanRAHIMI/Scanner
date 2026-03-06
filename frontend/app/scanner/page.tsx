@@ -602,51 +602,53 @@ export default function ScannerPage() {
               <div className="mt-2 text-xs text-red-200/90">Airtable lookup failed: {airtableCollectionCodeError}</div>
             ) : null}
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Button
-                variant="outline"
-                onClick={onStop}
-                disabled={!isStarted}
-                className={
-                  'w-full ' +
-                  (isStarted
-                    ? 'border-red-200/40 bg-red-950/35 text-red-100 hover:bg-red-950/55'
-                    : 'border-white/15 bg-black/10 text-white/50')
-                }
-                type="button"
-              >
-                Stop
-              </Button>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-1 backdrop-blur">
+              <div className="grid grid-cols-4 gap-1">
+                <Button
+                  variant="outline"
+                  onClick={onStop}
+                  disabled={!isStarted}
+                  className={
+                    'h-11 w-full min-w-0 rounded-xl px-2 text-[11px] font-medium tracking-wide ' +
+                    (isStarted
+                      ? 'border-red-200/40 bg-red-950/35 text-red-100 hover:bg-red-950/55'
+                      : 'border-white/10 bg-black/10 text-white/45')
+                  }
+                  type="button"
+                >
+                  <span className="truncate">Stop</span>
+                </Button>
 
-              <Button
-                variant="outline"
-                onClick={() => void onShareDam()}
-                disabled={!damUrl}
-                className="w-full border-white/30 bg-black/25 text-white hover:bg-white/10 disabled:opacity-50"
-                type="button"
-              >
-                Share
-              </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void onShareDam()}
+                  disabled={!damUrl}
+                  className="h-11 w-full min-w-0 rounded-xl border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10 disabled:opacity-50"
+                  type="button"
+                >
+                  <span className="truncate">Share</span>
+                </Button>
 
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (!damUrl) return;
-                  window.open(damUrl, '_blank', 'noopener,noreferrer');
-                }}
-                disabled={!damUrl}
-                className="w-full border-white/30 bg-black/25 text-white hover:bg-white/10 disabled:opacity-50"
-                type="button"
-              >
-                Images
-              </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!damUrl) return;
+                    window.open(damUrl, '_blank', 'noopener,noreferrer');
+                  }}
+                  disabled={!damUrl}
+                  className="h-11 w-full min-w-0 rounded-xl border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10 disabled:opacity-50"
+                  type="button"
+                >
+                  <span className="truncate">Images</span>
+                </Button>
 
-              <Button
-                className="w-full bg-white text-black hover:bg-white/90"
-                type="button"
-              >
-                Reserve
-              </Button>
+                <Button
+                  className="h-11 w-full min-w-0 rounded-xl bg-white px-2 text-[11px] font-semibold tracking-wide text-black hover:bg-white/90"
+                  type="button"
+                >
+                  <span className="truncate">Reserve</span>
+                </Button>
+              </div>
             </div>
           </div>
         </div>
