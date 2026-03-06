@@ -559,6 +559,12 @@ export default function ScannerPage() {
               {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
             </span>
 
+            {lastDetection ? (
+              <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-white/90">
+                {displayConfidence}
+              </span>
+            ) : null}
+
           </div>
         </div>
 
@@ -581,10 +587,6 @@ export default function ScannerPage() {
               <div className="min-w-0">
                 <div className="text-xs text-white/60">Collection Code</div>
                 <div className="mt-0.5 truncate text-lg font-semibold">{resolvedCollectionCode}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-white/60">Confidence</div>
-                <div className="mt-0.5 text-lg font-semibold">{displayConfidence}</div>
               </div>
             </div>
 
@@ -636,7 +638,7 @@ export default function ScannerPage() {
                 className="w-full border-white/30 bg-black/25 text-white hover:bg-white/10 disabled:opacity-50"
                 type="button"
               >
-                Open in DAM
+                Images
               </Button>
 
               <Button
