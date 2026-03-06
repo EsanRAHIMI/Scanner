@@ -119,9 +119,46 @@ export default function ScannerPage() {
   const [isPaused, setIsPaused] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [lastDetection, setLastDetection] = React.useState<Detection | null>(null);
+  const [trainerClasses, setTrainerClasses] = React.useState<Array<{ id: string; name: string }> | null>(null);
+  const [trainerClassesError, setTrainerClassesError] = React.useState<string | null>(null);
+  const [airtableCollectionCode, setAirtableCollectionCode] = React.useState<string | null>(null);
+  const [airtableCollectionCodeError, setAirtableCollectionCodeError] = React.useState<string | null>(null);
   const [apiStatus, setApiStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
   const [backendHealth, setBackendHealth] = React.useState<BackendHealth | null>(null);
   const [backendHealthError, setBackendHealthError] = React.useState<string | null>(null);
+
+  const loadTrainerClasses = React.useCallback(async () => {
+    try {
+      setTrainerClassesError(null);
+
+      const isLocal =
+        typeof window === 'undefined'
+          ? true
+          : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      const base = isLocal ? 'http://localhost:8010' : '/trainer/api';
+      const res = await fetch(`${base}/classes`, { cache: 'no-store' });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Classes failed (${res.status})`);
+
+      const data = JSON.parse(text) as unknown;
+      if (!Array.isArray(data)) throw new Error('Invalid classes response');
+      const normalized = data
+        .map((v) => {
+          if (!v || typeof v !== 'object') return null;
+          const id = (v as { id?: unknown }).id;
+          const name = (v as { name?: unknown }).name;
+          if (typeof id !== 'string' || typeof name !== 'string') return null;
+          return { id: id.trim(), name: name.trim() };
+        })
+        .filter((v): v is { id: string; name: string } => !!v && !!v.id && !!v.name);
+
+      setTrainerClasses(normalized);
+    } catch (e) {
+      setTrainerClasses(null);
+      setTrainerClassesError(e instanceof Error ? e.message : 'Failed to load classes');
+    }
+  }, []);
 
   const loadBackendHealth = React.useCallback(async () => {
     try {
@@ -260,8 +297,6 @@ export default function ScannerPage() {
 
       if (detections.length > 0) {
         setLastDetection(detections[0]);
-      } else {
-        setLastDetection(null);
       }
 
       syncOverlayToVideo();
@@ -328,6 +363,10 @@ export default function ScannerPage() {
     void loadBackendHealth();
   }, [loadBackendHealth]);
 
+  React.useEffect(() => {
+    void loadTrainerClasses();
+  }, [loadTrainerClasses]);
+
   const handlePauseResume = React.useCallback(() => {
     setError(null);
 
@@ -375,6 +414,61 @@ export default function ScannerPage() {
   const displayName = lastDetection?.product.name ?? '—';
   const displayConfidence = lastDetection ? formatConfidence(lastDetection.confidence) : '—';
   const lowConfidence = (lastDetection?.confidence ?? 1) < 0.6;
+
+  const resolveAirtableCollectionCode = React.useCallback(async (name: string) => {
+    try {
+      setAirtableCollectionCodeError(null);
+
+      const isLocal =
+        typeof window === 'undefined'
+          ? true
+          : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      const base = isLocal ? 'http://localhost:8010' : '/trainer/api';
+      const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Lookup failed (${res.status})`);
+
+      const data = JSON.parse(text) as unknown;
+      const code =
+        data && typeof data === 'object' && typeof (data as { collection_code?: unknown }).collection_code === 'string'
+          ? ((data as { collection_code: string }).collection_code || '').trim()
+          : '';
+
+      setAirtableCollectionCode(code || null);
+    } catch (e) {
+      setAirtableCollectionCode(null);
+      setAirtableCollectionCodeError(e instanceof Error ? e.message : 'Lookup failed');
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!lastDetection) return;
+    if (!displayName || displayName === '—') return;
+    void resolveAirtableCollectionCode(displayName);
+  }, [displayName, lastDetection, resolveAirtableCollectionCode]);
+
+  const matchedClass = React.useMemo(() => {
+    if (!lastDetection || !trainerClasses?.length) return null;
+
+    const candidates: string[] = [];
+    if (typeof lastDetection.class === 'string' && lastDetection.class) candidates.push(lastDetection.class);
+    if (typeof lastDetection.product?.id === 'string' && lastDetection.product.id)
+      candidates.push(lastDetection.product.id);
+
+    for (const code of candidates) {
+      const hit = trainerClasses.find((c) => c.id === code);
+      if (hit) return hit;
+    }
+    return null;
+  }, [lastDetection, trainerClasses]);
+
+  const collectionCode = matchedClass?.id ?? '—';
+  const collectionName = matchedClass?.name ?? '—';
+  const damUrl = displayName && displayName !== '—' ? `http://dam.lorenzohome.ae/#${encodeURIComponent(displayName)}` : null;
+
+  const resolvedCollectionCode = airtableCollectionCode ?? collectionCode;
 
   return (
     <main className="min-h-dvh bg-black text-white">
@@ -472,12 +566,43 @@ export default function ScannerPage() {
               </CardHeader>
               <CardContent className="space-y-2 p-4 pt-0">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm text-white/70">Product</div>
-                  <div className="truncate text-sm font-medium">{displayName}</div>
-                </div>
-                <div className="flex items-center justify-between gap-3">
                   <div className="text-sm text-white/70">Confidence</div>
                   <div className="text-sm font-medium">{displayConfidence}</div>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm text-white/70">Collection Code</div>
+                      <div className="truncate text-sm font-medium">{resolvedCollectionCode}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm text-white/70">Collection Name</div>
+                      <div className="truncate text-sm font-medium">{displayName}</div>
+                    </div>
+                  </div>
+
+                  {trainerClassesError ? (
+                    <div className="mt-3 text-xs text-red-200/90">Classes unavailable: {trainerClassesError}</div>
+                  ) : null}
+
+                  {airtableCollectionCodeError ? (
+                    <div className="mt-2 text-xs text-red-200/90">Airtable lookup failed: {airtableCollectionCodeError}</div>
+                  ) : null}
+
+                  <div className="mt-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!damUrl) return;
+                        window.open(damUrl, '_blank', 'noopener,noreferrer');
+                      }}
+                      disabled={!damUrl}
+                      className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 disabled:opacity-50"
+                    >
+                      Open in DAM
+                    </Button>
+                  </div>
                 </div>
 
                 {lastDetection && lowConfidence ? (

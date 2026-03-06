@@ -384,28 +384,35 @@ export default function DamPage() {
           <p className="mt-1 text-sm text-black/60">Live view of Airtable assets table (read-only).</p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-          <div className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/60 sm:mr-auto">
-            <div>
-              Records: <span className="font-semibold text-black">{data ? data.count : '—'}</span>
-              <span className="text-black/30"> · </span>
-              Matched: <span className="font-semibold text-black">{data ? filteredRecords.length : '—'}</span>
-              <span className="text-black/30"> · </span>
-              Showing: <span className="font-semibold text-black">{data ? visibleRecords.length : '—'}</span>
+          <div className="flex h-[64px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:mr-auto sm:w-[360px]">
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Records</span>
+                <span className="font-semibold text-black">{data ? data.count : '—'}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Matched</span>
+                <span className="font-semibold text-black">{data ? filteredRecords.length : '—'}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Showing</span>
+                <span className="font-semibold text-black">{data ? visibleRecords.length : '—'}</span>
+              </div>
             </div>
-            <div className="mt-1 text-[11px] text-black/35">
+            <div className="mt-1 text-justify text-[11px] text-black/35">
               Hidden: {hiddenPresent.length ? hiddenPresent.join(' • ') : '—'}
             </div>
           </div>
 
           <input
-            className="w-full rounded-md border border-black/15 bg-white px-3 py-2 text-sm sm:w-[260px]"
+            className="h-[64px] w-full rounded-md border border-black/15 bg-white px-3 text-sm sm:w-[260px]"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm">
+            <label className="inline-flex h-[64px] items-center gap-2 rounded-md border border-black/15 bg-white px-3 text-sm">
               <span className="text-xs text-black/60">Rows</span>
               <select
                 className="bg-transparent text-sm outline-none"
@@ -423,7 +430,7 @@ export default function DamPage() {
               </select>
             </label>
             <button
-              className="rounded-md border border-black/15 px-4 py-2 text-sm hover:bg-black/5 disabled:opacity-50"
+              className="h-[64px] rounded-md border border-black/15 px-4 text-sm hover:bg-black/5 disabled:opacity-50"
               onClick={() => void load()}
               type="button"
               disabled={loading}

@@ -178,7 +178,7 @@ echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate
+source venv/bin/activate
 pip install -r requirements.txt
 MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```

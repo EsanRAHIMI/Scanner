@@ -37,10 +37,48 @@ export default function LabelItemPage({ params }: Props) {
   const [queue, setQueue] = React.useState<QueueItem[]>([]);
   const [classes, setClasses] = React.useState<ClassItem[]>([]);
   const [classId, setClassId] = React.useState<string>('');
+  const [classOpen, setClassOpen] = React.useState(false);
+  const [classQuery, setClassQuery] = React.useState('');
   const [bbox, setBbox] = React.useState<NormalizedBBox | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [classRequired, setClassRequired] = React.useState(false);
+
+  const classBoxRef = React.useRef<HTMLDivElement | null>(null);
+
+  const selectedClass = React.useMemo(() => {
+    return classes.find((c) => c.id === classId) ?? null;
+  }, [classes, classId]);
+
+  React.useEffect(() => {
+    if (classOpen) return;
+    if (!selectedClass) {
+      setClassQuery('');
+      return;
+    }
+    setClassQuery(`${selectedClass.id} — ${selectedClass.name}`);
+  }, [classOpen, selectedClass]);
+
+  const filteredClasses = React.useMemo(() => {
+    const q = classQuery.trim().toLowerCase();
+    if (!classOpen || !q) return classes;
+    return classes.filter((c) => {
+      const hay = `${c.id} ${c.name}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [classOpen, classQuery, classes]);
+
+  React.useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      const root = classBoxRef.current;
+      if (!root) return;
+      if (e.target instanceof Node && root.contains(e.target)) return;
+      setClassOpen(false);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
 
   const imgRef = React.useRef<HTMLImageElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -67,12 +105,16 @@ export default function LabelItemPage({ params }: Props) {
         setClassId(existing.class_id);
         setBbox(existing.bbox);
       } else {
-        setClassId(cls[0]?.id ?? '');
+        setClassId('');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     }
   }, [itemId]);
+
+  React.useEffect(() => {
+    if (classId) setClassRequired(false);
+  }, [classId]);
 
   const nav = React.useMemo(() => {
     const idx = queue.findIndex((q) => q.item_id === itemId);
@@ -191,8 +233,12 @@ export default function LabelItemPage({ params }: Props) {
   }, []);
 
   const save = React.useCallback(async () => {
-    if (!bbox || !classId) {
-      setError('Select class and draw a bounding box first.');
+    if (!classId) {
+      setClassRequired(true);
+      return;
+    }
+    if (!bbox) {
+      setError('Draw a bounding box first.');
       return;
     }
 
@@ -252,8 +298,8 @@ export default function LabelItemPage({ params }: Props) {
   const imageUrl = item?.image_url ? `${getTrainerApiBase()}${item.image_url}` : null;
 
   return (
-    <main className="space-y-6">
-      <div>
+    <main className="flex min-h-0 flex-1 flex-col gap-6">
+      <div className="flex-none">
         <h1 className="text-2xl font-semibold">Label item</h1>
         <p className="mt-1 text-sm text-black/60">Draw one bounding box and choose a class.</p>
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
@@ -305,16 +351,17 @@ export default function LabelItemPage({ params }: Props) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div className="lg:col-span-3">
-          <div className="relative overflow-hidden rounded-xl border border-black/10 bg-black">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-4">
+        <div className="min-h-0 lg:col-span-3">
+          <div className="relative h-full min-h-0 overflow-hidden rounded-xl border border-black/10 bg-black">
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 ref={imgRef}
                 src={imageUrl}
                 alt={itemId}
-                className="block h-auto w-full"
+                className="block h-full w-full select-none object-contain"
+                draggable={false}
                 onLoad={() => {
                   syncCanvas();
                   draw();
@@ -334,23 +381,68 @@ export default function LabelItemPage({ params }: Props) {
           </div>
         </div>
 
-        <div className="lg:col-span-1">
-          <div className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
+        <div className="min-h-0 lg:col-span-1">
+          <div className="h-full overflow-auto rounded-xl border border-black/10 bg-white p-5 shadow-sm">
             <div className="text-sm font-medium">Controls</div>
 
             <div className="mt-4 space-y-2">
               <div className="text-xs text-black/50">Class</div>
-              <select
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
-                value={classId}
-                onChange={(e) => setClassId(e.target.value)}
-              >
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.id} — {c.name}
-                  </option>
-                ))}
-              </select>
+              <div ref={classBoxRef} className="relative">
+                <input
+                  className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+                  value={classQuery}
+                  onChange={(e) => {
+                    if (!classOpen) setClassOpen(true);
+                    setClassQuery(e.target.value);
+                  }}
+                  onFocus={() => {
+                    if (!classOpen) {
+                      setClassOpen(true);
+                      setClassQuery('');
+                    }
+                  }}
+                  onClick={() => {
+                    if (!classOpen) {
+                      setClassOpen(true);
+                      setClassQuery('');
+                    }
+                  }}
+                  placeholder="Select class…"
+                />
+
+                {classOpen ? (
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-black/15 bg-white shadow-lg">
+                    <div className="max-h-60 overflow-auto py-1">
+                      {filteredClasses.length ? (
+                        filteredClasses.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={
+                              'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-black/5 ' +
+                              (c.id === classId ? 'bg-black/5' : '')
+                            }
+                            onClick={() => {
+                              setClassId(c.id);
+                              setClassOpen(false);
+                              setClassQuery(`${c.id} — ${c.name}`);
+                            }}
+                          >
+                            <span className="truncate">
+                              <span className="font-mono text-xs">{c.id}</span> — {c.name}
+                            </span>
+                            {c.id === classId ? (
+                              <span className="text-xs text-black/50">Selected</span>
+                            ) : null}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-black/50">No matches</div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <div className="mt-4 space-y-2">
@@ -361,6 +453,11 @@ export default function LabelItemPage({ params }: Props) {
             </div>
 
             <div className="mt-4 flex flex-col gap-2">
+              {classRequired ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Class رو انتخاب کنید
+                </div>
+              ) : null}
               <button
                 className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-50"
                 onClick={() => void save()}

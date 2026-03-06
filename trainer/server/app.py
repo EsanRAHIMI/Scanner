@@ -91,10 +91,14 @@ api.add_middleware(
   allow_origins=[
     "http://localhost:3010",
     "http://127.0.0.1:3010",
+    "http://localhost:3003",
+    "http://127.0.0.1:3003",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
   ],
-  allow_credentials=False,
-  allow_methods=["*"] ,
-  allow_headers=["*"] ,
+  allow_credentials=True,
+  allow_methods=["*"],
+  allow_headers=["*"],
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -177,6 +181,68 @@ def dam_assets():
 
   columns = sorted(columns_set)
   return {"columns": columns, "records": records, "count": len(records)}
+
+
+@api.get("/dam/collection-code")
+def dam_collection_code(collection_name: str):
+  api_key = os.environ.get("AIRTABLE_API_KEY")
+  base_id = os.environ.get("AIRTABLE_BASE_ID")
+  table = os.environ.get("AIRTABLE_TABLE")
+  if not api_key or not base_id or not table:
+    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
+
+  name = collection_name.strip()
+  if not name:
+    raise HTTPException(status_code=400, detail="COLLECTION_NAME_REQUIRED")
+
+  formula = f"LOWER({{Collection Name}})=LOWER({json.dumps(name)})"
+  params = urlencode(
+    [
+      ("maxRecords", "1"),
+      ("pageSize", "1"),
+      ("filterByFormula", formula),
+      ("fields[]", "Collection Code"),
+      ("fields[]", "Collection Name"),
+    ]
+  )
+
+  url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{params}"
+  req = Request(url)
+  req.add_header("Authorization", f"Bearer {api_key}")
+  req.add_header("Accept", "application/json")
+
+  try:
+    with urlopen(req, timeout=20) as resp:
+      body = resp.read().decode("utf-8")
+  except Exception as e:
+    raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
+
+  try:
+    data = json.loads(body)
+  except Exception:
+    raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
+
+  records = data.get("records")
+  if not isinstance(records, list) or not records:
+    return {"collection_name": name, "collection_code": None}
+
+  first = records[0]
+  if not isinstance(first, dict):
+    return {"collection_name": name, "collection_code": None}
+
+  fields = first.get("fields")
+  if not isinstance(fields, dict):
+    return {"collection_name": name, "collection_code": None}
+
+  code = fields.get("Collection Code")
+  if isinstance(code, (int, float)):
+    code = str(int(code)) if float(code).is_integer() else str(code)
+  if isinstance(code, str):
+    code = code.strip()
+  else:
+    code = None
+
+  return {"collection_name": name, "collection_code": code}
 
 
 def _load_classes() -> list[ClassItem]:
