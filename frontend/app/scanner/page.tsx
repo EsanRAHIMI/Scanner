@@ -3,14 +3,6 @@
 import * as React from 'react';
 
 import { Button } from '@/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/ui/card';
 
 type Product = {
   id: string;
@@ -116,7 +108,6 @@ export default function ScannerPage() {
   const captureSizeRef = React.useRef<{ width: number; height: number } | null>(null);
 
   const [isStarted, setIsStarted] = React.useState(false);
-  const [isPaused, setIsPaused] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [lastDetection, setLastDetection] = React.useState<Detection | null>(null);
   const [trainerClasses, setTrainerClasses] = React.useState<Array<{ id: string; name: string }> | null>(null);
@@ -341,7 +332,6 @@ export default function ScannerPage() {
 
   const handleStart = React.useCallback(async () => {
     setError(null);
-    setIsPaused(false);
 
     try {
       await loadBackendHealth();
@@ -359,6 +349,24 @@ export default function ScannerPage() {
     }
   }, [clearOverlay, ensureCamera, startLoop, stopLoop]);
 
+  const handleStop = React.useCallback(() => {
+    setError(null);
+    setApiStatus('idle');
+    stopLoop();
+    clearOverlay();
+    stopStream(streamRef.current);
+    streamRef.current = null;
+    setIsStarted(false);
+  }, [clearOverlay, stopLoop]);
+
+  const onStart = React.useCallback(async () => {
+    await handleStart();
+  }, [handleStart]);
+
+  const onStop = React.useCallback(() => {
+    handleStop();
+  }, [handleStop]);
+
   React.useEffect(() => {
     void loadBackendHealth();
   }, [loadBackendHealth]);
@@ -366,20 +374,6 @@ export default function ScannerPage() {
   React.useEffect(() => {
     void loadTrainerClasses();
   }, [loadTrainerClasses]);
-
-  const handlePauseResume = React.useCallback(() => {
-    setError(null);
-
-    setIsPaused((prev: boolean) => {
-      const next = !prev;
-      if (next) {
-        stopLoop();
-      } else {
-        startLoop();
-      }
-      return next;
-    });
-  }, [startLoop, stopLoop]);
 
   React.useEffect(() => {
     const video = videoRef.current;
@@ -413,7 +407,38 @@ export default function ScannerPage() {
 
   const displayName = lastDetection?.product.name ?? '—';
   const displayConfidence = lastDetection ? formatConfidence(lastDetection.confidence) : '—';
-  const lowConfidence = (lastDetection?.confidence ?? 1) < 0.6;
+  const lowConfidence = (lastDetection?.confidence ?? 1) < 0.2;
+  const damUrl =
+    displayName && displayName !== '—' ? `http://dam.lorenzohome.ae/#${encodeURIComponent(displayName)}` : null;
+
+  const onShareDam = React.useCallback(async () => {
+    if (!damUrl) return;
+
+    try {
+      if (typeof navigator !== 'undefined' && 'share' in navigator) {
+        await (navigator as unknown as { share: (data: { url: string; title?: string }) => Promise<void> }).share({
+          url: damUrl,
+          title: displayName && displayName !== '—' ? displayName : 'DAM',
+        });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      await navigator.clipboard.writeText(damUrl);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = damUrl;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  }, [damUrl, displayName]);
 
   const resolveAirtableCollectionCode = React.useCallback(async (name: string) => {
     try {
@@ -466,203 +491,182 @@ export default function ScannerPage() {
 
   const collectionCode = matchedClass?.id ?? '—';
   const collectionName = matchedClass?.name ?? '—';
-  const damUrl = displayName && displayName !== '—' ? `http://dam.lorenzohome.ae/#${encodeURIComponent(displayName)}` : null;
 
   const resolvedCollectionCode = airtableCollectionCode ?? collectionCode;
 
   return (
-    <main className="min-h-dvh bg-black text-white">
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 lg:py-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
-            <div className="text-xs tracking-[0.25em] text-white/60">LORENZO</div>
-            <h1 className="text-lg font-semibold lg:text-xl">Chandelier Scanner</h1>
-          </div>
+    <main className="fixed inset-0 h-screen min-h-dvh overflow-hidden bg-black text-white">
+      <div className="absolute inset-0">
+        <video
+          ref={videoRef}
+          className="absolute inset-0 h-full w-full object-cover"
+          playsInline
+          muted
+          autoPlay
+        />
+        <canvas ref={overlayCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/0 to-black/70" />
+      </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {!isStarted ? (
-              <Button
-                onClick={() => void handleStart()}
-                className="w-full bg-white text-black hover:bg-white/90 sm:w-auto"
-              >
-                Start Scanning
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={handlePauseResume}
-                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 sm:w-auto"
-                >
-                  {isPaused ? 'Resume' : 'Pause'}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void loadBackendHealth()}
-                  className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 sm:w-auto"
-                >
-                  Refresh status
-                </Button>
-              </>
-            )}
-
-            <div className="ml-auto flex items-center gap-2 text-xs text-white/70 lg:ml-0">
-              <span
-                className={
-                  'rounded-full px-2 py-1 ' +
-                  (apiStatus === 'loading'
-                    ? 'bg-white/10 text-white'
-                    : apiStatus === 'error'
-                      ? 'bg-red-500/15 text-red-200'
-                      : 'bg-emerald-500/15 text-emerald-200')
-                }
-              >
-                {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:mt-6 lg:grid-cols-12">
-          <div className="lg:col-span-7">
-            <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black">
-              <div className="relative aspect-[3/4] w-full sm:aspect-video">
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 h-full w-full object-cover"
-                  playsInline
-                  muted
-                  autoPlay
-                />
-                <canvas
-                  ref={overlayCanvasRef}
-                  className="pointer-events-none absolute inset-0 h-full w-full"
-                />
-
-                {!isStarted ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-6 text-center">
-                    <p className="max-w-xs text-sm text-white/85">
-                      Tap “Start Scanning” to use your camera.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {error ? (
-              <Card className="mt-4 border-red-500/30 bg-red-950/30 text-white">
-                <CardHeader className="p-4">
-                  <CardTitle className="text-base">Camera / API error</CardTitle>
-                  <CardDescription className="break-words text-white/70">{error}</CardDescription>
-                </CardHeader>
-              </Card>
-            ) : null}
-          </div>
-
-          <div className="space-y-4 lg:col-span-5">
-            <Card className="border-white/10 bg-white/5 text-white">
-              <CardHeader className="p-4">
-                <CardTitle className="text-base">Detection</CardTitle>
-                <CardDescription className="text-white/70">Latest detection result.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 p-4 pt-0">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm text-white/70">Confidence</div>
-                  <div className="text-sm font-medium">{displayConfidence}</div>
-                </div>
-
-                <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm text-white/70">Collection Code</div>
-                      <div className="truncate text-sm font-medium">{resolvedCollectionCode}</div>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm text-white/70">Collection Name</div>
-                      <div className="truncate text-sm font-medium">{displayName}</div>
-                    </div>
-                  </div>
-
-                  {trainerClassesError ? (
-                    <div className="mt-3 text-xs text-red-200/90">Classes unavailable: {trainerClassesError}</div>
-                  ) : null}
-
-                  {airtableCollectionCodeError ? (
-                    <div className="mt-2 text-xs text-red-200/90">Airtable lookup failed: {airtableCollectionCodeError}</div>
-                  ) : null}
-
-                  <div className="mt-3">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        if (!damUrl) return;
-                        window.open(damUrl, '_blank', 'noopener,noreferrer');
-                      }}
-                      disabled={!damUrl}
-                      className="w-full border-white/30 bg-transparent text-white hover:bg-white/10 disabled:opacity-50"
-                    >
-                      Open in DAM
-                    </Button>
-                  </div>
-                </div>
-
-                {lastDetection && lowConfidence ? (
-                  <div className="rounded-md border border-yellow-500/30 bg-yellow-950/20 p-3 text-sm text-yellow-100">
-                    Low confidence. Adjust distance/lighting and try again.
-                  </div>
-                ) : null}
-              </CardContent>
-              <CardFooter className="p-4 pt-0">
-                <div className="text-xs text-white/50">
-                  Tip: use bright light and keep the chandelier centered.
-                </div>
-              </CardFooter>
-            </Card>
-
-            <details className="rounded-xl border border-white/10 bg-white/5">
-              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-white/90">
-                Backend Model Status
+      <div className="relative z-10 flex min-h-dvh flex-col">
+        <div className="relative z-30 flex items-start justify-between gap-3 px-3 pt-3 sm:px-5 sm:pt-5">
+          <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 backdrop-blur">
+            <div className="text-xs tracking-[0.25em] text-white/70">LORENZO</div>
+            <div className="text-sm font-semibold">Chandelier Scanner</div>
+            <details className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 backdrop-blur">
+              <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-white/90">
+                Backend status
               </summary>
-              <div className="px-4 pb-4">
+              <div className="px-3 pb-3">
                 <div className="space-y-2">
                   {backendHealth ? (
                     <>
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-white/70">model_exists</div>
-                        <div className="text-sm font-medium">
-                          {backendHealth.model_exists ? 'true' : 'false'}
-                        </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs text-white/70">model_exists</div>
+                        <div className="text-xs font-medium">{backendHealth.model_exists ? 'true' : 'false'}</div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-white/70">size</div>
-                        <div className="text-sm font-medium">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs text-white/70">size</div>
+                        <div className="text-xs font-medium">
                           {typeof backendHealth.model_size_bytes === 'number'
                             ? `${Math.round(backendHealth.model_size_bytes / 1024 / 1024)} MB`
                             : '—'}
                         </div>
                       </div>
-                      <div className="break-words text-xs text-white/60">{backendHealth.model_path}</div>
+                      <div className="max-w-[260px] break-words text-xs text-white/60">{backendHealth.model_path}</div>
                     </>
                   ) : (
-                    <div className="break-words text-sm text-white/70">
+                    <div className="max-w-[260px] break-words text-xs text-white/70">
                       {backendHealthError ?? 'Loading…'}
                     </div>
                   )}
                 </div>
-
-                <div className="mt-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => void loadBackendHealth()}
-                    className="w-full border-white/30 bg-transparent text-white hover:bg-white/10"
-                  >
-                    Refresh
-                  </Button>
-                </div>
               </div>
             </details>
           </div>
+
+          <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
+            <span
+              className={
+                'rounded-full px-2 py-1 text-xs ' +
+                (apiStatus === 'loading'
+                  ? 'bg-white/15 text-white'
+                  : apiStatus === 'error'
+                    ? 'bg-red-500/20 text-red-100'
+                    : 'bg-emerald-500/20 text-emerald-100')
+              }
+            >
+              {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
+            </span>
+
+          </div>
         </div>
+
+        <div className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
+          {error ? (
+            <div className="mb-3 rounded-xl border border-red-500/30 bg-red-950/35 px-4 py-3 text-sm text-white backdrop-blur">
+              <div className="font-medium">Camera / API error</div>
+              <div className="mt-1 break-words text-xs text-white/75">{error}</div>
+            </div>
+          ) : null}
+
+          {lastDetection && lowConfidence ? (
+            <div className="mb-2 w-full text-center text-xs text-yellow-100/80">
+              Low confidence. Adjust distance/lighting and try again.
+            </div>
+          ) : null}
+
+          <div className="mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-xs text-white/60">Collection Code</div>
+                <div className="mt-0.5 truncate text-lg font-semibold">{resolvedCollectionCode}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-white/60">Confidence</div>
+                <div className="mt-0.5 text-lg font-semibold">{displayConfidence}</div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs text-white/60">Collection Name</div>
+              <div className="mt-0.5 truncate text-base font-medium">{displayName}</div>
+            </div>
+
+            {trainerClassesError ? (
+              <div className="mt-3 text-xs text-red-200/90">Classes unavailable: {trainerClassesError}</div>
+            ) : null}
+            {airtableCollectionCodeError ? (
+              <div className="mt-2 text-xs text-red-200/90">Airtable lookup failed: {airtableCollectionCodeError}</div>
+            ) : null}
+
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Button
+                variant="outline"
+                onClick={onStop}
+                disabled={!isStarted}
+                className={
+                  'w-full ' +
+                  (isStarted
+                    ? 'border-red-200/40 bg-red-950/35 text-red-100 hover:bg-red-950/55'
+                    : 'border-white/15 bg-black/10 text-white/50')
+                }
+                type="button"
+              >
+                Stop
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => void onShareDam()}
+                disabled={!damUrl}
+                className="w-full border-white/30 bg-black/25 text-white hover:bg-white/10 disabled:opacity-50"
+                type="button"
+              >
+                Share
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!damUrl) return;
+                  window.open(damUrl, '_blank', 'noopener,noreferrer');
+                }}
+                disabled={!damUrl}
+                className="w-full border-white/30 bg-black/25 text-white hover:bg-white/10 disabled:opacity-50"
+                type="button"
+              >
+                Open in DAM
+              </Button>
+
+              <Button
+                className="w-full bg-white text-black hover:bg-white/90"
+                type="button"
+              >
+                Reserve
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {!isStarted ? (
+          <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center px-6 text-center">
+            <div className="max-w-sm rounded-2xl border border-white/10 bg-black/50 p-5 text-white shadow-lg backdrop-blur">
+              <div className="text-sm font-medium">Ready to scan</div>
+              <div className="mt-2 text-xs text-white/75">
+                Tap “Start” to use your camera. Keep the chandelier centered.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {!isStarted ? (
+          <div className="fixed left-1/2 top-1/2 z-40 -translate-x-1/2 translate-y-[72px]">
+            <Button onClick={() => void onStart()} className="bg-white text-black shadow-lg hover:bg-white/90" type="button">
+              Start
+            </Button>
+          </div>
+        ) : null}
       </div>
     </main>
   );
