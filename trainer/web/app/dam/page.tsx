@@ -381,7 +381,7 @@ export default function DamPage() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">DAM</h1>
-          <p className="mt-1 text-sm text-black/60">Live view of Airtable assets table (read-only).</p>
+          <p className="mt-1 text-sm text-black/60"></p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
           <div className="flex h-[64px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:mr-auto sm:w-[360px]">

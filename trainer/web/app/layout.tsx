@@ -11,6 +11,12 @@ export const metadata: Metadata = {
   description: 'Admin dashboard for labeling and training',
 };
 
+function getScannerUrl() {
+  const fromEnv = process.env.NEXT_PUBLIC_SCANNER_URL;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  return process.env.NODE_ENV === 'production' ? '/scanner' : 'http://localhost:3003/scanner';
+}
+
 function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
@@ -23,6 +29,8 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const scannerUrl = getScannerUrl();
+
   return (
     <html lang="en">
       <body className="h-dvh overflow-hidden bg-white text-black">
@@ -40,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavLink href="/classes" label="Classes" />
               <NavLink href="/train" label="Train" />
               <NavLink href="/dam" label="DAM" />
+              <NavLink href={scannerUrl} label="Scanner" />
             </nav>
             </div>
           </header>

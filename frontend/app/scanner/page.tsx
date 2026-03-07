@@ -413,6 +413,8 @@ export default function ScannerPage() {
   const damUrl =
     displayName && displayName !== '—' ? `http://dam.lorenzohome.ae/#${encodeURIComponent(displayName)}` : null;
 
+  const confidenceBadgeText = lastDetection ? displayConfidence : '0%';
+
   const onShareDam = React.useCallback(async () => {
     if (!damUrl) return;
 
@@ -506,6 +508,14 @@ export default function ScannerPage() {
   const resolvedVariantNumber = airtableVariantNumber ?? '—';
   const resolvedPrice = airtablePrice ?? '—';
 
+  const damAdminUrl = React.useMemo(() => {
+    const isLocal =
+      typeof window === 'undefined'
+        ? true
+        : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return isLocal ? 'http://localhost:3010/trainer/dam' : '/trainer/dam';
+  }, []);
+
   return (
     <main className="fixed inset-0 h-screen min-h-dvh overflow-hidden bg-black text-white">
       <div className="absolute inset-0">
@@ -571,11 +581,14 @@ export default function ScannerPage() {
               {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
             </span>
 
-            {lastDetection ? (
-              <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-white/90">
-                {displayConfidence}
-              </span>
-            ) : null}
+            <span
+              className={
+                'rounded-full bg-white/10 px-2 py-1 text-xs ' +
+                (lastDetection ? 'text-white/90' : 'text-white/50')
+              }
+            >
+              {confidenceBadgeText}
+            </span>
 
           </div>
         </div>
@@ -651,6 +664,18 @@ export default function ScannerPage() {
 
                 <Button
                   variant="outline"
+                  className="h-11 w-full min-w-0 rounded-xl border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                  type="button"
+                  onClick={() => {
+                    if (typeof window === 'undefined') return;
+                    window.location.href = damAdminUrl;
+                  }}
+                >
+                  <span className="truncate">DAM</span>
+                </Button>
+
+                <Button
+                  variant="outline"
                   onClick={() => void onShareDam()}
                   disabled={!damUrl}
                   className="h-11 w-full min-w-0 rounded-xl border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10 disabled:opacity-50"
@@ -671,13 +696,6 @@ export default function ScannerPage() {
                 >
                   <span className="truncate">Images</span>
                 </Button>
-
-                <Button
-                  className="h-11 w-full min-w-0 rounded-xl bg-white px-2 text-[11px] font-semibold tracking-wide text-black hover:bg-white/90"
-                  type="button"
-                >
-                  <span className="truncate">Reserve</span>
-                </Button>
               </div>
             </div>
           </div>
@@ -696,7 +714,11 @@ export default function ScannerPage() {
 
         {!isStarted ? (
           <div className="fixed left-1/2 top-1/2 z-40 -translate-x-1/2 translate-y-[72px]">
-            <Button onClick={() => void onStart()} className="bg-white text-black shadow-lg hover:bg-white/90" type="button">
+            <Button
+              onClick={() => void onStart()}
+              className="h-11 w-28 rounded-xl bg-white px-2 py-0 text-[11px] font-semibold tracking-wide text-black shadow-lg hover:bg-white/90"
+              type="button"
+            >
               Start
             </Button>
           </div>
