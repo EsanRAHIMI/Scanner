@@ -97,6 +97,54 @@ function drawDetections(args: {
   ctx.restore();
 }
 
+function RadarStatus({ status }: { status: 'idle' | 'loading' | 'error' }) {
+  if (status === 'error') {
+    return (
+      <span className="rounded-full bg-red-500/20 px-2 py-1 text-xs text-red-100">Error</span>
+    );
+  }
+
+  const isLoading = status === 'loading';
+  return (
+    <span
+      className={
+        'inline-flex items-center justify-center ' +
+        (isLoading ? 'text-white' : 'text-emerald-100')
+      }
+      aria-label={isLoading ? 'Detecting' : 'Ready'}
+      title={isLoading ? 'Detecting' : 'Ready'}
+    >
+      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity="0.9" />
+        <circle cx="12" cy="12" r="1.2" fill="currentColor" opacity="0.95" />
+        <g className={isLoading ? 'origin-center animate-spin' : ''}>
+          <path
+            d="M12 12 L12 3"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            opacity="0.95"
+          />
+        </g>
+      </svg>
+    </span>
+  );
+}
+
+function SignalBars({ value }: { value: number }) {
+  const pct = clamp(Math.round(value * 100), 0, 100);
+  const bars = pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 15 ? 1 : 0;
+
+  return (
+    <span className="inline-flex items-end gap-[2px]" aria-hidden="true">
+      <span className={"h-2 w-[3px] rounded-[1px] " + (bars >= 1 ? 'bg-white/90' : 'bg-white/20')} />
+      <span className={"h-3 w-[3px] rounded-[1px] " + (bars >= 2 ? 'bg-white/90' : 'bg-white/20')} />
+      <span className={"h-4 w-[3px] rounded-[1px] " + (bars >= 3 ? 'bg-white/90' : 'bg-white/20')} />
+      <span className={"h-5 w-[3px] rounded-[1px] " + (bars >= 4 ? 'bg-white/90' : 'bg-white/20')} />
+    </span>
+  );
+}
+
 export default function ScannerPage() {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const overlayCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -117,6 +165,7 @@ export default function ScannerPage() {
   const [airtablePrice, setAirtablePrice] = React.useState<string | null>(null);
   const [airtableCollectionCodeError, setAirtableCollectionCodeError] = React.useState<string | null>(null);
   const [apiStatus, setApiStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [radarStatus, setRadarStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
   const [backendHealth, setBackendHealth] = React.useState<BackendHealth | null>(null);
   const [backendHealthError, setBackendHealthError] = React.useState<string | null>(null);
 
@@ -413,7 +462,7 @@ export default function ScannerPage() {
   const damUrl =
     displayName && displayName !== '—' ? `http://dam.lorenzohome.ae/#${encodeURIComponent(displayName)}` : null;
 
-  const confidenceBadgeText = lastDetection ? displayConfidence : '0%';
+  const confidenceValue = lastDetection?.confidence ?? 0;
 
   const onShareDam = React.useCallback(async () => {
     if (!damUrl) return;
@@ -516,6 +565,26 @@ export default function ScannerPage() {
     return isLocal ? 'http://localhost:3010/trainer/dam' : '/trainer/dam';
   }, []);
 
+  React.useEffect(() => {
+    if (apiStatus === 'error') {
+      setRadarStatus('error');
+      return;
+    }
+
+    if (apiStatus === 'loading') {
+      setRadarStatus('loading');
+      return;
+    }
+
+    const t = window.setTimeout(() => {
+      setRadarStatus('idle');
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(t);
+    };
+  }, [apiStatus]);
+
   return (
     <main className="fixed inset-0 h-screen min-h-dvh overflow-hidden bg-black text-white">
       <div className="absolute inset-0">
@@ -568,26 +637,14 @@ export default function ScannerPage() {
           </div>
 
           <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
-            <span
-              className={
-                'rounded-full px-2 py-1 text-xs ' +
-                (apiStatus === 'loading'
-                  ? 'bg-white/15 text-white'
-                  : apiStatus === 'error'
-                    ? 'bg-red-500/20 text-red-100'
-                    : 'bg-emerald-500/20 text-emerald-100')
-              }
-            >
-              {apiStatus === 'loading' ? 'Detecting…' : apiStatus === 'error' ? 'Error' : 'Ready'}
-            </span>
+            <RadarStatus status={radarStatus} />
 
             <span
-              className={
-                'rounded-full bg-white/10 px-2 py-1 text-xs ' +
-                (lastDetection ? 'text-white/90' : 'text-white/50')
-              }
+              className={lastDetection ? 'text-white/90' : 'text-white/50'}
+              aria-label={lastDetection ? `Confidence ${displayConfidence}` : 'Confidence 0%'}
+              title={lastDetection ? `Confidence ${displayConfidence}` : 'Confidence 0%'}
             >
-              {confidenceBadgeText}
+              <SignalBars value={confidenceValue} />
             </span>
 
           </div>
