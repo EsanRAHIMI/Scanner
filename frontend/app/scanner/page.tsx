@@ -526,7 +526,7 @@ export default function ScannerPage() {
             <div className="text-xs tracking-[0.25em] text-white/70">LORENZO</div>
             <div className="text-sm font-semibold">Chandelier Scanner</div>
             <details className="mt-2 w-full">
-              <summary className="cursor-pointer select-none text-xs font-medium text-white/90 [&::-webkit-details-marker]:hidden [&::marker]:content-['']">
+              <summary className="cursor-pointer list-none select-none text-xs font-medium text-white/90 [&::-webkit-details-marker]:hidden [&::marker]:content-['']">
                 Backend status
               </summary>
               <div className="pt-2">
