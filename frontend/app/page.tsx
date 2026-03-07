@@ -3,6 +3,10 @@ import Link from 'next/link';
 import { Button } from '@/ui/button';
 
 export default function Home() {
+  const trainerUrl =
+    (process.env.NEXT_PUBLIC_TRAINER_URL && process.env.NEXT_PUBLIC_TRAINER_URL.trim()) ||
+    (process.env.NODE_ENV === 'production' ? '/trainer' : 'http://localhost:3010/trainer');
+
   return (
     <main className="min-h-dvh bg-white text-black">
       <div className="mx-auto flex w-full max-w-md flex-col gap-8 px-6 py-14">
@@ -18,6 +22,9 @@ export default function Home() {
         <section className="space-y-3">
           <Button asChild className="w-full bg-black text-white hover:bg-black/90">
             <Link href="/scanner">Open Scanner</Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link href={trainerUrl}>Trainer</Link>
           </Button>
           <Button asChild variant="outline" className="w-full">
             <Link href="/status">Backend status</Link>
