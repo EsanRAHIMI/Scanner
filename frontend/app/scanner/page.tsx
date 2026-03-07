@@ -36,6 +36,18 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function LatencyIndicator({ latencyMs }: { latencyMs: number | null }) {
+  return (
+    <span
+      className="inline-flex items-center text-[11px] text-white/70"
+      aria-label={typeof latencyMs === 'number' ? `Latency ${latencyMs}ms` : 'Latency unavailable'}
+      title={typeof latencyMs === 'number' ? `Latency ${latencyMs}ms` : 'Latency unavailable'}
+    >
+      <span className="tabular-nums">{typeof latencyMs === 'number' ? `${latencyMs} ms` : '—'}</span>
+    </span>
+  );
+}
+
 function formatConfidence(value: number) {
   const pct = clamp(Math.round(value * 100), 0, 100);
   return `${pct}%`;
@@ -168,6 +180,7 @@ export default function ScannerPage() {
   const [airtableCollectionCodeError, setAirtableCollectionCodeError] = React.useState<string | null>(null);
   const [apiStatus, setApiStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
   const [radarStatus, setRadarStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [latencyMs, setLatencyMs] = React.useState<number | null>(null);
   const [backendHealth, setBackendHealth] = React.useState<BackendHealth | null>(null);
   const [backendHealthError, setBackendHealthError] = React.useState<string | null>(null);
 
@@ -286,6 +299,7 @@ export default function ScannerPage() {
     setApiStatus('loading');
 
     try {
+      const requestStartedAt = performance.now();
       const srcW = video.videoWidth;
       const srcH = video.videoHeight;
 
@@ -326,6 +340,8 @@ export default function ScannerPage() {
         body: formData,
       });
 
+      setLatencyMs(Math.max(0, Math.round(performance.now() - requestStartedAt)));
+
       if (!res.ok) {
         let details = '';
         try {
@@ -363,6 +379,7 @@ export default function ScannerPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unknown error.';
       setApiStatus('error');
+      setLatencyMs(null);
       setError(message);
     } finally {
       isRequestInFlightRef.current = false;
@@ -405,6 +422,7 @@ export default function ScannerPage() {
   const handleStop = React.useCallback(() => {
     setError(null);
     setApiStatus('idle');
+    setLatencyMs(null);
     stopLoop();
     clearOverlay();
     stopStream(streamRef.current);
@@ -638,7 +656,9 @@ export default function ScannerPage() {
             </details>
           </div>
 
-          <div className="flex flex-col items-end gap-2 pr-1 sm:flex-row sm:items-center">
+          <div className="flex flex-row items-center gap-2 pr-2">
+            <LatencyIndicator latencyMs={latencyMs} />
+
             <span
               className={lastDetection ? 'text-white/90' : 'text-white/50'}
               aria-label={lastDetection ? `Confidence ${displayConfidence}` : 'Confidence 0%'}
@@ -650,7 +670,6 @@ export default function ScannerPage() {
             <span className="-mt-0">
               <RadarStatus status={radarStatus} />
             </span>
-
           </div>
         </div>
 
