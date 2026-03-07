@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { DamCacheProvider } from './dam-cache-provider';
+import { ProductsCacheProvider } from './products-cache-provider';
 
 export const metadata: Metadata = {
   title: 'Lorenzo Trainer',
@@ -48,12 +49,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavLink href="/classes" label="Classes" />
               <NavLink href="/train" label="Train" />
               <NavLink href="/dam" label="DAM" />
+              <NavLink href="/products" label="Products" />
               <NavLink href={scannerUrl} label="Scanner" />
             </nav>
             </div>
           </header>
           <DamCacheProvider>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+            <ProductsCacheProvider>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+            </ProductsCacheProvider>
           </DamCacheProvider>
         </div>
       </body>
