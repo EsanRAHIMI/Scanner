@@ -597,21 +597,30 @@ export default function ScannerPage() {
           <div className="mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border border-white/10 bg-black/35 p-4 backdrop-blur">
             <div className="overflow-hidden rounded-xl border border-white/10 bg-black/10">
               <div className="grid grid-cols-4 gap-px bg-white/10">
-                <div className="bg-black/20 px-3 py-2">
-                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Collection Name</div>
-                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{displayName}</div>
+                <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  Collection Name
                 </div>
-                <div className="bg-black/20 px-3 py-2">
-                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Collection Code</div>
-                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedCollectionCode}</div>
+                <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  Collection Code
                 </div>
-                <div className="bg-black/20 px-3 py-2">
-                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Variant Number</div>
-                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedVariantNumber}</div>
+                <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  Variant Number
                 </div>
-                <div className="bg-black/20 px-3 py-2">
-                  <div className="min-h-8 text-[11px] font-medium leading-tight text-white/70">Price</div>
-                  <div className="mt-1 truncate text-sm font-semibold leading-tight text-white">{resolvedPrice}</div>
+                <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  Price
+                </div>
+
+                <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="truncate">{displayName}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="truncate">{resolvedCollectionCode}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="truncate">{resolvedVariantNumber}</div>
+                </div>
+                <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="truncate">{resolvedPrice}</div>
                 </div>
               </div>
             </div>
