@@ -114,7 +114,7 @@ function RadarStatus({ status }: { status: 'idle' | 'loading' | 'error' }) {
       aria-label={isLoading ? 'Detecting' : 'Ready'}
       title={isLoading ? 'Detecting' : 'Ready'}
     >
-      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" xmlns="http://www.w3.org/2000/svg">
         <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" opacity="0.9" />
         <circle cx="12" cy="12" r="1.2" fill="currentColor" opacity="0.95" />
         <g className={isLoading ? 'origin-center animate-spin' : ''}>
@@ -136,11 +136,13 @@ function SignalBars({ value }: { value: number }) {
   const bars = pct >= 85 ? 4 : pct >= 60 ? 3 : pct >= 35 ? 2 : pct >= 15 ? 1 : 0;
 
   return (
-    <span className="inline-flex items-end gap-[2px]" aria-hidden="true">
-      <span className={"h-2 w-[3px] rounded-[1px] " + (bars >= 1 ? 'bg-white/90' : 'bg-white/20')} />
-      <span className={"h-3 w-[3px] rounded-[1px] " + (bars >= 2 ? 'bg-white/90' : 'bg-white/20')} />
-      <span className={"h-4 w-[3px] rounded-[1px] " + (bars >= 3 ? 'bg-white/90' : 'bg-white/20')} />
-      <span className={"h-5 w-[3px] rounded-[1px] " + (bars >= 4 ? 'bg-white/90' : 'bg-white/20')} />
+    <span className="inline-flex items-center" aria-hidden="true">
+      <svg viewBox="0 0 24 16" className="h-6 w-6" xmlns="http://www.w3.org/2000/svg">
+        <rect x="3" y="11" width="3" height="5" rx="1.25" fill="currentColor" fillOpacity={bars >= 1 ? 0.95 : 0.22} />
+        <rect x="8" y="8" width="3" height="8" rx="1.25" fill="currentColor" fillOpacity={bars >= 2 ? 0.95 : 0.22} />
+        <rect x="13" y="5" width="3" height="11" rx="1.25" fill="currentColor" fillOpacity={bars >= 3 ? 0.95 : 0.22} />
+        <rect x="18" y="2" width="3" height="14" rx="1.25" fill="currentColor" fillOpacity={bars >= 4 ? 0.95 : 0.22} />
+      </svg>
     </span>
   );
 }
@@ -636,15 +638,17 @@ export default function ScannerPage() {
             </details>
           </div>
 
-          <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
-            <RadarStatus status={radarStatus} />
-
+          <div className="flex flex-col items-end gap-2 pr-1 sm:flex-row sm:items-center">
             <span
               className={lastDetection ? 'text-white/90' : 'text-white/50'}
               aria-label={lastDetection ? `Confidence ${displayConfidence}` : 'Confidence 0%'}
               title={lastDetection ? `Confidence ${displayConfidence}` : 'Confidence 0%'}
             >
               <SignalBars value={confidenceValue} />
+            </span>
+
+            <span className="-mt-0">
+              <RadarStatus status={radarStatus} />
             </span>
 
           </div>
