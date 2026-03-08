@@ -472,7 +472,7 @@ export default function DamPage() {
             </thead>
             <tbody>
               {visibleRecords.map((r) => (
-                <tr key={r.id} className="border-t border-black/10 align-top">
+                <tr key={r.id} className="border-t border-black/10 align-middle">
                   <td className="sticky left-0 z-10 bg-white px-4 py-1">
                     {(() => {
                       const urls = extractUrls(r.fields?.['URL']);

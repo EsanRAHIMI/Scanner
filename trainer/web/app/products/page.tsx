@@ -44,17 +44,61 @@ function extractUrls(v: unknown): string[] {
   return [];
 }
 
+function formatPrice(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Intl.NumberFormat('en-US').format(value);
+  }
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return null;
+
+    const cleaned = raw.replace(/,/g, '');
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return new Intl.NumberFormat('en-US').format(n);
+  }
+  return null;
+}
+
 function renderCell(column: string, value: unknown) {
   if (value === null || value === undefined) return null;
 
   const col = column.trim().toLowerCase();
+  if (col === 'price') {
+    const formatted = formatPrice(value);
+    if (!formatted) return formatScalar(value);
+    return (
+      <span className="inline-flex items-baseline gap-1">
+        <span className="inline-flex items-baseline">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/trainer/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
+            alt="AED"
+            className="inline-block h-[9px] w-auto"
+            onLoad={(e) => {
+              const parent = e.currentTarget.parentElement;
+              const fallback = parent?.querySelector('[data-dirham-fallback]') as HTMLElement | null;
+              if (fallback) fallback.style.display = 'none';
+            }}
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          <span data-dirham-fallback className="text-[11px] text-black/80">
+            AED
+          </span>
+        </span>
+        <span>{formatted}</span>
+      </span>
+    );
+  }
   if (col === 'image') {
     const urls = extractUrls(value);
     const u = urls[0];
     if (!u) return null;
     return (
       <a href={u} target="_blank" rel="noreferrer" title={u} className="block">
-        <span className="block h-20 w-20 overflow-hidden rounded-md border border-black/10 bg-black/5">
+        <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={u}
@@ -109,28 +153,99 @@ function renderCell(column: string, value: unknown) {
 
 export default function ProductsPage() {
   const { data, loading, error } = useProductsCache();
+  const [search, setSearch] = React.useState<string>('');
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
 
   const displayedColumns = React.useMemo(() => {
-    const desiredOrder = ['Colecction Name', 'Colecction Code', 'Variant Number', 'Image'] as const;
-    const available = new Set(columns);
+    const primary = ['Image', 'Price', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
+    const trailing = ['CODE NUMBER', 'L000', 'Num'] as const;
+    const primarySet = new Set<string>(primary as readonly string[]);
+    const trailingSet = new Set<string>(trailing as readonly string[]);
 
     const out: string[] = [];
-    for (const key of desiredOrder) {
-      if (available.has(key)) out.push(key);
-      else out.push(key);
-    }
 
-    const desiredSet = new Set<string>(desiredOrder as readonly string[]);
+    for (const key of primary) out.push(key);
+
     const extras = columns
-      .filter((c) => !desiredSet.has(c))
+      .filter((c) => !primarySet.has(c) && !trailingSet.has(c))
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
+    for (const key of trailing) {
+      if (columns.includes(key)) out.push(key);
+    }
+
     return out;
   }, [columns]);
+
+  const getSearchText = React.useCallback(
+    (r: ProductsAirtableRecord, usedColumns: string[]) => {
+      const parts: string[] = [];
+      for (const c of usedColumns) {
+        const v = r.fields?.[c];
+        if (v === null || v === undefined) continue;
+
+        if (c.trim().toLowerCase() === 'image') {
+          const urls = extractUrls(v);
+          if (urls[0]) parts.push(urls[0]);
+          continue;
+        }
+
+        if (Array.isArray(v)) {
+          const arr = v as unknown[];
+          const allStrings = arr.every((x) => typeof x === 'string');
+          if (allStrings) parts.push((arr as string[]).join(' | '));
+          else parts.push(String(arr.length));
+          continue;
+        }
+
+        const s = formatScalar(v);
+        if (s) {
+          parts.push(s);
+          continue;
+        }
+
+        if (typeof v === 'object') {
+          const obj = v as Record<string, unknown>;
+          if (typeof obj.name === 'string') parts.push(obj.name);
+          else if (typeof obj.url === 'string') parts.push(obj.url);
+        }
+      }
+      return parts.join(' \n ').toLowerCase();
+    },
+    []
+  );
+
+  const filteredRecords = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return records;
+    return records.filter((r) => getSearchText(r, displayedColumns).includes(q));
+  }, [getSearchText, records, search, displayedColumns]);
+
+  const sortedRecords = React.useMemo(() => {
+    const base = [...filteredRecords];
+    const getNum = (r: ProductsAirtableRecord) => {
+      const raw = (r.fields?.['Num'] ?? r.fields?.['Variant Number']) as unknown;
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'string') {
+        const n = Number(raw.trim());
+        return Number.isFinite(n) ? n : null;
+      }
+      return null;
+    };
+
+    base.sort((a, b) => {
+      const av = getNum(a);
+      const bv = getNum(b);
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return av - bv;
+    });
+    return base;
+  }, [filteredRecords]);
 
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -139,18 +254,31 @@ export default function ProductsPage() {
           <h1 className="text-2xl font-semibold">Products</h1>
           <p className="mt-1 text-sm text-black/60"></p>
         </div>
-        <div className="flex h-[64px] w-full flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:w-[360px]">
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="flex items-baseline justify-between gap-1">
-              <span className="text-black/50">Records</span>
-              <span className="font-semibold text-black">{data ? data.count : '—'}</span>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+          <div className="flex h-[64px] w-full flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:w-[360px]">
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Records</span>
+                <span className="font-semibold text-black">{data ? data.count : '—'}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Matched</span>
+                <span className="font-semibold text-black">{data ? filteredRecords.length : '—'}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="text-black/50">Columns</span>
+                <span className="font-semibold text-black">{data ? columns.length : '—'}</span>
+              </div>
             </div>
-            <div className="flex items-baseline justify-between gap-1">
-              <span className="text-black/50">Columns</span>
-              <span className="font-semibold text-black">{data ? columns.length : '—'}</span>
-            </div>
+            <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
           </div>
-          <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
+
+          <input
+            className="h-[64px] w-full rounded-md border border-black/15 bg-white px-3 text-sm sm:w-[260px]"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </div>
 
@@ -163,18 +291,26 @@ export default function ProductsPage() {
           <table className="min-w-full table-auto text-left text-sm">
             <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
               <tr>
-                {displayedColumns.map((c) => (
-                  <th key={c} className="px-4 py-3">
+                {displayedColumns.map((c, idx) => (
+                  <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
                     <span>{c}</span>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {records.map((r) => (
-                <tr key={r.id} className="border-t border-black/10 align-top">
-                  {displayedColumns.map((c) => (
-                    <td key={c} className="px-4 py-3 whitespace-pre-wrap text-xs text-black/80">
+              {sortedRecords.map((r) => (
+                <tr key={r.id} className="border-t border-black/10 align-middle">
+                  {displayedColumns.map((c, idx) => (
+                    <td
+                      key={c}
+                      className={
+                        (idx === 0 ? 'sticky left-0 z-10 bg-white ' : '') +
+                        (idx === 0
+                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
+                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
+                      }
+                    >
                       {renderCell(c, r.fields?.[c])}
                     </td>
                   ))}
@@ -182,7 +318,7 @@ export default function ProductsPage() {
               ))}
               {records.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length + 1}>
+                  <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
                     {loading ? 'Loading…' : 'No records.'}
                   </td>
                 </tr>

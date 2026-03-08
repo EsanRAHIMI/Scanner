@@ -50,7 +50,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavLink href="/train" label="Train" />
               <NavLink href="/dam" label="DAM" />
               <NavLink href="/products" label="Products" />
-              <NavLink href={scannerUrl} label="Scanner" />
+              <a
+                href={scannerUrl}
+                className="rounded-md px-3 py-2 text-sm text-black/70 hover:bg-black/5 hover:text-black"
+              >
+                Scanner
+              </a>
             </nav>
             </div>
           </header>
