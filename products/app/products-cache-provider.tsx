@@ -33,8 +33,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
     void (async () => {
       try {
-        const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-        const res = await fetch(`${basePath}/api/products/assets`, { cache: 'no-store' });
+        const res = await fetch('/api/products/assets', { cache: 'no-store' });
         const text = await res.text();
         if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
         const json = JSON.parse(text) as ProductsAssetsResponse;

@@ -1,4 +1,4 @@
 export default function HomePage() {
-  const ProductsPage = require('./products/page').default;
-  return <ProductsPage />;
+  const { redirect } = require('next/navigation');
+  redirect('/products');
 }
