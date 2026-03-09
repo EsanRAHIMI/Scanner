@@ -63,6 +63,8 @@ function formatPrice(value: unknown): string | null {
 function renderCell(column: string, value: unknown, onImageClick?: (url: string) => void) {
   if (value === null || value === undefined) return null;
 
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
   const col = column.trim().toLowerCase();
   if (col === 'price') {
     const formatted = formatPrice(value);
@@ -72,7 +74,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
         <span className="inline-flex items-baseline">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/trainer/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
+            src={`${basePath}/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg`}
             alt="AED"
             className="inline-block h-[9px] w-auto"
             onLoad={(e) => {
@@ -97,12 +99,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
     const u = urls[0];
     if (!u) return null;
     return (
-      <button
-        type="button"
-        onClick={() => onImageClick?.(u)}
-        title={u}
-        className="block text-left"
-      >
+      <button type="button" onClick={() => onImageClick?.(u)} title={u} className="block text-left">
         <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -156,7 +153,15 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
   return String(value);
 }
 
-export function ProductsView({ title }: { title: string }) {
+export function ProductsView({
+  title,
+  titleNode,
+  mobileTitleNode,
+}: {
+  title: string;
+  titleNode?: React.ReactNode;
+  mobileTitleNode?: React.ReactNode;
+}) {
   const { data, loading, error } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
   const [sortKey, setSortKey] = React.useState<string>('Num');
@@ -315,14 +320,11 @@ export function ProductsView({ title }: { title: string }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [previewUrl]);
 
-  const titleNodeMobile = <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>;
-  const titleNodeDesktop = <h1 className="text-2xl font-semibold">{title}</h1>;
-
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
       <div className="flex flex-col gap-2">
         <div className="flex w-full items-center gap-2 sm:hidden">
-          {titleNodeMobile}
+          {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
           <input
             className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
             placeholder="Search…"
@@ -333,7 +335,7 @@ export function ProductsView({ title }: { title: string }) {
 
         <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
           <div>
-            {titleNodeDesktop}
+            {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
             <p className="mt-1 text-sm text-black/60"></p>
           </div>
 
