@@ -39,26 +39,32 @@ export default function ProductsPage() {
 
       <ProductsView
         titleNode={
-          <div className="flex items-center gap-3">
+          <div className="flex h-10 min-w-0 max-w-[340px] items-center gap-3 overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/Logo1.png"
               alt="Lorenzo's products"
-              className={(logoLoaded ? 'opacity-100 ' : 'opacity-0 ') + 'h-9 w-auto max-w-[260px] object-contain transition-opacity'}
+              className={
+                (logoLoaded ? 'opacity-100 ' : 'opacity-0 ') +
+                'h-9 w-auto max-w-full object-contain transition-opacity'
+              }
             />
             {!logoLoaded ? <span className="text-2xl font-semibold">Lorenzo's products</span> : null}
           </div>
         }
         mobileTitleNode={
-          <div className="flex h-10 items-center">
+          <span className="flex h-10 min-w-0 max-w-[140px] flex-none items-center overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/Logo1.png"
               alt="Lorenzo's products"
-              className={(logoLoaded ? 'opacity-100 ' : 'opacity-0 ') + 'h-8 w-auto max-w-[160px] object-contain transition-opacity'}
+              className={
+                (logoLoaded ? 'opacity-100 ' : 'opacity-0 ') +
+                'h-8 w-auto max-w-full object-contain transition-opacity'
+              }
             />
             {!logoLoaded ? <span className="truncate text-lg font-semibold">Lorenzo's products</span> : null}
-          </div>
+          </span>
         }
         title="Lorenzo's products"
       />
