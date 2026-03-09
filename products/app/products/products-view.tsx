@@ -63,6 +63,8 @@ function formatPrice(value: unknown): string | null {
 function renderCell(column: string, value: unknown, onImageClick?: (url: string) => void) {
   if (value === null || value === undefined) return null;
 
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
   const col = column.trim().toLowerCase();
   if (col === 'price') {
     const formatted = formatPrice(value);
@@ -72,7 +74,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
         <span className="inline-flex items-baseline">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
+            src={`${basePath}/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg`}
             alt="AED"
             className="inline-block h-[9px] w-auto"
             onLoad={(e) => {

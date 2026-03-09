@@ -6,6 +6,7 @@ import { ProductsView } from './products-view';
 
 export default function ProductsPage() {
   const [logoLoaded, setLogoLoaded] = React.useState(false);
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
   React.useEffect(() => {
     let cancelled = false;
@@ -18,7 +19,7 @@ export default function ProductsPage() {
     img.onerror = () => {
       if (!cancelled) setLogoLoaded(false);
     };
-    img.src = '/Logo1.png';
+    img.src = `${basePath}/Logo1.png`;
 
     return () => {
       cancelled = true;
@@ -30,7 +31,7 @@ export default function ProductsPage() {
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/Brand_symbol_1.svg"
+          src={`${basePath}/Brand_symbol_1.svg`}
           alt=""
           aria-hidden="true"
           className="absolute left-0 top-0 h-[122vh] w-auto -translate-x-[10vw] -translate-y-[10vh] select-none object-contain opacity-[0.07]"
@@ -42,7 +43,7 @@ export default function ProductsPage() {
           <div className="flex h-10 min-w-0 max-w-[340px] items-center gap-3 overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/Logo1.png"
+              src={`${basePath}/Logo1.png`}
               alt="Lorenzo's products"
               className={
                 (logoLoaded ? 'opacity-100 ' : 'opacity-0 ') +
@@ -56,7 +57,7 @@ export default function ProductsPage() {
           <span className="flex h-10 min-w-0 max-w-[140px] flex-none items-center overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/Logo1.png"
+              src={`${basePath}/Logo1.png`}
               alt="Lorenzo's products"
               className={
                 (logoLoaded ? 'opacity-100 ' : 'opacity-0 ') +
