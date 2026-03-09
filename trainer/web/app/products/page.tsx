@@ -154,6 +154,8 @@ function renderCell(column: string, value: unknown) {
 export default function ProductsPage() {
   const { data, loading, error } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
+  const [sortKey, setSortKey] = React.useState<string>('Num');
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -224,28 +226,82 @@ export default function ProductsPage() {
     return records.filter((r) => getSearchText(r, displayedColumns).includes(q));
   }, [getSearchText, records, search, displayedColumns]);
 
+  const getSortValue = React.useCallback((r: ProductsAirtableRecord, key: string) => {
+    const k = key.trim().toLowerCase();
+
+    if (k === 'image') {
+      const urls = extractUrls(r.fields?.[key]);
+      return urls[0] ?? '';
+    }
+
+    const v = r.fields?.[key];
+    if (v === null || v === undefined) return '';
+
+    if (k === 'price') {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string') {
+        const cleaned = v.trim().replace(/,/g, '');
+        const n = Number(cleaned);
+        return Number.isFinite(n) ? n : '';
+      }
+      return '';
+    }
+
+    if (k === 'num' || k === 'variant number') {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string') {
+        const n = Number(v.trim());
+        return Number.isFinite(n) ? n : '';
+      }
+      return '';
+    }
+
+    if (typeof v === 'number') return v;
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    if (typeof v === 'string') return v.toLowerCase();
+    if (Array.isArray(v)) {
+      const arr = v as unknown[];
+      const allStrings = arr.every((x) => typeof x === 'string');
+      if (allStrings) return (arr as string[]).join(' | ').toLowerCase();
+      return arr.length;
+    }
+    if (typeof v === 'object') {
+      const obj = v as Record<string, unknown>;
+      if (typeof obj.name === 'string') return obj.name.toLowerCase();
+      if (typeof obj.url === 'string') return obj.url.toLowerCase();
+    }
+    return '';
+  }, []);
+
   const sortedRecords = React.useMemo(() => {
     const base = [...filteredRecords];
-    const getNum = (r: ProductsAirtableRecord) => {
-      const raw = (r.fields?.['Num'] ?? r.fields?.['Variant Number']) as unknown;
-      if (typeof raw === 'number') return raw;
-      if (typeof raw === 'string') {
-        const n = Number(raw.trim());
-        return Number.isFinite(n) ? n : null;
-      }
-      return null;
-    };
 
     base.sort((a, b) => {
-      const av = getNum(a);
-      const bv = getNum(b);
-      if (av === null && bv === null) return 0;
-      if (av === null) return 1;
-      if (bv === null) return -1;
-      return av - bv;
+      const av = getSortValue(a, sortKey);
+      const bv = getSortValue(b, sortKey);
+
+      let cmp = 0;
+      if (typeof av === 'number' && typeof bv === 'number') {
+        cmp = av - bv;
+      } else {
+        cmp = String(av).localeCompare(String(bv));
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
     });
     return base;
-  }, [filteredRecords]);
+  }, [filteredRecords, getSortValue, sortDir, sortKey]);
+
+  const toggleSort = React.useCallback(
+    (key: string) => {
+      if (sortKey === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortKey(key);
+        setSortDir('asc');
+      }
+    },
+    [sortKey]
+  );
 
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -257,17 +313,17 @@ export default function ProductsPage() {
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
           <div className="flex h-[64px] w-full flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:w-[360px]">
             <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Records</span>
-                <span className="font-semibold text-black">{data ? data.count : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Records:</span>
+                <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Matched</span>
-                <span className="font-semibold text-black">{data ? filteredRecords.length : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Matched:</span>
+                <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Columns</span>
-                <span className="font-semibold text-black">{data ? columns.length : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Columns:</span>
+                <span className="font-semibold text-black"> {data ? columns.length : '—'}</span>
               </div>
             </div>
             <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
@@ -293,7 +349,15 @@ export default function ProductsPage() {
               <tr>
                 {displayedColumns.map((c, idx) => (
                   <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
-                    <span>{c}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c)}
+                      className="inline-flex items-center gap-2 hover:text-black"
+                      title="Sort"
+                    >
+                      <span>{c}</span>
+                      {sortKey === c ? <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span> : null}
+                    </button>
                   </th>
                 ))}
               </tr>

@@ -193,7 +193,6 @@ export default function DamPage() {
   const { data, loading, error, refresh } = useDamCache();
   const [sortKey, setSortKey] = React.useState<string>('Record ID');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-  const [rowLimit, setRowLimit] = React.useState<20 | 50 | 'all'>(20);
   const [search, setSearch] = React.useState<string>('');
 
   const hiddenColumns = React.useMemo(
@@ -360,9 +359,8 @@ export default function DamPage() {
   }, [filteredRecords, getSortValue, sortDir, sortKey]);
 
   const visibleRecords = React.useMemo(() => {
-    if (rowLimit === 'all') return sortedRecords;
-    return sortedRecords.slice(0, rowLimit);
-  }, [rowLimit, sortedRecords]);
+    return sortedRecords;
+  }, [sortedRecords]);
 
   const toggleSort = React.useCallback(
     (key: string) => {
@@ -386,17 +384,17 @@ export default function DamPage() {
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
           <div className="flex h-[64px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:mr-auto sm:w-[360px]">
             <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Records</span>
-                <span className="font-semibold text-black">{data ? data.count : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Records:</span>
+                <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Matched</span>
-                <span className="font-semibold text-black">{data ? filteredRecords.length : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Matched:</span>
+                <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-black/50">Showing</span>
-                <span className="font-semibold text-black">{data ? visibleRecords.length : '—'}</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-black/50">Showing:</span>
+                <span className="font-semibold text-black"> {data ? visibleRecords.length : '—'}</span>
               </div>
             </div>
             <div className="mt-1 text-justify text-[11px] text-black/35">
@@ -410,34 +408,6 @@ export default function DamPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <label className="inline-flex h-[64px] items-center gap-2 rounded-md border border-black/15 bg-white px-3 text-sm">
-              <span className="text-xs text-black/60">Rows</span>
-              <select
-                className="bg-transparent text-sm outline-none"
-                value={rowLimit}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '20') setRowLimit(20);
-                  else if (v === '50') setRowLimit(50);
-                  else setRowLimit('all');
-                }}
-              >
-                <option value="20">20</option>
-                <option value="50">50</option>
-                <option value="all">Unlimited</option>
-              </select>
-            </label>
-            <button
-              className="h-[64px] rounded-md border border-black/15 px-4 text-sm hover:bg-black/5 disabled:opacity-50"
-              onClick={() => void load()}
-              type="button"
-              disabled={loading}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -462,9 +432,7 @@ export default function DamPage() {
                       title="Sort"
                     >
                       <span>{c}</span>
-                      <span className="text-[10px] text-black/40">
-                        {sortKey === c ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
-                      </span>
+                      {sortKey === c ? <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span> : null}
                     </button>
                   </th>
                 ))}
