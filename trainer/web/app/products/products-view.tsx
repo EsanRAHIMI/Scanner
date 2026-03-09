@@ -316,13 +316,20 @@ export function ProductsView({ title }: { title: string }) {
   }, [previewUrl]);
 
   return (
-    <main className="flex min-h-0 w-full flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="mt-1 text-sm text-black/60"></p>
+    <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
+      <div className="flex flex-col gap-2">
+        <div className="flex w-full items-center gap-2">
+          <h1 className="min-w-0 flex-none truncate text-lg font-semibold sm:text-2xl">{title}</h1>
+
+          <input
+            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-sm sm:h-[64px] sm:w-[260px] sm:flex-none"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+
+        <div className="hidden w-full flex-wrap items-center gap-2 sm:flex sm:w-auto sm:flex-nowrap">
           <div className="flex h-[64px] w-full flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:w-[360px]">
             <div className="grid grid-cols-3 gap-2 text-[11px]">
               <div className="flex items-baseline gap-1">
@@ -340,13 +347,6 @@ export function ProductsView({ title }: { title: string }) {
             </div>
             <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
           </div>
-
-          <input
-            className="h-[64px] w-full rounded-md border border-black/15 bg-white px-3 text-sm sm:w-[260px]"
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
         </div>
       </div>
 
