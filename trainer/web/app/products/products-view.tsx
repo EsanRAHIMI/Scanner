@@ -322,7 +322,7 @@ export function ProductsView({ title }: { title: string }) {
           <h1 className="min-w-0 flex-none truncate text-lg font-semibold sm:text-2xl">{title}</h1>
 
           <input
-            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-sm sm:h-[64px] sm:w-[260px] sm:flex-none"
+            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base sm:h-[64px] sm:w-[260px] sm:flex-none sm:text-sm"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
