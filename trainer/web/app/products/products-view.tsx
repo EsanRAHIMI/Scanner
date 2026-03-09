@@ -318,34 +318,47 @@ export function ProductsView({ title }: { title: string }) {
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
       <div className="flex flex-col gap-2">
-        <div className="flex w-full items-center gap-2">
-          <h1 className="min-w-0 flex-none truncate text-lg font-semibold sm:text-2xl">{title}</h1>
-
+        <div className="flex w-full items-center gap-2 sm:hidden">
+          <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>
           <input
-            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base sm:h-[64px] sm:w-[260px] sm:flex-none sm:text-sm"
+            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
-        <div className="hidden w-full flex-wrap items-center gap-2 sm:flex sm:w-auto sm:flex-nowrap">
-          <div className="flex h-[64px] w-full flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:w-[360px]">
-            <div className="grid grid-cols-3 gap-2 text-[11px]">
-              <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Records:</span>
-                <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
+        <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">{title}</h1>
+            <p className="mt-1 text-sm text-black/60"></p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex h-[64px] w-[360px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60">
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-black/50">Records:</span>
+                  <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-black/50">Matched:</span>
+                  <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-black/50">Columns:</span>
+                  <span className="font-semibold text-black"> {data ? columns.length : '—'}</span>
+                </div>
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Matched:</span>
-                <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Columns:</span>
-                <span className="font-semibold text-black"> {data ? columns.length : '—'}</span>
-              </div>
+              <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
             </div>
-            <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
+
+            <input
+              className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm"
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
         </div>
       </div>
