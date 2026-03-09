@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 import re
@@ -16,7 +17,7 @@ from urllib.request import Request, urlopen
 from typing_extensions import TypedDict
 
 import yaml
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request as FastAPIRequest, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +26,11 @@ from PIL import Image
 import io
 
 from fastapi.middleware.cors import CORSMiddleware
+
+import jwt
+from email_validator import EmailNotValidError, validate_email
+from motor.motor_asyncio import AsyncIOMotorClient
+from passlib.context import CryptContext
 
 class ClassItem(TypedDict):
   id: str
@@ -52,6 +58,87 @@ class QueueItem(TypedDict, total=False):
   status: QueueStatus
   created_at: str
   annotation: Annotation
+
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+
+def _env_int(name: str, default: int) -> int:
+  raw = os.environ.get(name)
+  if not raw:
+    return default
+  try:
+    return int(raw)
+  except Exception:
+    return default
+
+
+def _env_str(name: str, default: str) -> str:
+  raw = os.environ.get(name)
+  return raw if raw else default
+
+
+def _is_production() -> bool:
+  return (os.environ.get("ENV") == "production") or (os.environ.get("NODE_ENV") == "production")
+
+
+def _hash_password(password: str) -> str:
+  return pwd_context.hash(password)
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+  try:
+    return pwd_context.verify(password, password_hash)
+  except Exception:
+    return False
+
+
+def _jwt_secret() -> str:
+  secret = os.environ.get("TRAINER_JWT_SECRET")
+  if not secret:
+    raise HTTPException(status_code=500, detail="TRAINER_JWT_SECRET_NOT_SET")
+  if len(secret.strip()) < 16:
+    raise HTTPException(status_code=500, detail="TRAINER_JWT_SECRET_TOO_SHORT")
+  return secret
+
+
+def _auth_cookie_name() -> str:
+  return _env_str("TRAINER_AUTH_COOKIE_NAME", "trainer_auth")
+
+
+def _normalize_permissions(value: Any) -> list[str]:
+  if not isinstance(value, list):
+    return []
+  out: list[str] = []
+  for item in value:
+    if isinstance(item, str) and item.strip():
+      out.append(item.strip())
+  return sorted(set(out))
+
+
+def _create_access_token(*, user_id: str, is_admin: bool, permissions: list[str]) -> str:
+  now = int(time.time())
+  exp_s = _env_int("TRAINER_JWT_EXPIRES_SECONDS", 60 * 60 * 24 * 7)
+  payload = {
+    "sub": user_id,
+    "iat": now,
+    "exp": now + exp_s,
+    "is_admin": bool(is_admin),
+    "permissions": permissions,
+  }
+  return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
+
+
+def _decode_access_token(token: str) -> dict[str, Any]:
+  try:
+    decoded = jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
+  except jwt.ExpiredSignatureError:
+    raise HTTPException(status_code=401, detail="TOKEN_EXPIRED")
+  except Exception:
+    raise HTTPException(status_code=401, detail="INVALID_TOKEN")
+  if not isinstance(decoded, dict):
+    raise HTTPException(status_code=401, detail="INVALID_TOKEN")
+  return decoded
 
 
 def _utc_now_iso() -> str:
@@ -118,6 +205,44 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/trainer/api", api)
 app.mount("/", api)
 
+
+def _get_db():
+  db = getattr(app.state, "mongo_db", None)
+  if db is None:
+    raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+  return db
+
+
+async def _get_current_user(req: FastAPIRequest, db=Depends(_get_db)) -> dict[str, Any]:
+  token = None
+  auth_header = req.headers.get("authorization")
+  if auth_header and auth_header.lower().startswith("bearer "):
+    token = auth_header.split(" ", 1)[1].strip()
+  if not token:
+    token = req.cookies.get(_auth_cookie_name())
+  if not token:
+    raise HTTPException(status_code=401, detail="NOT_AUTHENTICATED")
+
+  decoded = _decode_access_token(token)
+  user_id = decoded.get("sub")
+  if not isinstance(user_id, str) or not user_id:
+    raise HTTPException(status_code=401, detail="INVALID_TOKEN")
+
+  user = await db["users"].find_one({"_id": user_id})
+  if not user:
+    raise HTTPException(status_code=401, detail="USER_NOT_FOUND")
+  if user.get("status") != "approved":
+    raise HTTPException(status_code=403, detail="USER_NOT_APPROVED")
+
+  user["permissions"] = _normalize_permissions(user.get("permissions"))
+  return user
+
+
+async def _require_admin(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+  if user.get("is_admin") is True:
+    return user
+  raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+
 api.add_middleware(
   CORSMiddleware,
   allow_origins=[
@@ -127,6 +252,7 @@ api.add_middleware(
     "http://127.0.0.1:3003",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://scanner.ehsanrahimi.com",
   ],
   allow_credentials=True,
   allow_methods=["*"],
@@ -141,6 +267,84 @@ try:
   load_dotenv(dotenv_path=BASE_DIR / ".env", override=False)
 except Exception:
   pass
+
+
+_log = logging.getLogger("uvicorn.error")
+
+
+@app.on_event("startup")
+async def _startup_mongo_after_env_loaded():
+  uri = os.environ.get("MONGODB_URI")
+  db_name = _env_str("MONGODB_DB_NAME", "trainer")
+
+  if not uri:
+    app.state.mongo_client = None
+    app.state.mongo_db = None
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", flush=True)
+    print("⚠  [MongoDB] MONGODB_URI is not set in .env", flush=True)
+    print("   Auth endpoints (login/register/me) will return 503.", flush=True)
+    print("   Fix: set MONGODB_URI, TRAINER_JWT_SECRET, TRAINER_ADMIN_EMAIL", flush=True)
+    print("        in trainer/server/.env", flush=True)
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", flush=True)
+    return
+
+  uri_display = uri[:40] + "..." if len(uri) > 40 else uri
+  print(f"[MongoDB] Connecting to db='{db_name}' uri={uri_display}", flush=True)
+
+  try:
+    client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=8000)
+    await client.admin.command("ping")
+  except Exception as e:
+    app.state.mongo_client = None
+    app.state.mongo_db = None
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", flush=True)
+    print(f"✗  [MongoDB] Connection FAILED: {e}", flush=True)
+    print("   Check: MONGODB_URI value, Atlas Network Access (IP whitelist),", flush=True)
+    print("          and database user credentials.", flush=True)
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", flush=True)
+    return
+
+  app.state.mongo_client = client
+  app.state.mongo_db = client[db_name]
+  print("[MongoDB] ✓ Connected successfully.", flush=True)
+
+  try:
+    users = app.state.mongo_db["users"]
+    await users.create_index("email", unique=True)
+    await users.create_index("username", unique=True)
+    await users.create_index("status")
+    print("[MongoDB] ✓ Indexes ensured on 'users' collection.", flush=True)
+  except Exception as e:
+    print(f"[MongoDB] ⚠  Could not create indexes: {e}", flush=True)
+
+  admin_email = os.environ.get("TRAINER_ADMIN_EMAIL")
+  if not admin_email or not admin_email.strip():
+    print("[MongoDB] ⚠  TRAINER_ADMIN_EMAIL not set — no admin bootstrap.", flush=True)
+  else:
+    admin_email_norm = admin_email.strip().lower()
+    try:
+      existing = await users.find_one({"email": admin_email_norm})
+      if existing is not None:
+        await users.update_one(
+          {"_id": existing.get("_id")},
+          {"$set": {"is_admin": True, "status": "approved", "updated_at": _utc_now_iso()}},
+        )
+        print(f"[MongoDB] ✓ Admin '{admin_email_norm}' marked approved+admin.", flush=True)
+      else:
+        print(f"[MongoDB] ℹ  Admin '{admin_email_norm}' not registered yet — auto-approved on first register.", flush=True)
+    except Exception as e:
+      print(f"[MongoDB] ⚠  Admin bootstrap error: {e}", flush=True)
+
+
+
+@app.on_event("shutdown")
+async def _shutdown_mongo_after_env_loaded():
+  client = getattr(app.state, "mongo_client", None)
+  try:
+    if client is not None:
+      client.close()
+  except Exception:
+    pass
 
 STORAGE_DIR = BASE_DIR / "storage"
 UPLOADS_DIR = STORAGE_DIR / "uploads"
@@ -163,8 +367,189 @@ def health():
   return {"status": "ok"}
 
 
+@api.post("/auth/register")
+async def auth_register(payload: dict[str, Any], db=Depends(_get_db)):
+  email_raw = payload.get("email")
+  username_raw = payload.get("username")
+  password_raw = payload.get("password")
+
+  if not isinstance(email_raw, str) or not isinstance(username_raw, str) or not isinstance(password_raw, str):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD")
+
+  email_raw = email_raw.strip()
+  username_raw = username_raw.strip()
+  password_raw = password_raw.strip()
+
+  if len(username_raw) < 3 or len(username_raw) > 50:
+    raise HTTPException(status_code=400, detail="INVALID_USERNAME")
+  if not re.fullmatch(r"[a-zA-Z0-9_.-]+", username_raw):
+    raise HTTPException(status_code=400, detail="INVALID_USERNAME")
+  if len(password_raw) < 8:
+    raise HTTPException(status_code=400, detail="WEAK_PASSWORD")
+
+  try:
+    v = validate_email(email_raw)
+    email_norm = v.email.lower()
+  except EmailNotValidError:
+    raise HTTPException(status_code=400, detail="INVALID_EMAIL")
+
+  admin_email = os.environ.get("TRAINER_ADMIN_EMAIL")
+  admin_email_norm = admin_email.strip().lower() if admin_email else ""
+  is_admin = bool(admin_email_norm and email_norm == admin_email_norm)
+  status = "approved" if is_admin else "pending"
+
+  user_id = uuid.uuid4().hex
+  doc = {
+    "_id": user_id,
+    "email": email_norm,
+    "username": username_raw,
+    "password_hash": _hash_password(password_raw),
+    "status": status,
+    "is_admin": is_admin,
+    "permissions": ["trainer:all"] if is_admin else [],
+    "created_at": _utc_now_iso(),
+    "updated_at": _utc_now_iso(),
+  }
+
+  try:
+    await db["users"].insert_one(doc)
+  except Exception as e:
+    msg = str(e)
+    if "E11000" in msg and "email" in msg:
+      raise HTTPException(status_code=409, detail="EMAIL_ALREADY_EXISTS")
+    if "E11000" in msg and "username" in msg:
+      raise HTTPException(status_code=409, detail="USERNAME_ALREADY_EXISTS")
+    raise HTTPException(status_code=500, detail="USER_CREATE_FAILED")
+
+  return {"status": status, "user_id": user_id}
+
+
+@api.post("/auth/login")
+async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRequest, db=Depends(_get_db)):
+  email_raw = payload.get("email")
+  password_raw = payload.get("password")
+
+  if not isinstance(email_raw, str) or not isinstance(password_raw, str):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD")
+
+  try:
+    v = validate_email(email_raw.strip())
+    email_norm = v.email.lower()
+  except EmailNotValidError:
+    raise HTTPException(status_code=400, detail="INVALID_EMAIL")
+
+  user = await db["users"].find_one({"email": email_norm})
+  if not user:
+    raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+  if user.get("status") != "approved":
+    raise HTTPException(status_code=403, detail="USER_NOT_APPROVED")
+
+  password_hash = user.get("password_hash")
+  if not isinstance(password_hash, str) or not _verify_password(password_raw, password_hash):
+    raise HTTPException(status_code=401, detail="INVALID_CREDENTIALS")
+
+  permissions = _normalize_permissions(user.get("permissions"))
+  token = _create_access_token(user_id=user.get("_id"), is_admin=bool(user.get("is_admin")), permissions=permissions)
+
+  is_https = (req.url.scheme == "https")
+  secure_cookie = _is_production() and is_https
+
+  response.set_cookie(
+    key=_auth_cookie_name(),
+    value=token,
+    httponly=True,
+    secure=secure_cookie,
+    samesite="lax",
+    path="/",
+  )
+
+  response.set_cookie(
+    key="trainer_logged_in",
+    value="1",
+    httponly=False,
+    secure=secure_cookie,
+    samesite="lax",
+    path="/",
+  )
+
+  return {"ok": True}
+
+
+@api.post("/auth/logout")
+async def auth_logout(response: Response):
+  response.delete_cookie(key=_auth_cookie_name(), path="/")
+  response.delete_cookie(key="trainer_logged_in", path="/")
+  return {"ok": True}
+
+
+@api.get("/auth/me")
+async def auth_me(user: dict[str, Any] = Depends(_get_current_user)):
+  return {
+    "id": user.get("_id"),
+    "email": user.get("email"),
+    "username": user.get("username"),
+    "status": user.get("status"),
+    "is_admin": bool(user.get("is_admin")),
+    "permissions": _normalize_permissions(user.get("permissions")),
+  }
+
+
+@api.get("/admin/users")
+async def admin_users(_: dict[str, Any] = Depends(_require_admin), db=Depends(_get_db)):
+  out: list[dict[str, Any]] = []
+  async for u in db["users"].find({}, {"password_hash": 0}).sort("created_at", -1):
+    out.append(
+      {
+        "id": u.get("_id"),
+        "email": u.get("email"),
+        "username": u.get("username"),
+        "status": u.get("status"),
+        "is_admin": bool(u.get("is_admin")),
+        "permissions": _normalize_permissions(u.get("permissions")),
+        "created_at": u.get("created_at"),
+        "updated_at": u.get("updated_at"),
+      }
+    )
+  return {"users": out}
+
+
+@api.patch("/admin/users/{user_id}")
+async def admin_update_user(
+  user_id: str,
+  payload: dict[str, Any],
+  _: dict[str, Any] = Depends(_require_admin),
+  db=Depends(_get_db),
+):
+  patch: dict[str, Any] = {}
+
+  if "status" in payload:
+    status = payload.get("status")
+    if status not in ["pending", "approved", "disabled"]:
+      raise HTTPException(status_code=400, detail="INVALID_STATUS")
+    patch["status"] = status
+
+  if "is_admin" in payload:
+    is_admin = payload.get("is_admin")
+    if not isinstance(is_admin, bool):
+      raise HTTPException(status_code=400, detail="INVALID_IS_ADMIN")
+    patch["is_admin"] = is_admin
+
+  if "permissions" in payload:
+    patch["permissions"] = _normalize_permissions(payload.get("permissions"))
+
+  if not patch:
+    raise HTTPException(status_code=400, detail="EMPTY_PATCH")
+
+  patch["updated_at"] = _utc_now_iso()
+  res = await db["users"].update_one({"_id": user_id}, {"$set": patch})
+  if res.matched_count == 0:
+    raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
+
+  return {"ok": True}
+
+
 @api.get("/dam/assets")
-def dam_assets():
+def dam_assets(_: dict[str, Any] = Depends(_get_current_user)):
   api_key = os.environ.get("AIRTABLE_API_KEY")
   base_id = os.environ.get("AIRTABLE_BASE_ID")
   table = os.environ.get("AIRTABLE_TABLE")
@@ -211,7 +596,7 @@ def dam_assets():
 
 
 @api.get("/products/assets")
-def products_assets():
+def products_assets(_: dict[str, Any] = Depends(_get_current_user)):
   api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
   base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
   table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")

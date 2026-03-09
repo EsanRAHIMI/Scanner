@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { DamCacheProvider } from './dam-cache-provider';
 import { ProductsCacheProvider } from './products-cache-provider';
+import { AuthGate } from './auth-gate';
 import { TrainerNavbar } from './trainer-navbar';
 
 export const metadata: Metadata = {
@@ -24,14 +25,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="h-dvh overflow-hidden bg-white text-black">
-        <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-6 box-border px-5 py-6">
-          <TrainerNavbar scannerUrl={scannerUrl} />
-          <DamCacheProvider>
-            <ProductsCacheProvider>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
-            </ProductsCacheProvider>
-          </DamCacheProvider>
-        </div>
+        <AuthGate>
+          <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-6 box-border px-5 py-6">
+            <TrainerNavbar scannerUrl={scannerUrl} />
+            <DamCacheProvider>
+              <ProductsCacheProvider>
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+              </ProductsCacheProvider>
+            </DamCacheProvider>
+          </div>
+        </AuthGate>
       </body>
     </html>
   );
