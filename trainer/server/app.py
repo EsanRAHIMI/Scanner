@@ -73,6 +73,38 @@ def _read_json(path: Path, default: Any) -> Any:
     return default
 
 
+def _airtable_read_text(url: str, api_key: str) -> str:
+  timeout_s_raw = os.environ.get("AIRTABLE_HTTP_TIMEOUT_SECONDS") or os.environ.get("AIRTABLE_HTTP_TIMEOUT")
+  try:
+    timeout_s = int(timeout_s_raw) if timeout_s_raw else 60
+  except Exception:
+    timeout_s = 60
+
+  retries_raw = os.environ.get("AIRTABLE_HTTP_RETRIES")
+  try:
+    retries = int(retries_raw) if retries_raw else 2
+  except Exception:
+    retries = 2
+
+  req = Request(url)
+  req.add_header("Authorization", f"Bearer {api_key}")
+  req.add_header("Accept", "application/json")
+
+  last_err: Exception | None = None
+  for attempt in range(retries + 1):
+    try:
+      with urlopen(req, timeout=timeout_s) as resp:
+        return resp.read().decode("utf-8")
+    except Exception as e:
+      last_err = e
+      if attempt >= retries:
+        break
+      backoff = 0.6 * (2**attempt) + random.random() * 0.25
+      time.sleep(backoff)
+
+  raise last_err or Exception("Unknown airtable fetch error")
+
+
 def _validate_class_id(value: str) -> None:
   if not value:
     raise HTTPException(status_code=400, detail="INVALID_CLASS_ID")
@@ -147,13 +179,8 @@ def dam_assets():
       params["offset"] = offset
 
     url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
-    req = Request(url)
-    req.add_header("Authorization", f"Bearer {api_key}")
-    req.add_header("Accept", "application/json")
-
     try:
-      with urlopen(req, timeout=20) as resp:
-        body = resp.read().decode("utf-8")
+      body = _airtable_read_text(url, api_key)
     except Exception as e:
       raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
 
@@ -199,13 +226,8 @@ def products_assets():
       params["offset"] = offset
 
     url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
-    req = Request(url)
-    req.add_header("Authorization", f"Bearer {api_key}")
-    req.add_header("Accept", "application/json")
-
     try:
-      with urlopen(req, timeout=20) as resp:
-        body = resp.read().decode("utf-8")
+      body = _airtable_read_text(url, api_key)
     except Exception as e:
       raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
 

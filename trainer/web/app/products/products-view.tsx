@@ -156,12 +156,13 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
   return String(value);
 }
 
-export function ProductsView({ title }: { title: string }) {
+export function ProductsView({ title, titleLogoSrc }: { title: string; titleLogoSrc?: string }) {
   const { data, loading, error } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
   const [sortKey, setSortKey] = React.useState<string>('Num');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [titleLogoLoaded, setTitleLogoLoaded] = React.useState<boolean>(false);
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -315,11 +316,62 @@ export function ProductsView({ title }: { title: string }) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [previewUrl]);
 
+  React.useEffect(() => {
+    if (!titleLogoSrc) {
+      setTitleLogoLoaded(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTitleLogoLoaded(false);
+
+    const img = new window.Image();
+    img.onload = () => {
+      if (!cancelled) setTitleLogoLoaded(true);
+    };
+    img.onerror = () => {
+      if (!cancelled) setTitleLogoLoaded(false);
+    };
+    img.src = titleLogoSrc;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [titleLogoSrc]);
+
+  const titleNodeMobile = titleLogoSrc ? (
+    <span className="flex h-10 min-w-0 max-w-[140px] flex-none items-center overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={titleLogoSrc}
+        alt={title}
+        className={(titleLogoLoaded ? '' : 'hidden ') + 'h-8 w-auto max-w-full object-contain'}
+      />
+      {!titleLogoLoaded ? <span className="truncate text-lg font-semibold">{title}</span> : null}
+    </span>
+  ) : (
+    <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>
+  );
+
+  const titleNodeDesktop = titleLogoSrc ? (
+    <div className="flex h-10 min-w-0 max-w-[340px] items-center overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={titleLogoSrc}
+        alt={title}
+        className={(titleLogoLoaded ? '' : 'hidden ') + 'h-9 w-auto max-w-full object-contain'}
+      />
+      {!titleLogoLoaded ? <h1 className="text-2xl font-semibold">{title}</h1> : null}
+    </div>
+  ) : (
+    <h1 className="text-2xl font-semibold">{title}</h1>
+  );
+
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
       <div className="flex flex-col gap-2">
         <div className="flex w-full items-center gap-2 sm:hidden">
-          <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>
+          {titleNodeMobile}
           <input
             className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
             placeholder="Search…"
@@ -330,7 +382,7 @@ export function ProductsView({ title }: { title: string }) {
 
         <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">{title}</h1>
+            {titleNodeDesktop}
             <p className="mt-1 text-sm text-black/60"></p>
           </div>
 
