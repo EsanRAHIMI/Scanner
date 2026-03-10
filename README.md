@@ -188,7 +188,6 @@ MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reloa
 ```bash
 curl http://127.0.0.1:8000/health
 ```
-
 ---
 
 ## Terminal 4 — Frontend (Scanner UI)
