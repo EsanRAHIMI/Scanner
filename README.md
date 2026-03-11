@@ -204,7 +204,7 @@ npm run dev -- -p 3003
 http://localhost:3003/scanner
 ```
 
----
+---*
 
 # راهنمای کاربر (فارسی)
 
