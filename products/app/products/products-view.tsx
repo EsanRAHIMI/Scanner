@@ -99,7 +99,16 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
     const u = urls[0];
     if (!u) return null;
     return (
-      <button type="button" onClick={() => onImageClick?.(u)} title={u} className="block text-left">
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onImageClick?.(u);
+        }}
+        title={u}
+        className="block text-left"
+      >
         <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -166,7 +175,11 @@ export function ProductsView({
   const [search, setSearch] = React.useState<string>('');
   const [sortKey, setSortKey] = React.useState<string>('Num');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('list');
+  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -299,6 +312,245 @@ export function ProductsView({
     return base;
   }, [filteredRecords, getSortValue, sortDir, sortKey]);
 
+  const baseGalleryItems = React.useMemo(() => {
+    return sortedRecords
+      .map((r) => {
+        const fields = r.fields ?? {};
+        const url = extractUrls(r.fields?.Image)[0] ?? '';
+        const collectionName =
+          formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
+        const collectionNameNormalized = collectionName.trim();
+        const title = collectionName || 'Product';
+        const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
+        const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
+        const price = formatPrice(r.fields?.Price) ?? null;
+
+        const dimensionKey = (() => {
+          const keys = Object.keys(fields);
+          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
+          const mm = normalized.find((x) => x.n.includes('dimension') && x.n.includes('mm'))?.k;
+          if (mm) return mm;
+          const dim = normalized.find((x) => x.n.startsWith('dimension'))?.k;
+          if (dim) return dim;
+          return null;
+        })();
+
+        const dimension =
+          formatScalar(fields['DIMENSION (mm)']) ||
+          formatScalar(fields['Dimension (mm)']) ||
+          (dimensionKey ? formatScalar(fields[dimensionKey]) : '') ||
+          formatScalar(fields['DIMENSION']) ||
+          formatScalar(fields['DIMENSIONS']) ||
+          formatScalar(fields['Dimension']) ||
+          formatScalar(fields['Dimensions']);
+
+        const noteKey = (() => {
+          const keys = Object.keys(fields);
+          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
+          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ' ) || x.n.includes('note'))?.k ?? null;
+        })();
+
+        const note =
+          formatScalar(fields['Note']) ||
+          formatScalar(fields['NOTE']) ||
+          (noteKey ? formatScalar(fields[noteKey]) : '');
+
+        return {
+          id: r.id,
+          url,
+          title,
+          collectionName,
+          collectionNameNormalized,
+          code,
+          variant,
+          dimension,
+          note,
+          price,
+        };
+      })
+      .filter((x) => Boolean(x.url));
+  }, [sortedRecords]);
+
+  const galleryItems = React.useMemo(() => {
+    if (!familyCollectionName) return baseGalleryItems;
+    const key = familyCollectionName.trim();
+    return baseGalleryItems.filter((x) => x.collectionNameNormalized === key);
+  }, [baseGalleryItems, familyCollectionName]);
+
+  const openPreviewByUrl = React.useCallback(
+    (url: string) => {
+      if (!url) return;
+      const idx = galleryItems.findIndex((x) => x.url === url);
+      const resolvedIndex = idx >= 0 ? idx : 0;
+      const resolved = galleryItems[resolvedIndex];
+      setPreviewIndex(resolvedIndex);
+      setPreviewId(resolved?.id ?? null);
+    },
+    [galleryItems]
+  );
+
+  const closePreview = React.useCallback(() => {
+    setPreviewIndex(null);
+    setPreviewId(null);
+  }, []);
+
+  const goPrev = React.useCallback(() => {
+    setPreviewIndex((i) => {
+      if (i === null) return i;
+      const n = galleryItems.length;
+      if (n <= 1) return i;
+      const nextIndex = (i - 1 + n) % n;
+      const next = galleryItems[nextIndex];
+      setPreviewId(next?.id ?? null);
+      return nextIndex;
+    });
+  }, [galleryItems]);
+
+  React.useEffect(() => {
+    if (previewIndex === null) return;
+    if (!previewId) return;
+
+    const idx = galleryItems.findIndex((x) => x.id === previewId);
+    if (idx >= 0) {
+      if (idx !== previewIndex) setPreviewIndex(idx);
+      return;
+    }
+
+    if (galleryItems.length > 0) {
+      setPreviewIndex(0);
+      setPreviewId(galleryItems[0].id);
+    }
+  }, [galleryItems, previewId, previewIndex]);
+
+  const toggleSelected = React.useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const getSelectedItems = React.useCallback(
+    (fallbackIndex: number | null) => {
+      const byId = new Map(baseGalleryItems.map((x) => [x.id, x] as const));
+      const picked = [...selectedIds].map((id) => byId.get(id)).filter((x): x is (typeof galleryItems)[number] => !!x);
+      if (picked.length > 0) return picked;
+      if (fallbackIndex === null) return [];
+      const current = galleryItems[fallbackIndex];
+      return current ? [current] : [];
+    },
+    [baseGalleryItems, galleryItems, selectedIds]
+  );
+
+  const downloadSelected = React.useCallback(async () => {
+    const items = getSelectedItems(previewIndex);
+    if (items.length === 0) return;
+
+    for (const item of items) {
+      try {
+        const res = await fetch(item.url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+        const filenameBase = (item.code || item.title || 'image').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 64);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${filenameBase}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+      } catch {
+        // ignore
+      }
+    }
+  }, [getSelectedItems, previewIndex]);
+
+  const selectedCount = selectedIds.size;
+  const selectedFirst = React.useMemo(() => {
+    if (selectedIds.size === 0) return null;
+    const firstId = selectedIds.values().next().value as string | undefined;
+    if (!firstId) return null;
+    return baseGalleryItems.find((x) => x.id === firstId) ?? null;
+  }, [baseGalleryItems, selectedIds]);
+
+  const currentIndex = React.useMemo(() => {
+    if (previewId) {
+      const idx = galleryItems.findIndex((x) => x.id === previewId);
+      return idx >= 0 ? idx : null;
+    }
+    if (previewIndex === null) return null;
+    return previewIndex;
+  }, [galleryItems, previewId, previewIndex]);
+
+  const currentItem = React.useMemo(() => {
+    if (previewId) {
+      const found = galleryItems.find((x) => x.id === previewId);
+      if (found) return found;
+    }
+    if (previewIndex === null) return null;
+    return galleryItems[previewIndex] ?? null;
+  }, [galleryItems, previewId, previewIndex]);
+
+  const shareSelected = React.useCallback(async () => {
+    const items = getSelectedItems(previewIndex);
+    if (items.length === 0) return;
+
+    const urls = items.map((x) => x.url);
+
+    try {
+      const canNativeShare =
+        typeof navigator !== 'undefined' &&
+        typeof (navigator as Navigator & { share?: unknown }).share === 'function' &&
+        typeof (navigator as Navigator & { canShare?: unknown }).canShare === 'function';
+
+      if (canNativeShare) {
+        const files: File[] = [];
+        for (const item of items) {
+          const res = await fetch(item.url, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+          const filenameBase = (item.code || item.title || 'image').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 64);
+          files.push(new File([blob], `${filenameBase}.${ext}`, { type: blob.type || 'image/jpeg' }));
+        }
+
+        const shareData = {
+          title: items.length === 1 ? items[0].title : 'Products',
+          text: items.length === 1 ? items[0].title : `Selected: ${items.length}`,
+          files,
+        };
+
+        const nav = navigator as Navigator & { share: (data: unknown) => Promise<void>; canShare: (data: unknown) => boolean };
+        if (files.length > 0 && nav.canShare(shareData)) {
+          await nav.share(shareData);
+          return;
+        }
+      }
+    } catch {
+      // fallthrough
+    }
+
+    try {
+      await navigator.clipboard.writeText(urls.join('\n'));
+    } catch {
+      // ignore
+    }
+  }, [getSelectedItems, previewIndex]);
+
+  const goNext = React.useCallback(() => {
+    setPreviewIndex((i) => {
+      if (i === null) return i;
+      const n = galleryItems.length;
+      if (n <= 1) return i;
+      const nextIndex = (i + 1) % n;
+      const next = galleryItems[nextIndex];
+      setPreviewId(next?.id ?? null);
+      return nextIndex;
+    });
+  }, [galleryItems]);
+
   const toggleSort = React.useCallback(
     (key: string) => {
       if (sortKey === key) {
@@ -312,13 +564,24 @@ export function ProductsView({
   );
 
   React.useEffect(() => {
-    if (!previewUrl) return;
+    if (previewIndex === null) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPreviewUrl(null);
+      if (e.key === 'Escape') closePreview();
+      if (e.key === 'ArrowLeft') goPrev();
+      if (e.key === 'ArrowRight') goNext();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [previewUrl]);
+  }, [closePreview, goNext, goPrev, previewIndex]);
+
+  React.useEffect(() => {
+    const v = window.localStorage.getItem('products_view_mode');
+    if (v === 'gallery') setViewMode('gallery');
+  }, []);
+
+  React.useEffect(() => {
+    window.localStorage.setItem('products_view_mode', viewMode);
+  }, [viewMode]);
 
   return (
     <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
@@ -370,66 +633,499 @@ export function ProductsView({
 
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="flex min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-        <div className="h-full w-full overflow-auto">
-          <table className="min-w-full table-auto text-left text-sm">
-            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
-              <tr>
-                {displayedColumns.map((c, idx) => (
-                  <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(c)}
-                      className="inline-flex items-center gap-2 hover:text-black"
-                      title="Sort"
-                    >
-                      <span>{c}</span>
-                      {sortKey === c ? <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span> : null}
-                    </button>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRecords.map((r) => (
-                <tr key={r.id} className="border-t border-black/10 align-middle">
-                  {displayedColumns.map((c, idx) => (
-                    <td
-                      key={c}
-                      className={
-                        (idx === 0 ? 'sticky left-0 z-10 bg-white ' : '') +
-                        (idx === 0
-                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
-                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
-                      }
-                    >
-                      {renderCell(c, r.fields?.[c], setPreviewUrl)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {records.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
-                    {loading ? 'Loading…' : 'No records.'}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+      <div className="flex items-center justify-end">
+        <div className="inline-flex items-center rounded-full border border-black/10 bg-black/5 p-1">
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            aria-pressed={viewMode === 'list'}
+            className={
+              (viewMode === 'list'
+                ? 'bg-white text-black shadow-sm '
+                : 'bg-transparent text-black/70 hover:text-black hover:bg-white/50 ') +
+              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition'
+            }
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+              <path d="M8 6h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M8 12h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M8 18h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M3.5 6h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              <path d="M3.5 12h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              <path d="M3.5 18h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+            <span>List</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('gallery')}
+            aria-pressed={viewMode === 'gallery'}
+            className={
+              (viewMode === 'gallery'
+                ? 'bg-white text-black shadow-sm '
+                : 'bg-transparent text-black/70 hover:text-black hover:bg-white/50 ') +
+              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition'
+            }
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+              <path
+                d="M4.5 5.5h6.5v6.5H4.5V5.5Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M13 5.5h6.5v6.5H13V5.5Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M4.5 13h6.5v6.5H4.5V13Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M13 13h6.5v6.5H13V13Z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>Gallery</span>
+          </button>
         </div>
       </div>
 
-      {previewUrl ? (
+      {viewMode === 'list' ? (
+        <div className="flex min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+          <div className="h-full w-full overflow-auto">
+            <table className="min-w-full table-auto text-left text-sm">
+              <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
+                <tr>
+                  {displayedColumns.map((c, idx) => (
+                    <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c)}
+                        className="inline-flex items-center gap-2 hover:text-black"
+                        title="Sort"
+                      >
+                        <span>{c}</span>
+                        {sortKey === c ? (
+                          <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                        ) : null}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedRecords.map((r) => (
+                  <tr
+                    key={r.id}
+                    className={
+                      'border-t border-black/10 align-middle ' +
+                      (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
+                    }
+                  >
+                    {displayedColumns.map((c, idx) => (
+                      <td
+                        key={c}
+                        className={
+                          (idx === 0
+                            ? 'sticky left-0 z-10 ' + (selectedIds.has(r.id) ? 'bg-emerald-50 ' : 'bg-white ')
+                            : '') +
+                          (idx === 0
+                            ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
+                            : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
+                        }
+                        onClick={() => {
+                          if (c.trim().toLowerCase() === 'image') {
+                            const u = extractUrls(r.fields?.[c])[0] ?? '';
+                            if (u) openPreviewByUrl(u);
+                            return;
+                          }
+                          toggleSelected(r.id);
+                        }}
+                      >
+                        {renderCell(c, r.fields?.[c], openPreviewByUrl)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {records.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
+                      {loading ? 'Loading…' : 'No records.'}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 w-full flex-1 overflow-auto rounded-xl border border-black/10 bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {sortedRecords.map((r) => {
+              const img = extractUrls(r.fields?.Image)[0] ?? '';
+              const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
+              const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
+              const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
+              const fields = r.fields ?? {};
+              const dimensionKey = (() => {
+                const keys = Object.keys(fields);
+                const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
+                const mm = normalized.find((x) => x.n.includes('dimension') && x.n.includes('mm'))?.k;
+                if (mm) return mm;
+                const dim = normalized.find((x) => x.n.startsWith('dimension'))?.k;
+                if (dim) return dim;
+                const size = normalized.find((x) => x.n.startsWith('size'))?.k;
+                if (size) return size;
+                return null;
+              })();
+
+              const size =
+                formatScalar(fields['DIMENSION (mm)']) ||
+                formatScalar(fields['Dimension (mm)']) ||
+                (dimensionKey ? formatScalar(fields[dimensionKey]) : '') ||
+                formatScalar(fields['DIMENSION']) ||
+                formatScalar(fields['DIMENSIONS']) ||
+                formatScalar(fields['Dimension']) ||
+                formatScalar(fields['Dimensions']) ||
+                formatScalar(fields['SIZE']) ||
+                formatScalar(fields['Size']);
+              const price = formatPrice(r.fields?.Price) ?? null;
+
+              return (
+                <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white">
+                  <button
+                    type="button"
+                    className="block w-full"
+                    onClick={() => {
+                      if (img) openPreviewByUrl(img);
+                    }}
+                    title={img || 'No image'}
+                    disabled={!img}
+                  >
+                    <div className="aspect-square w-full bg-black/5">
+                      {img ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={img}
+                          alt="product"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs text-black/40">No image</div>
+                      )}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={
+                      'block w-full text-left space-y-0.5 p-2.5 ' +
+                      (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
+                    }
+                    onClick={() => toggleSelected(r.id)}
+                    title={selectedIds.has(r.id) ? 'Selected' : 'Select'}
+                    aria-pressed={selectedIds.has(r.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2 leading-snug">
+                      <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black">{name || '—'}</div>
+                      <div className="flex-none text-sm font-semibold text-black">{price ? `AED ${price}` : ''}</div>
+                    </div>
+                    <div className="text-xs leading-snug text-black/60">{code ? `Code: ${code}` : ' '}</div>
+                    <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70">
+                      <span className="truncate">{variant ? `Variant: ${variant}` : ''}</span>
+                      <span className={selectedIds.has(r.id) ? 'text-emerald-700' : 'text-black/35'}>
+                        {selectedIds.has(r.id) ? 'Selected' : ''}
+                      </span>
+                    </div>
+                    <div className="text-xs leading-snug text-black/55">{size ? `Size: ${size}` : ' '}</div>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {records.length === 0 ? (
+            <div className="px-2 py-6 text-sm text-black/50">{loading ? 'Loading…' : 'No records.'}</div>
+          ) : null}
+        </div>
+      )}
+
+      {selectedCount > 0 && !currentItem ? (
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
+          <div className="mx-auto max-w-xl transform transition-all duration-200 ease-out translate-y-0 opacity-100">
+            <div className="rounded-2xl border border-white/10 bg-black/35 p-2 text-white shadow-lg backdrop-blur">
+              <div className="flex items-center justify-between gap-3 px-2 pb-2">
+                <div className="text-xs font-medium text-white/70">Selected: {selectedCount}</div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-xs font-semibold text-white/70 hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/25 p-1 backdrop-blur">
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void downloadSelected()}
+                    className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                  >
+                    <span className="truncate">Download</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void shareSelected()}
+                    className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                  >
+                    <span className="truncate">Share</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (familyCollectionName) {
+                        setFamilyCollectionName(null);
+                        return;
+                      }
+                      const key = (selectedFirst?.collectionNameNormalized || '').trim();
+                      if (!key) return;
+                      setFamilyCollectionName(key);
+                    }}
+                    disabled={!familyCollectionName && !(selectedFirst?.collectionNameNormalized || '').trim()}
+                    className={
+                      'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
+                      (familyCollectionName
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                        : (selectedFirst?.collectionNameNormalized || '').trim()
+                          ? 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10'
+                          : 'border-white/10 bg-black/10 text-white/45')
+                    }
+                  >
+                    <span className="truncate">{familyCollectionName ? 'ALL' : 'Family'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {currentItem?.url ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-[2px] p-4"
           role="dialog"
           aria-modal="true"
-          onMouseDown={() => setPreviewUrl(null)}
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) closePreview();
+          }}
         >
-          <div className="flex items-center justify-center" onMouseDown={(e) => e.stopPropagation()}>
+          {selectedIds.has(currentItem.id) ? (
+            <div
+              className="fixed right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200/60 bg-emerald-500/20 text-emerald-50 shadow-lg backdrop-blur"
+              onPointerDown={(e) => e.stopPropagation()}
+              title="Selected"
+              aria-label="Selected"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                <path
+                  d="M20 6L9 17l-5-5"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          ) : null}
+
+          <div
+            className="fixed left-3 top-3 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/85 backdrop-blur-md"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {(typeof currentIndex === 'number' ? currentIndex + 1 : 1)} / {galleryItems.length}
+          </div>
+
+          <div className="relative flex items-center justify-center" onPointerDown={(e) => e.stopPropagation()}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt="product" className="max-h-[90vh] w-auto max-w-[95vw] object-contain" />
+            <img
+              src={currentItem.url}
+              alt={currentItem.title}
+              className="max-h-[90vh] w-auto max-w-[95vw] select-none object-contain"
+              draggable={false}
+              onClick={() => toggleSelected(currentItem.id)}
+            />
+          </div>
+
+          {galleryItems.length > 1 ? (
+            <button
+              type="button"
+              onClick={goPrev}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="fixed left-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
+              aria-label="Previous"
+            >
+              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-black/20 text-lg font-semibold text-white shadow-sm backdrop-blur transition">
+                ‹
+              </span>
+            </button>
+          ) : null}
+
+          {galleryItems.length > 1 ? (
+            <button
+              type="button"
+              onClick={goNext}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="fixed right-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
+              aria-label="Next"
+            >
+              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-black/20 text-lg font-semibold text-white shadow-sm backdrop-blur transition">
+                ›
+              </span>
+            </button>
+          ) : null}
+
+          <div
+            className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div
+              className={
+                'mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border p-4 pb-28 text-white shadow-lg backdrop-blur ' +
+                (selectedIds.has(currentItem.id) ? 'border-emerald-200/40 bg-emerald-900/20' : 'border-white/10 bg-black/35')
+              }
+              onClick={() => toggleSelected(currentItem.id)}
+            >
+              <div className="overflow-hidden rounded-xl border border-white/10 bg-black/10">
+                <div className="grid grid-cols-5 gap-px bg-white/10">
+                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                    Collection Name
+                  </div>
+                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                    Collection Code
+                  </div>
+                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                    Variant Number
+                  </div>
+                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                    DIMENSION (mm)
+                  </div>
+                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                    Price
+                  </div>
+
+                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                    <div className="truncate">{currentItem.title}</div>
+                  </div>
+                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                    <div className="truncate">{currentItem.code || '—'}</div>
+                  </div>
+                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                    <div className="truncate">{currentItem.variant || '—'}</div>
+                  </div>
+                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                    <div className="truncate">{currentItem.dimension || '—'}</div>
+                  </div>
+                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                    <div className="truncate">
+                      {currentItem.price ? `AED ${currentItem.price}` : '—'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <div
+            className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto max-w-xl transform transition-all duration-200 ease-out translate-y-0 opacity-100">
+              <div className="rounded-2xl border border-white/10 bg-black/35 p-2 text-white shadow-lg backdrop-blur">
+                <div className="flex items-center justify-between gap-3 px-2 pb-2">
+                  <div className="text-xs font-medium text-white/70">Selected: {selectedCount}</div>
+                  {selectedCount > 0 ? (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => setSelectedIds(new Set())}
+                      className="text-xs font-semibold text-white/70 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  ) : (
+                    <div className="text-xs font-semibold text-white/35">Clear</div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-1 backdrop-blur">
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => void downloadSelected()}
+                      className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                    >
+                      <span className="truncate">Download</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => void shareSelected()}
+                      className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                    >
+                      <span className="truncate">Share</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => {
+                        if (familyCollectionName) {
+                          setFamilyCollectionName(null);
+                          return;
+                        }
+                        const current =
+                          (previewId ? baseGalleryItems.find((x) => x.id === previewId) : null) ??
+                          currentItem;
+                        const key = (current?.collectionNameNormalized || '').trim();
+                        if (!key) return;
+                        setFamilyCollectionName(key);
+                      }}
+                      disabled={!familyCollectionName && !(currentItem?.collectionNameNormalized || '').trim()}
+                      className={
+                        'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
+                        (familyCollectionName
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                          : (currentItem?.collectionNameNormalized || '').trim()
+                            ? 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10'
+                            : 'border-white/10 bg-black/10 text-white/45')
+                      }
+                    >
+                      <span className="truncate">{familyCollectionName ? 'ALL' : 'Family'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
