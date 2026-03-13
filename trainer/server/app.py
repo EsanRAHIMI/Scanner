@@ -595,6 +595,53 @@ def dam_assets(_: dict[str, Any] = Depends(_get_current_user)):
   return {"columns": columns, "records": records, "count": len(records)}
 
 
+@api.get("/public/products/assets")
+def public_products_assets():
+  api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
+  base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
+  table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")
+  if not api_key or not base_id or not table:
+    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
+
+  records: list[dict[str, Any]] = []
+  offset: str | None = None
+  for _ in range(20):
+    params: dict[str, str] = {"pageSize": "100"}
+    if offset:
+      params["offset"] = offset
+
+    url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
+    try:
+      body = _airtable_read_text(url, api_key)
+    except Exception as e:
+      raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
+
+    try:
+      data = json.loads(body)
+    except Exception:
+      raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
+
+    batch = data.get("records")
+    if isinstance(batch, list):
+      records.extend(batch)
+
+    off = data.get("offset")
+    offset = off if isinstance(off, str) else None
+    if not offset:
+      break
+
+  columns_set: set[str] = set()
+  for r in records:
+    f = r.get("fields") if isinstance(r, dict) else None
+    if isinstance(f, dict):
+      for k in f.keys():
+        if isinstance(k, str):
+          columns_set.add(k)
+
+  columns = sorted(columns_set)
+  return {"columns": columns, "records": records, "count": len(records)}
+
+
 @api.get("/products/assets")
 def products_assets(_: dict[str, Any] = Depends(_get_current_user)):
   api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")

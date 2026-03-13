@@ -7,7 +7,7 @@ export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
 
   const baseResolved = base.startsWith('/') ? `${origin}${base}` : base;
-  const url = `${baseResolved}/products/assets`;
+  const url = `${baseResolved}/public/products/assets`;
 
   const res = await fetch(url, {
     cache: 'no-store',

@@ -204,6 +204,20 @@ npm run dev -- -p 3003
 http://localhost:3003/scanner
 ```
 
+---
+
+## Terminal 5 — products
+```bash
+cd products
+npm install
+npm run dev -- -p 3004
+```
+
+باز کردن:
+
+```
+http://localhost:3004
+```
 ---*
 
 # راهنمای کاربر (فارسی)
