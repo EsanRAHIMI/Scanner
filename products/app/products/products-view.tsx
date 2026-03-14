@@ -163,16 +163,17 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
 }
 
 export function ProductsView({
-  title,
+  title = 'Products',
   titleNode,
   mobileTitleNode,
 }: {
-  title: string;
+  title?: string;
   titleNode?: React.ReactNode;
   mobileTitleNode?: React.ReactNode;
 }) {
   const { data, loading, error } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
+  const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
   const [sortKey, setSortKey] = React.useState<string>('Num');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('list');
@@ -243,9 +244,10 @@ export function ProductsView({
 
   const filteredRecords = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return records;
-    return records.filter((r) => getSearchText(r, displayedColumns).includes(q));
-  }, [displayedColumns, getSearchText, records, search]);
+    const base = !q ? records : records.filter((r) => getSearchText(r, displayedColumns).includes(q));
+    if (!showSelectedOnly) return base;
+    return base.filter((r) => selectedIds.has(r.id));
+  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly]);
 
   const getSortValue = React.useCallback((r: ProductsAirtableRecord, key: string) => {
     const k = key.trim().toLowerCase();
@@ -468,12 +470,9 @@ export function ProductsView({
   }, [getSelectedItems, previewIndex]);
 
   const selectedCount = selectedIds.size;
-  const selectedFirst = React.useMemo(() => {
-    if (selectedIds.size === 0) return null;
-    const firstId = selectedIds.values().next().value as string | undefined;
-    if (!firstId) return null;
-    return baseGalleryItems.find((x) => x.id === firstId) ?? null;
-  }, [baseGalleryItems, selectedIds]);
+  React.useEffect(() => {
+    if (selectedIds.size === 0 && showSelectedOnly) setShowSelectedOnly(false);
+  }, [selectedIds, showSelectedOnly]);
 
   const currentIndex = React.useMemo(() => {
     if (previewId) {
@@ -574,201 +573,194 @@ export function ProductsView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closePreview, goNext, goPrev, previewIndex]);
 
-  React.useEffect(() => {
-    const v = window.localStorage.getItem('products_view_mode');
-    if (v === 'gallery') setViewMode('gallery');
-  }, []);
+React.useEffect(() => {
+  const v = window.localStorage.getItem('products_view_mode');
+  if (v === 'gallery') setViewMode('gallery');
+}, []);
 
-  React.useEffect(() => {
-    window.localStorage.setItem('products_view_mode', viewMode);
-  }, [viewMode]);
+React.useEffect(() => {
+  window.localStorage.setItem('products_view_mode', viewMode);
+}, [viewMode]);
 
-  return (
-    <main className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4">
-      <div className="flex flex-col gap-2">
-        <div className="flex w-full items-center gap-2 sm:hidden">
-          {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
+const viewToggleNode = (
+  <div className="inline-flex items-center rounded-full border border-black/10 bg-black/5 p-1">
+    <button
+      type="button"
+      onClick={() => setViewMode('list')}
+      aria-pressed={viewMode === 'list'}
+      className={
+        (viewMode === 'list'
+          ? 'bg-white text-black shadow-sm '
+          : 'text-black/60 hover:text-black ') +
+        'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition'
+      }
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path
+          d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="hidden sm:inline">List</span>
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setViewMode('gallery')}
+      aria-pressed={viewMode === 'gallery'}
+      className={
+        (viewMode === 'gallery'
+          ? 'bg-white text-black shadow-sm '
+          : 'text-black/60 hover:text-black ') +
+        'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition'
+      }
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path
+          d="M4.5 5.5h6.5v6.5H4.5V5.5Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M13 5.5h6.5v6.5H13V5.5Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4.5 14h6.5v4.5H4.5V14Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M13 14h6.5v4.5H13V14Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span className="hidden sm:inline">Gallery</span>
+    </button>
+  </div>
+);
+
+return (
+  <main
+    className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4"
+  >
+    <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md">
+      <div className="flex w-full items-center gap-2 sm:hidden">
+        {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
+        <input
+          className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
+          placeholder="Search…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {viewToggleNode}
+      </div>
+
+      <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
+        <div>
+          {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
+          <p className="mt-1 text-sm text-black/60"></p>
+        </div>
+
+        <div className="flex items-center gap-2">
           <input
-            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
+            className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          {viewToggleNode}
         </div>
+      </div>
+    </div>
 
-        <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
-          <div>
-            {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
-            <p className="mt-1 text-sm text-black/60"></p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex h-[64px] w-[360px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60">
-              <div className="grid grid-cols-3 gap-2 text-[11px]">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-black/50">Records:</span>
-                  <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-black/50">Matched:</span>
-                  <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-black/50">Columns:</span>
-                  <span className="font-semibold text-black"> {data ? columns.length : '—'}</span>
-                </div>
-              </div>
-              <div className="mt-1 text-justify text-[11px] text-black/35">Cached in session (no refresh)</div>
-            </div>
-
-            <input
-              className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+      <div className="-mx-5 px-5">
+        <div className="mt-1 text-[11px] leading-tight text-black/50">
+          <span className="font-medium text-black/60">Records:</span> {data ? data.count : '—'}
+          <span className="mx-2 text-black/25">|</span>
+          <span className="font-medium text-black/60">Matched:</span> {data ? filteredRecords.length : '—'}
+          <span className="mx-2 text-black/25">|</span>
+          <span className="font-medium text-black/60">Columns:</span> {data ? columns.length : '—'}
         </div>
       </div>
 
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="flex items-center justify-end">
-        <div className="inline-flex items-center rounded-full border border-black/10 bg-black/5 p-1">
-          <button
-            type="button"
-            onClick={() => setViewMode('list')}
-            aria-pressed={viewMode === 'list'}
-            className={
-              (viewMode === 'list'
-                ? 'bg-white text-black shadow-sm '
-                : 'bg-transparent text-black/70 hover:text-black hover:bg-white/50 ') +
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition'
-            }
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path d="M8 6h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M8 12h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M8 18h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M3.5 6h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-              <path d="M3.5 12h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-              <path d="M3.5 18h.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-            </svg>
-            <span>List</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode('gallery')}
-            aria-pressed={viewMode === 'gallery'}
-            className={
-              (viewMode === 'gallery'
-                ? 'bg-white text-black shadow-sm '
-                : 'bg-transparent text-black/70 hover:text-black hover:bg-white/50 ') +
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs transition'
-            }
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-              <path
-                d="M4.5 5.5h6.5v6.5H4.5V5.5Z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M13 5.5h6.5v6.5H13V5.5Z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M4.5 13h6.5v6.5H4.5V13Z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M13 13h6.5v6.5H13V13Z"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span>Gallery</span>
-          </button>
-        </div>
-      </div>
-
       {viewMode === 'list' ? (
-        <div className="flex min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-          <div className="h-full w-full overflow-auto">
-            <table className="min-w-full table-auto text-left text-sm">
-              <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
-                <tr>
+        <div className="w-full overflow-x-auto rounded-xl border border-black/10 bg-white shadow-sm">
+          <table className="min-w-full table-auto text-left text-sm">
+            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
+              <tr>
+                {displayedColumns.map((c, idx) => (
+                  <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c)}
+                      className="inline-flex items-center gap-2 hover:text-black"
+                      title="Sort"
+                    >
+                      <span>{c}</span>
+                      {sortKey === c ? (
+                        <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                      ) : null}
+                    </button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRecords.map((r) => (
+                <tr
+                  key={r.id}
+                  className={
+                    'border-t border-black/10 align-middle ' + (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
+                  }
+                >
                   {displayedColumns.map((c, idx) => (
-                    <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
-                      <button
-                        type="button"
-                        onClick={() => toggleSort(c)}
-                        className="inline-flex items-center gap-2 hover:text-black"
-                        title="Sort"
-                      >
-                        <span>{c}</span>
-                        {sortKey === c ? (
-                          <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span>
-                        ) : null}
-                      </button>
-                    </th>
+                    <td
+                      key={c}
+                      className={
+                        (idx === 0
+                          ? 'sticky left-0 z-10 ' + (selectedIds.has(r.id) ? 'bg-emerald-50 ' : 'bg-white ')
+                          : '') +
+                        (idx === 0
+                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
+                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
+                      }
+                      onClick={() => {
+                        if (c.trim().toLowerCase() === 'image') {
+                          const u = extractUrls(r.fields?.[c])[0] ?? '';
+                          if (u) openPreviewByUrl(u);
+                          return;
+                        }
+                        toggleSelected(r.id);
+                      }}
+                    >
+                      {renderCell(c, r.fields?.[c], openPreviewByUrl)}
+                    </td>
                   ))}
                 </tr>
-              </thead>
-              <tbody>
-                {sortedRecords.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={
-                      'border-t border-black/10 align-middle ' +
-                      (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
-                    }
-                  >
-                    {displayedColumns.map((c, idx) => (
-                      <td
-                        key={c}
-                        className={
-                          (idx === 0
-                            ? 'sticky left-0 z-10 ' + (selectedIds.has(r.id) ? 'bg-emerald-50 ' : 'bg-white ')
-                            : '') +
-                          (idx === 0
-                            ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
-                            : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
-                        }
-                        onClick={() => {
-                          if (c.trim().toLowerCase() === 'image') {
-                            const u = extractUrls(r.fields?.[c])[0] ?? '';
-                            if (u) openPreviewByUrl(u);
-                            return;
-                          }
-                          toggleSelected(r.id);
-                        }}
-                      >
-                        {renderCell(c, r.fields?.[c], openPreviewByUrl)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {records.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
-                      {loading ? 'Loading…' : 'No records.'}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {records.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
+                    {loading ? 'Loading…' : 'No records.'}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <div className="min-h-0 w-full flex-1 overflow-auto rounded-xl border border-black/10 bg-white p-3 shadow-sm">
+        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {sortedRecords.map((r) => {
               const img = extractUrls(r.fields?.Image)[0] ?? '';
@@ -904,21 +896,16 @@ export function ProductsView({
                         setFamilyCollectionName(null);
                         return;
                       }
-                      const key = (selectedFirst?.collectionNameNormalized || '').trim();
-                      if (!key) return;
-                      setFamilyCollectionName(key);
+                      setShowSelectedOnly((v) => !v);
                     }}
-                    disabled={!familyCollectionName && !(selectedFirst?.collectionNameNormalized || '').trim()}
                     className={
                       'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
-                      (familyCollectionName
+                      (familyCollectionName || showSelectedOnly
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-                        : (selectedFirst?.collectionNameNormalized || '').trim()
-                          ? 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10'
-                          : 'border-white/10 bg-black/10 text-white/45')
+                        : 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10')
                     }
                   >
-                    <span className="truncate">{familyCollectionName ? 'ALL' : 'Family'}</span>
+                    <span className="truncate">{familyCollectionName ? 'ALL' : showSelectedOnly ? 'ALL' : 'Selected'}</span>
                   </button>
                 </div>
               </div>
