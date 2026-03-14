@@ -1118,19 +1118,19 @@ return (
                   </div>
 
                   <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
-                    <div className="truncate">{currentItem.title}</div>
+                    <div className="whitespace-normal break-words sm:truncate">{currentItem.title}</div>
                   </div>
                   <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
-                    <div className="truncate">{currentItem.code || '—'}</div>
+                    <div className="whitespace-normal break-words sm:truncate">{currentItem.code || '—'}</div>
                   </div>
                   <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
-                    <div className="truncate">{currentItem.variant || '—'}</div>
+                    <div className="whitespace-normal break-words sm:truncate">{currentItem.variant || '—'}</div>
                   </div>
                   <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
-                    <div className="truncate">{currentItem.dimension || '—'}</div>
+                    <div className="whitespace-normal break-words sm:truncate">{currentItem.dimension || '—'}</div>
                   </div>
                   <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
-                    <div className="truncate">
+                    <div className="whitespace-normal break-words sm:truncate">
                       {currentItem.price ? `AED ${currentItem.price}` : '—'}
                     </div>
                   </div>
