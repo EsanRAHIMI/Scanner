@@ -1141,7 +1141,7 @@ return (
                     className={
                       'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
                       (familyCollectionName || showSelectedOnly
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                        ? 'border-red-200 bg-red-50 text-red-900 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100 dark:hover:bg-red-900/30'
                         : 'border-black/10 bg-white/70 text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10')
                     }
                   >
@@ -1294,8 +1294,13 @@ return (
                 }
                 
                 // Handle quick tap (not swipe) for touch selection
-                if (e.pointerType === 'touch' && !swipeRef.current.moved && !swipeRef.current.swiped) {
-                  toggleSelected(currentItem.id);
+                // Add a small delay to allow swipe detection
+                if (e.pointerType === 'touch') {
+                  setTimeout(() => {
+                    if (!swipeRef.current.moved && !swipeRef.current.swiped) {
+                      toggleSelected(currentItem.id);
+                    }
+                  }, 50); // 50ms delay to allow swipe detection
                 }
               }}
               onPointerLeave={(e) => {
@@ -1349,7 +1354,11 @@ return (
                 +
                 (lightboxDetailsCollapsed ? ' max-h-[120px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
-              onClick={() => setLightboxDetailsCollapsed((v) => !v)}
+              onClick={() => {
+                if (currentCollectionVariants.length > 1) {
+                  setLightboxDetailsCollapsed((v) => !v);
+                }
+              }}
             >
               <div className="relative">
                 {currentCollectionVariants.length > 1 && (
@@ -1406,7 +1415,9 @@ return (
                     }
                   }}
                   onTouchEnd={() => {
-                    setTableSwipeStart(null);
+                    if (currentCollectionVariants.length > 1) {
+                      setTableSwipeStart(null);
+                    }
                   }}
                 >
                   <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
@@ -1702,7 +1713,7 @@ return (
                       className={
                         'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
                         (familyCollectionName
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+                          ? 'border-red-300 bg-red-500/10 text-red-100 hover:bg-red-500/20'
                           : (currentItem?.collectionNameNormalized || '').trim()
                             ? 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10'
                             : 'border-white/10 bg-black/10 text-white/45')
