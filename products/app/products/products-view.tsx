@@ -1273,19 +1273,29 @@ return (
                   return;
                 }
                 
-                // Start long press timer for mobile touch
+                // For touch, don't start long press if swipe might happen
+                // The swipe navigation is handled by the parent container
                 if (e.pointerType === 'touch') {
+                  // Start long press timer but be ready to cancel for swipe
                   const timer = setTimeout(() => {
-                    toggleSelected(currentItem.id);
+                    // Only select if no swipe occurred
+                    if (!swipeRef.current.moved && !swipeRef.current.swiped) {
+                      toggleSelected(currentItem.id);
+                    }
                   }, 1000); // 1 second long press
                   setImageLongPressTimer(timer);
                 }
               }}
               onPointerUp={(e) => {
-                // Clear long press timer if released early
+                // Clear long press timer if released early or after swipe
                 if (imageLongPressTimer) {
                   clearTimeout(imageLongPressTimer);
                   setImageLongPressTimer(null);
+                }
+                
+                // Handle quick tap (not swipe) for touch selection
+                if (e.pointerType === 'touch' && !swipeRef.current.moved && !swipeRef.current.swiped) {
+                  toggleSelected(currentItem.id);
                 }
               }}
               onPointerLeave={(e) => {
