@@ -108,7 +108,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
         title={u ? 'Click to maximize' : 'No image'}
         className="block text-left"
       >
-        <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5">
+        <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
           {u ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -122,7 +122,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
               className="block h-full w-full object-cover"
             />
           ) : (
-            <span className="flex h-full w-full items-center justify-center text-[11px] text-black/60">
+            <span className="flex h-full w-full items-center justify-center text-[11px] text-black/60 dark:text-white/60">
               No image
             </span>
           )}
@@ -141,7 +141,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
           {items.map((label) => (
             <span
               key={label}
-              className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px]"
+              className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] dark:border-white/10 dark:bg-white/5"
               title={label}
             >
               <span className="max-w-[240px] truncate">{label}</span>
@@ -151,7 +151,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
       );
     }
 
-    return <span className="text-xs text-black/60">[{arr.length}]</span>;
+    return <span className="text-xs text-black/60 dark:text-white/60">[{arr.length}]</span>;
   }
 
   const scalar = formatScalar(value);
@@ -161,7 +161,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
     const maybe = value as Record<string, unknown>;
     if (typeof maybe.name === 'string') return maybe.name;
     if (typeof maybe.url === 'string') return maybe.url;
-    return <span className="text-xs text-black/60">Object</span>;
+    return <span className="text-xs text-black/60 dark:text-white/60">Object</span>;
   }
 
   return String(value);
@@ -179,9 +179,11 @@ export function ProductsView({
   const { data, loading, error } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
   const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
+  const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
+  const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
   const [sortKey, setSortKey] = React.useState<string>('Num');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('list');
+  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('gallery');
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
   const [previewId, setPreviewId] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
@@ -319,8 +321,34 @@ export function ProductsView({
     return base;
   }, [filteredRecords, getSortValue, sortDir, sortKey]);
 
+  const visibleRecords = React.useMemo(() => {
+    if (familyMode !== 'main') return sortedRecords;
+
+    const seen = new Set<string>();
+    const out: ProductsAirtableRecord[] = [];
+
+    for (const r of sortedRecords) {
+      const raw =
+        formatScalar(r.fields?.['Colecction Name']) ||
+        formatScalar(r.fields?.Name) ||
+        formatScalar(r.fields?.['Collection Name']) ||
+        '';
+      const key = raw.trim();
+
+      if (!key) {
+        out.push(r);
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+
+    return out;
+  }, [familyMode, sortedRecords]);
+
   const baseGalleryItems = React.useMemo(() => {
-    return sortedRecords
+    return visibleRecords
       .map((r) => {
         const fields = r.fields ?? {};
         const url = extractUrls(r.fields?.Image)[0] ?? '';
@@ -376,7 +404,7 @@ export function ProductsView({
         };
       })
       .filter((x) => Boolean(x.url));
-  }, [sortedRecords]);
+  }, [visibleRecords]);
 
   const galleryItems = React.useMemo(() => {
     if (!familyCollectionName) return baseGalleryItems;
@@ -611,26 +639,44 @@ export function ProductsView({
 
 React.useEffect(() => {
   const v = window.localStorage.getItem('products_view_mode');
-  if (v === 'gallery') setViewMode('gallery');
+  if (v === 'list' || v === 'gallery') setViewMode(v);
 }, []);
+
+React.useEffect(() => {
+  const stored = window.localStorage.getItem('products_theme');
+  if (stored === 'dark' || stored === 'light') setTheme(stored);
+}, []);
+
+React.useEffect(() => {
+  window.localStorage.setItem('products_theme', theme);
+  const el = document.documentElement;
+  if (theme === 'dark') el.classList.add('dark');
+  else el.classList.remove('dark');
+}, [theme]);
 
 React.useEffect(() => {
   window.localStorage.setItem('products_view_mode', viewMode);
 }, [viewMode]);
 
+const headerToggleBase =
+  'inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm backdrop-blur transition';
+
 const viewToggleNode = (
-  <div className="inline-flex items-center rounded-full border border-black/10 bg-black/5 p-1">
-    <button
-      type="button"
-      onClick={() => setViewMode('list')}
-      aria-pressed={viewMode === 'list'}
-      className={
-        (viewMode === 'list'
-          ? 'bg-white text-black shadow-sm '
-          : 'text-black/60 hover:text-black ') +
-        'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition'
-      }
-    >
+  <button
+    type="button"
+    onClick={() => setViewMode((v) => (v === 'list' ? 'gallery' : 'list'))}
+    aria-pressed={viewMode === 'list'}
+    title={viewMode === 'list' ? 'List (on)' : 'List (off)'}
+    className={
+      headerToggleBase +
+      (viewMode === 'list'
+        ? ' border-black/20 bg-white text-black'
+        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
+      + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
+      + (viewMode === 'list' ? ' dark:border-white/20' : ' dark:border-white/10')
+    }
+  >
+    {viewMode === 'list' ? (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
         <path
           d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
@@ -639,113 +685,177 @@ const viewToggleNode = (
           strokeLinecap="round"
         />
       </svg>
-      <span className="hidden sm:inline">List</span>
-    </button>
+    ) : (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path d="M4.5 5.5h6.5v6.5H4.5V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M13 5.5h6.5v6.5H13V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M4.5 14h6.5v4.5H4.5V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M13 14h6.5v4.5H13V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    )}
+  </button>
+);
 
-    <button
-      type="button"
-      onClick={() => setViewMode('gallery')}
-      aria-pressed={viewMode === 'gallery'}
-      className={
-        (viewMode === 'gallery'
-          ? 'bg-white text-black shadow-sm '
-          : 'text-black/60 hover:text-black ') +
-        'inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition'
-      }
-    >
+const themeToggleNode = (
+  <button
+    type="button"
+    onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+    aria-pressed={theme === 'dark'}
+    title={theme === 'dark' ? 'Dark mode (on)' : 'Dark mode (off)'}
+    className={
+      headerToggleBase +
+      (theme === 'dark'
+        ? ' border-black/20 bg-white text-black'
+        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
+      + (theme === 'dark' ? ' dark:border-white/25 dark:bg-black/25 dark:text-white' : '')
+    }
+  >
+    {theme === 'dark' ? (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
         <path
-          d="M4.5 5.5h6.5v6.5H4.5V5.5Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M13 5.5h6.5v6.5H13V5.5Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M4.5 14h6.5v4.5H4.5V14Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M13 14h6.5v4.5H13V14Z"
+          d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinejoin="round"
         />
       </svg>
-      <span className="hidden sm:inline">Gallery</span>
-    </button>
-  </div>
+    ) : (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M12 2v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M12 20v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M4.93 4.93l1.41 1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M17.66 17.66l1.41 1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M2 12h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M20 12h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M4.93 19.07l1.41-1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M17.66 6.34l1.41-1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    )}
+  </button>
+);
+
+const familyToggleNode = (
+  <button
+    type="button"
+    onClick={() => setFamilyMode((v) => (v === 'collection' ? 'main' : 'collection'))}
+    aria-pressed={familyMode === 'collection'}
+    title={familyMode === 'collection' ? 'Collection (on)' : 'Collection (off)'}
+    className={
+      headerToggleBase +
+      (familyMode === 'collection'
+        ? ' border-black/20 bg-white text-black'
+        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
+      + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
+      + (familyMode === 'collection' ? ' dark:border-white/20' : ' dark:border-white/10')
+    }
+  >
+    {familyMode === 'collection' ? (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path d="M7.5 7.5h9v9h-9v-9Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <path
+          d="M4.5 10.5V6.7c0-1 .8-1.8 1.8-1.8h3.8"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path
+          d="M19.5 13.5v3.8c0 1-.8 1.8-1.8 1.8h-3.8"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    ) : (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+        <path
+          d="M12 3.5l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.5Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )}
+  </button>
 );
 
 return (
   <main
-    className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:gap-4"
+    className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
   >
-    <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md">
+    <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
       <div className="flex w-full items-center gap-2 sm:hidden">
         {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
         <input
-          className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base"
+          className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base dark:border-white/15 dark:bg-black/25 dark:text-white"
           placeholder="Search…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        {viewToggleNode}
+        <div className="flex flex-none items-center gap-2">
+          {viewToggleNode}
+          {familyToggleNode}
+          {themeToggleNode}
+        </div>
       </div>
 
       <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
         <div>
           {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
-          <p className="mt-1 text-sm text-black/60"></p>
+          <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
         </div>
 
         <div className="flex items-center gap-2">
           <input
-            className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm"
+            className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {viewToggleNode}
+          <div className="flex items-center gap-2">
+            {viewToggleNode}
+            {familyToggleNode}
+            {themeToggleNode}
+          </div>
         </div>
       </div>
     </div>
 
       <div className="-mx-5 px-5">
-        <div className="mt-1 text-[11px] leading-tight text-black/50">
-          <span className="font-medium text-black/60">Records:</span> {data ? data.count : '—'}
-          <span className="mx-2 text-black/25">|</span>
-          <span className="font-medium text-black/60">Matched:</span> {data ? filteredRecords.length : '—'}
-          <span className="mx-2 text-black/25">|</span>
-          <span className="font-medium text-black/60">Columns:</span> {data ? columns.length : '—'}
+        <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
+          <span className="font-medium text-black/60 dark:text-white/60">Records:</span> {data ? data.count : '—'}
+          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+          <span className="font-medium text-black/60 dark:text-white/60">Matched:</span> {data ? visibleRecords.length : '—'}
+          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+          <span className="font-medium text-black/60 dark:text-white/60">Columns:</span> {data ? columns.length : '—'}
         </div>
       </div>
 
-      {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+          {error}
+        </div>
+      ) : null}
 
       {viewMode === 'list' ? (
-        <div className="w-full overflow-x-auto rounded-xl border border-black/10 bg-white shadow-sm">
+        <div className="w-full overflow-x-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
           <table className="min-w-full table-auto text-left text-sm">
-            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
+            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm dark:bg-black/35 dark:text-white/60">
               <tr>
                 {displayedColumns.map((c, idx) => (
-                  <th key={c} className={(idx === 0 ? 'sticky left-0 z-30 bg-white ' : '') + 'px-4 py-3'}>
+                  <th
+                    key={c}
+                    className={(idx === 0 ? 'sticky left-0 z-30 bg-white dark:bg-black/35 ' : '') + 'px-4 py-3'}
+                  >
                     <button
                       type="button"
                       onClick={() => toggleSort(c)}
-                      className="inline-flex items-center gap-2 hover:text-black"
+                      className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
                       title="Sort"
                     >
                       <span>{c}</span>
                       {sortKey === c ? (
-                        <span className="text-[10px] text-black/40">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                        <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
                       ) : null}
                     </button>
                   </th>
@@ -753,11 +863,12 @@ return (
               </tr>
             </thead>
             <tbody>
-              {sortedRecords.map((r) => (
+              {visibleRecords.map((r) => (
                 <tr
                   key={r.id}
                   className={
-                    'border-t border-black/10 align-middle ' + (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
+                    'border-t border-black/10 align-middle dark:border-white/10 ' +
+                    (selectedIds.has(r.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
                   }
                 >
                   {displayedColumns.map((c, idx) => (
@@ -765,11 +876,14 @@ return (
                       key={c}
                       className={
                         (idx === 0
-                          ? 'sticky left-0 z-10 ' + (selectedIds.has(r.id) ? 'bg-emerald-50 ' : 'bg-white ')
+                          ? 'sticky left-0 z-10 ' +
+                            (selectedIds.has(r.id)
+                              ? 'bg-emerald-50 dark:bg-emerald-900/20 '
+                              : 'bg-white dark:bg-black/10 ')
                           : '') +
                         (idx === 0
-                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80'
-                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80')
+                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')
                       }
                       onClick={() => {
                         if (c.trim().toLowerCase() === 'image') {
@@ -787,7 +901,7 @@ return (
               ))}
               {records.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-5 text-sm text-black/50" colSpan={displayedColumns.length}>
+                  <td className="px-4 py-5 text-sm text-black/50 dark:text-white/50" colSpan={displayedColumns.length}>
                     {loading ? 'Loading…' : 'No records.'}
                   </td>
                 </tr>
@@ -796,9 +910,9 @@ return (
           </table>
         </div>
       ) : (
-        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm">
+        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {sortedRecords.map((r) => {
+            {visibleRecords.map((r) => {
               const img = extractUrls(r.fields?.Image)[0] ?? '';
               const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
               const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
@@ -829,7 +943,7 @@ return (
               const price = formatPrice(r.fields?.Price) ?? null;
 
               return (
-                <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white">
+                <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
                   <button
                     type="button"
                     className="block w-full"
@@ -839,7 +953,7 @@ return (
                     title={img ? 'Click to maximize' : 'No image'}
                     disabled={!img}
                   >
-                    <div className="aspect-square w-full bg-black/5">
+                    <div className="aspect-square w-full bg-black/5 dark:bg-white/5">
                       {img ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -853,7 +967,7 @@ return (
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs text-black/40">No image</div>
+                        <div className="flex h-full w-full items-center justify-center text-xs text-black/40 dark:text-white/40">No image</div>
                       )}
                     </div>
                   </button>
@@ -862,24 +976,24 @@ return (
                     type="button"
                     className={
                       'block w-full text-left space-y-0.5 p-2.5 ' +
-                      (selectedIds.has(r.id) ? 'bg-emerald-50' : 'bg-white')
+                      (selectedIds.has(r.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
                     }
                     onClick={() => toggleSelected(r.id)}
                     title={selectedIds.has(r.id) ? 'Selected' : 'Select'}
                     aria-pressed={selectedIds.has(r.id)}
                   >
                     <div className="flex items-start justify-between gap-2 leading-snug">
-                      <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black">{name || '—'}</div>
-                      <div className="flex-none text-sm font-semibold text-black">{price ? `AED ${price}` : ''}</div>
+                      <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{name || '—'}</div>
+                      <div className="flex-none text-sm font-semibold text-black dark:text-white">{price ? `AED ${price}` : ''}</div>
                     </div>
-                    <div className="text-xs leading-snug text-black/60">{code ? `Code: ${code}` : ' '}</div>
-                    <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70">
+                    <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? `Code: ${code}` : ' '}</div>
+                    <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
                       <span className="truncate">{variant ? `Variant: ${variant}` : ''}</span>
-                      <span className={selectedIds.has(r.id) ? 'text-emerald-700' : 'text-black/35'}>
+                      <span className={selectedIds.has(r.id) ? 'text-emerald-700 dark:text-emerald-300' : 'text-black/35 dark:text-white/30'}>
                         {selectedIds.has(r.id) ? 'Selected' : ''}
                       </span>
                     </div>
-                    <div className="text-xs leading-snug text-black/55">{size ? `Size: ${size}` : ' '}</div>
+                    <div className="text-xs leading-snug text-black/55 dark:text-white/50">{size ? `Size: ${size}` : ' '}</div>
                   </button>
                 </div>
               );
@@ -887,7 +1001,7 @@ return (
           </div>
 
           {records.length === 0 ? (
-            <div className="px-2 py-6 text-sm text-black/50">{loading ? 'Loading…' : 'No records.'}</div>
+            <div className="px-2 py-6 text-sm text-black/50 dark:text-white/50">{loading ? 'Loading…' : 'No records.'}</div>
           ) : null}
         </div>
       )}
@@ -895,24 +1009,24 @@ return (
       {selectedCount > 0 && !currentItem ? (
         <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
           <div className="mx-auto max-w-xl transform transition-all duration-200 ease-out translate-y-0 opacity-100">
-            <div className="rounded-2xl border border-white/10 bg-black/35 p-2 text-white shadow-lg backdrop-blur">
+            <div className="rounded-2xl border border-black/10 bg-white/80 p-2 text-black shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white">
               <div className="flex items-center justify-between gap-3 px-2 pb-2">
-                <div className="text-xs font-medium text-white/70">Selected: {selectedCount}</div>
+                <div className="text-xs font-medium text-black/60 dark:text-white/70">Selected: {selectedCount}</div>
                 <button
                   type="button"
                   onClick={() => setSelectedIds(new Set())}
-                  className="text-xs font-semibold text-white/70 hover:text-white"
+                  className="text-xs font-semibold text-black/60 hover:text-black dark:text-white/70 dark:hover:text-white"
                 >
                   Clear
                 </button>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/25 p-1 backdrop-blur">
+              <div className="rounded-2xl border border-black/10 bg-black/5 p-1 backdrop-blur dark:border-white/10 dark:bg-black/25">
                 <div className="grid grid-cols-3 gap-1">
                   <button
                     type="button"
                     onClick={() => void downloadSelected()}
-                    className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                    className="h-11 w-full min-w-0 rounded-xl border border-black/10 bg-white/70 px-2 text-[11px] font-medium tracking-wide text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10"
                   >
                     <span className="truncate">Download</span>
                   </button>
@@ -920,7 +1034,7 @@ return (
                   <button
                     type="button"
                     onClick={() => void shareSelected()}
-                    className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
+                    className="h-11 w-full min-w-0 rounded-xl border border-black/10 bg-white/70 px-2 text-[11px] font-medium tracking-wide text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10"
                   >
                     <span className="truncate">Share</span>
                   </button>
@@ -938,7 +1052,7 @@ return (
                       'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
                       (familyCollectionName || showSelectedOnly
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-                        : 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10')
+                        : 'border-black/10 bg-white/70 text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10')
                     }
                   >
                     <span className="truncate">{familyCollectionName ? 'ALL' : showSelectedOnly ? 'ALL' : 'Selected'}</span>
@@ -952,7 +1066,7 @@ return (
 
       {currentItem?.url ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-[2px] p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
           role="dialog"
           aria-modal="true"
           onPointerDown={(e) => {
@@ -962,7 +1076,7 @@ return (
           <div className="fixed left-3 top-3 z-30 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/35 text-white/85 shadow-lg backdrop-blur"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white/70 text-black/80 shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white/85"
               onClick={(e) => {
                 e.stopPropagation();
                 closePreview();
@@ -980,14 +1094,14 @@ return (
               </svg>
             </button>
 
-            <div className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/85 backdrop-blur-md">
+            <div className="rounded-full border border-black/10 bg-white/70 px-3 py-1 text-xs font-semibold text-black/80 backdrop-blur-md dark:border-white/10 dark:bg-black/35 dark:text-white/85">
               {(typeof currentIndex === 'number' ? currentIndex + 1 : 1)} / {galleryItems.length}
             </div>
           </div>
 
           {selectedIds.has(currentItem.id) ? (
             <div
-              className="fixed right-3 top-3 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200/60 bg-emerald-500/20 text-emerald-50 shadow-lg backdrop-blur"
+              className="fixed right-3 top-3 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50"
               onPointerDown={(e) => e.stopPropagation()}
               title="Selected"
               aria-label="Selected"
@@ -1068,7 +1182,7 @@ return (
               className="fixed left-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
               aria-label="Previous"
             >
-              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-black/20 text-lg font-semibold text-white shadow-sm backdrop-blur transition">
+              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition dark:border-white/15 dark:bg-black/20 dark:text-white">
                 ‹
               </span>
             </button>
@@ -1082,7 +1196,7 @@ return (
               className="fixed right-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
               aria-label="Next"
             >
-              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-black/20 text-lg font-semibold text-white shadow-sm backdrop-blur transition">
+              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition dark:border-white/15 dark:bg-black/20 dark:text-white">
                 ›
               </span>
             </button>
@@ -1094,42 +1208,44 @@ return (
           >
             <div
               className={
-                'mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border p-4 pb-28 text-white shadow-lg backdrop-blur ' +
-                (selectedIds.has(currentItem.id) ? 'border-emerald-200/40 bg-emerald-900/20' : 'border-white/10 bg-black/35')
+                'mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border p-4 pb-28 text-black shadow-lg backdrop-blur dark:text-white ' +
+                (selectedIds.has(currentItem.id)
+                  ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
+                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
               }
               onClick={() => toggleSelected(currentItem.id)}
             >
-              <div className="overflow-hidden rounded-xl border border-white/10 bg-black/10">
-                <div className="grid grid-cols-5 gap-px bg-white/10">
-                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+              <div className="overflow-hidden rounded-xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-black/10">
+                <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
+                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
                     Collection Name
                   </div>
-                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
                     Collection Code
                   </div>
-                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
                     Variant Number
                   </div>
-                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
                     DIMENSION (mm)
                   </div>
-                  <div className="min-h-10 bg-black/20 px-3 py-2 text-[11px] font-medium leading-tight text-white/70">
+                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
                     Price
                   </div>
 
-                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
                     <div className="whitespace-normal break-words sm:truncate">{currentItem.title}</div>
                   </div>
-                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
                     <div className="whitespace-normal break-words sm:truncate">{currentItem.code || '—'}</div>
                   </div>
-                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
                     <div className="whitespace-normal break-words sm:truncate">{currentItem.variant || '—'}</div>
                   </div>
-                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
                     <div className="whitespace-normal break-words sm:truncate">{currentItem.dimension || '—'}</div>
                   </div>
-                  <div className="bg-black/20 px-3 py-2 text-sm font-semibold leading-tight text-white">
+                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
                     <div className="whitespace-normal break-words sm:truncate">
                       {currentItem.price ? `AED ${currentItem.price}` : '—'}
                     </div>
