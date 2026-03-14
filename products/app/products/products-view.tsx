@@ -1327,7 +1327,7 @@ return (
           ) : null}
 
           <div
-            className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-5"
+            className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div
@@ -1337,7 +1337,7 @@ return (
                   ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
                   : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
                 +
-                (lightboxDetailsCollapsed ? ' max-h-[160px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
+                (lightboxDetailsCollapsed ? ' max-h-[65px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
               onClick={() => setLightboxDetailsCollapsed((v) => !v)}
             >
