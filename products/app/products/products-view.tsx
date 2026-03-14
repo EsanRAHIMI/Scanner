@@ -1399,7 +1399,7 @@ return (
                     className={
                       'transition-[max-height] duration-300 ease-out ' +
                       (lightboxDetailsCollapsed
-                        ? 'max-h-[60px] sm:max-h-[96px] pointer-events-none overflow-hidden'
+                        ? 'max-h-[45px] sm:max-h-[96px] pointer-events-none overflow-hidden'
                         : 'max-h-[50vh] sm:max-h-[40vh] overflow-auto')
                     }
                   >
