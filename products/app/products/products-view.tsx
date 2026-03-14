@@ -1337,7 +1337,7 @@ return (
                   ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
                   : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
                 +
-                (lightboxDetailsCollapsed ? ' max-h-[65px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
+                (lightboxDetailsCollapsed ? ' max-h-[120px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
               onClick={() => setLightboxDetailsCollapsed((v) => !v)}
             >
@@ -1469,7 +1469,7 @@ return (
                       'transition-[max-height] duration-300 ease-out ' +
                       (lightboxDetailsCollapsed
                         ? 'max-h-[28px] sm:max-h-[96px] pointer-events-none overflow-hidden'
-                        : 'max-h-[50vh] sm:max-h-[40vh] overflow-auto')
+                        : 'max-h-[50vh] sm:max-h-[40vh] overflow-y-auto')
                     }
                   >
                     <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
