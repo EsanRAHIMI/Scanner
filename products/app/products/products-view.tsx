@@ -189,6 +189,7 @@ export function ProductsView({
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
+  const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -484,6 +485,8 @@ export function ProductsView({
       const nextIndex = (i - 1 + n) % n;
       const next = galleryItems[nextIndex];
       setPreviewId(next?.id ?? null);
+      // Auto-collapse table when navigating
+      setLightboxDetailsCollapsed(true);
       return nextIndex;
     });
   }, [galleryItems]);
@@ -694,6 +697,8 @@ export function ProductsView({
       const nextIndex = (i + 1) % n;
       const next = galleryItems[nextIndex];
       setPreviewId(next?.id ?? null);
+      // Auto-collapse table when navigating
+      setLightboxDetailsCollapsed(true);
       return nextIndex;
     });
   }, [galleryItems]);
@@ -1302,17 +1307,18 @@ return (
               onClick={() => toggleSelected(currentItem.id)}
             >
               <div className="relative">
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLightboxDetailsCollapsed((v) => !v);
-                  }}
-                  className="absolute left-1/2 top-0 z-10 inline-flex h-10 w-10 -translate-x-1/2 -translate-y-[27px] items-center justify-center text-black/60 hover:text-black dark:text-white/55 dark:hover:text-white"
-                  aria-label={lightboxDetailsCollapsed ? 'Expand details' : 'Collapse details'}
-                  title={lightboxDetailsCollapsed ? 'Expand' : 'Collapse'}
-                >
+                {currentCollectionVariants.length > 1 && (
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLightboxDetailsCollapsed((v) => !v);
+                    }}
+                    className="absolute left-1/2 top-0 z-10 inline-flex h-10 w-10 -translate-x-1/2 -translate-y-[27px] items-center justify-center text-black/60 hover:text-black dark:text-white/55 dark:hover:text-white"
+                    aria-label={lightboxDetailsCollapsed ? 'Expand details' : 'Collapse details'}
+                    title={lightboxDetailsCollapsed ? 'Expand' : 'Collapse'}
+                  >
                   <svg
                     viewBox="0 0 24 24"
                     className={
@@ -1324,13 +1330,39 @@ return (
                   >
                     <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                </button>
+                  </button>
+                )}
 
                 <div
                   className={
                     'overflow-hidden rounded-xl border border-black/10 bg-black/5 transition-all duration-300 ease-out dark:border-white/10 dark:bg-black/10' +
                     ''
                   }
+                  onTouchStart={(e) => {
+                    if (currentCollectionVariants.length <= 1) return;
+                    const touch = e.touches[0];
+                    setTableSwipeStart({ x: touch.clientX, y: touch.clientY });
+                  }}
+                  onTouchMove={(e) => {
+                    if (!tableSwipeStart || currentCollectionVariants.length <= 1) return;
+                    const touch = e.touches[0];
+                    const deltaY = touch.clientY - tableSwipeStart.y;
+                    const threshold = 50;
+                    
+                    if (Math.abs(deltaY) > threshold) {
+                      if (deltaY > 0 && !lightboxDetailsCollapsed) {
+                        // Swipe down - collapse
+                        setLightboxDetailsCollapsed(true);
+                      } else if (deltaY < 0 && lightboxDetailsCollapsed) {
+                        // Swipe up - expand
+                        setLightboxDetailsCollapsed(false);
+                      }
+                      setTableSwipeStart(null);
+                    }
+                  }}
+                  onTouchEnd={() => {
+                    setTableSwipeStart(null);
+                  }}
                 >
                   <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
                     <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
