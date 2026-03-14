@@ -621,6 +621,64 @@ export function ProductsView({
     swiped: boolean;
   }>({ pointerId: null, startX: 0, startY: 0, moved: false, swiped: false });
 
+  const variantSwipeRef = React.useRef<{
+    pointerId: number | null;
+    startX: number;
+    moved: boolean;
+    variantId: string | null;
+  }>({ pointerId: null, startX: 0, moved: false, variantId: null });
+
+  const handleVariantSwipeStart = (e: React.PointerEvent, variantId: string) => {
+    e.stopPropagation();
+    variantSwipeRef.current.pointerId = e.pointerId;
+    variantSwipeRef.current.startX = e.clientX;
+    variantSwipeRef.current.moved = false;
+    variantSwipeRef.current.variantId = variantId;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleVariantSwipeMove = (e: React.PointerEvent) => {
+    if (variantSwipeRef.current.pointerId !== e.pointerId) return;
+    const dx = e.clientX - variantSwipeRef.current.startX;
+    if (!variantSwipeRef.current.moved) {
+      if (Math.abs(dx) < 8) return;
+      variantSwipeRef.current.moved = true;
+    }
+  };
+
+  const handleVariantSwipeEnd = (e: React.PointerEvent) => {
+    if (variantSwipeRef.current.pointerId !== e.pointerId) return;
+    const dx = e.clientX - variantSwipeRef.current.startX;
+    const variantId = variantSwipeRef.current.variantId;
+    
+    // Reset swipe state
+    variantSwipeRef.current.pointerId = null;
+    variantSwipeRef.current.variantId = null;
+    
+    // Check if it was a swipe
+    if (Math.abs(dx) > 50 && variantId) {
+      if (dx > 0) {
+        // Swipe right - select
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.add(variantId);
+          return next;
+        });
+      } else {
+        // Swipe left - deselect
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.delete(variantId);
+          return next;
+        });
+      }
+    }
+  };
+
   React.useEffect(() => {
     const isOpen = Boolean(currentItem?.url);
     if (!isOpen) return;
@@ -1230,12 +1288,13 @@ return (
               const dx = e.clientX - swipeRef.current.startX;
               const dy = e.clientY - swipeRef.current.startY;
               if (!swipeRef.current.moved) {
-                if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+                if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
                 swipeRef.current.moved = true;
               }
 
               if (swipeRef.current.swiped) return;
-              if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+              // Improved swipe detection: lower threshold and better horizontal vs vertical detection
+              if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 40) {
                 swipeRef.current.swiped = true;
                 if (dx < 0) goNext();
                 else goPrev();
@@ -1270,24 +1329,14 @@ return (
                   return;
                 }
                 
-                // Handle regular click for selection
+                // Handle regular click for selection (mouse only)
                 if (e.pointerType === 'mouse') {
                   toggleSelected(currentItem.id);
                   return;
                 }
                 
-                // For touch, don't start long press if swipe might happen
-                // The swipe navigation is handled by the parent container
-                if (e.pointerType === 'touch') {
-                  // Start long press timer but be ready to cancel for swipe
-                  const timer = setTimeout(() => {
-                    // Only select if no swipe occurred
-                    if (!swipeRef.current.moved && !swipeRef.current.swiped) {
-                      toggleSelected(currentItem.id);
-                    }
-                  }, 1000); // 1 second long press
-                  setImageLongPressTimer(timer);
-                }
+                // For touch, don't handle selection - only swipe navigation
+                // This prevents accidental selection when trying to swipe
               }}
               onPointerUp={(e) => {
                 // Clear long press timer if released early or after swipe
@@ -1296,15 +1345,8 @@ return (
                   setImageLongPressTimer(null);
                 }
                 
-                // Handle quick tap (not swipe) for touch selection
-                // Only handle if parent doesn't have pointer capture
-                if (e.pointerType === 'touch' && swipeRef.current.pointerId === null) {
-                  setTimeout(() => {
-                    if (!swipeRef.current.moved && !swipeRef.current.swiped) {
-                      toggleSelected(currentItem.id);
-                    }
-                  }, 50); // 50ms delay to allow swipe detection
-                }
+                // Don't handle touch selection on maximized image - only swipe gestures
+                // This prevents accidental selection when trying to swipe
               }}
               onPointerLeave={(e) => {
                 // Clear long press timer if pointer leaves the image
@@ -1506,7 +1548,12 @@ return (
                                 ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
                                 : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
                             }
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleVariantSwipeStart(e, v.id);
+                            }}
+                            onPointerMove={handleVariantSwipeMove}
+                            onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
                               
@@ -1533,7 +1580,12 @@ return (
                                 ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
                                 : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
                             }
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleVariantSwipeStart(e, v.id);
+                            }}
+                            onPointerMove={handleVariantSwipeMove}
+                            onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
                               
@@ -1560,7 +1612,12 @@ return (
                                 ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
                                 : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
                             }
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleVariantSwipeStart(e, v.id);
+                            }}
+                            onPointerMove={handleVariantSwipeMove}
+                            onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
                               
@@ -1587,7 +1644,12 @@ return (
                                 ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
                                 : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
                             }
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleVariantSwipeStart(e, v.id);
+                            }}
+                            onPointerMove={handleVariantSwipeMove}
+                            onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
                               
@@ -1614,7 +1676,12 @@ return (
                                 ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
                                 : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
                             }
-                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              handleVariantSwipeStart(e, v.id);
+                            }}
+                            onPointerMove={handleVariantSwipeMove}
+                            onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
                               
