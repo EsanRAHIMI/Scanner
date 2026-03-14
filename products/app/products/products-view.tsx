@@ -188,6 +188,7 @@ export function ProductsView({
   const [previewId, setPreviewId] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
+  const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -406,11 +407,55 @@ export function ProductsView({
       .filter((x) => Boolean(x.url));
   }, [visibleRecords]);
 
+  const allGalleryItems = React.useMemo(() => {
+    return sortedRecords
+      .map((r) => {
+        const fields = r.fields ?? {};
+        const url = extractUrls(r.fields?.Image)[0] ?? '';
+        const collectionName =
+          formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
+        const collectionNameNormalized = collectionName.trim();
+
+        const title = collectionName;
+        const code = formatScalar(fields['Colecction Code']) || formatScalar(fields['Code']);
+        const variant = formatScalar(fields['Variant Number']) || formatScalar(fields['Num']);
+        const dimension =
+          formatScalar(fields['DIMENSION (mm)']) || formatScalar(fields['Dimension (mm)']) || formatScalar(fields['Dimensions']);
+
+        const noteKey = (() => {
+          const keys = Object.keys(fields);
+          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
+          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k ?? null;
+        })();
+
+        const note =
+          formatScalar(fields['Note']) ||
+          formatScalar(fields['NOTE']) ||
+          (noteKey ? formatScalar(fields[noteKey]) : '');
+
+        const price = formatPrice(fields['Price']);
+
+        return {
+          id: r.id,
+          url,
+          title,
+          collectionName,
+          collectionNameNormalized,
+          code,
+          variant,
+          dimension,
+          note,
+          price,
+        };
+      })
+      .filter((x) => Boolean(x.url));
+  }, [sortedRecords]);
+
   const galleryItems = React.useMemo(() => {
     if (!familyCollectionName) return baseGalleryItems;
     const key = familyCollectionName.trim();
-    return baseGalleryItems.filter((x) => x.collectionNameNormalized === key);
-  }, [baseGalleryItems, familyCollectionName]);
+    return allGalleryItems.filter((x) => x.collectionNameNormalized === key);
+  }, [allGalleryItems, baseGalleryItems, familyCollectionName]);
 
   const openPreviewByUrl = React.useCallback(
     (url: string) => {
@@ -427,6 +472,8 @@ export function ProductsView({
   const closePreview = React.useCallback(() => {
     setPreviewIndex(null);
     setPreviewId(null);
+    setLightboxDetailsCollapsed(false);
+    setFamilyCollectionName(null);
   }, []);
 
   const goPrev = React.useCallback(() => {
@@ -451,11 +498,22 @@ export function ProductsView({
       return;
     }
 
+    const prev = allGalleryItems.find((x) => x.id === previewId) ?? null;
+    const familyKey = (prev?.collectionNameNormalized || '').trim();
+    if (familyKey) {
+      const mappedIdx = galleryItems.findIndex((x) => x.collectionNameNormalized === familyKey);
+      if (mappedIdx >= 0) {
+        setPreviewIndex(mappedIdx);
+        setPreviewId(galleryItems[mappedIdx].id);
+        return;
+      }
+    }
+
     if (galleryItems.length > 0) {
       setPreviewIndex(0);
       setPreviewId(galleryItems[0].id);
     }
-  }, [galleryItems, previewId, previewIndex]);
+  }, [previewId, previewIndex, allGalleryItems.map((x) => x.id).join('|'), galleryItems.map((x) => x.id).join('|')]);
 
   const toggleSelected = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -524,6 +582,32 @@ export function ProductsView({
     if (previewIndex === null) return null;
     return galleryItems[previewIndex] ?? null;
   }, [galleryItems, previewId, previewIndex]);
+
+  const currentCollectionVariants = React.useMemo(() => {
+    const key = (currentItem?.collectionNameNormalized || '').trim();
+    if (!key) return [] as (typeof allGalleryItems)[number][];
+
+    const variants = allGalleryItems.filter((x) => x.collectionNameNormalized === key);
+
+    const currentId = currentItem?.id ?? null;
+    if (!currentId) return variants;
+
+    const current = variants.find((x) => x.id === currentId) ?? null;
+    const rest = variants.filter((x) => x.id !== currentId);
+
+    rest.sort((a, b) => {
+      const av = (a.variant || '').toString();
+      const bv = (b.variant || '').toString();
+      const an = Number.parseFloat(av);
+      const bn = Number.parseFloat(bv);
+      if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+      const ac = (a.code || '').toString();
+      const bc = (b.code || '').toString();
+      return ac.localeCompare(bc);
+    });
+
+    return current ? [current, ...rest] : [...variants];
+  }, [allGalleryItems, currentItem?.collectionNameNormalized, currentItem?.id]);
 
   const swipeRef = React.useRef<{
     pointerId: number | null;
@@ -1208,49 +1292,251 @@ return (
           >
             <div
               className={
-                'mx-auto max-h-[45vh] max-w-xl overflow-auto rounded-2xl border p-4 pb-28 text-black shadow-lg backdrop-blur dark:text-white ' +
+                'mx-auto max-h-[45vh] max-w-xl rounded-2xl border p-4 pb-28 text-black shadow-lg backdrop-blur dark:text-white transition-all duration-300 ease-out ' +
                 (selectedIds.has(currentItem.id)
                   ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
                   : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
+                +
+                (lightboxDetailsCollapsed ? ' max-h-[200px] overflow-hidden mt-5' : ' max-h-[45vh] overflow-hidden')
               }
               onClick={() => toggleSelected(currentItem.id)}
             >
-              <div className="overflow-hidden rounded-xl border border-black/10 bg-black/5 dark:border-white/10 dark:bg-black/10">
-                <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
-                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                    Collection Name
-                  </div>
-                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                    Collection Code
-                  </div>
-                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                    Variant Number
-                  </div>
-                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                    DIMENSION (mm)
-                  </div>
-                  <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                    Price
+              <div className="relative">
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightboxDetailsCollapsed((v) => !v);
+                  }}
+                  className="absolute left-1/2 top-0 z-10 inline-flex h-10 w-10 -translate-x-1/2 -translate-y-[27px] items-center justify-center text-black/60 hover:text-black dark:text-white/55 dark:hover:text-white"
+                  aria-label={lightboxDetailsCollapsed ? 'Expand details' : 'Collapse details'}
+                  title={lightboxDetailsCollapsed ? 'Expand' : 'Collapse'}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className={
+                      'h-5 w-5 transition-transform duration-200 ease-out ' +
+                      (lightboxDetailsCollapsed ? '' : 'rotate-180')
+                    }
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+
+                <div
+                  className={
+                    'overflow-hidden rounded-xl border border-black/10 bg-black/5 transition-all duration-300 ease-out dark:border-white/10 dark:bg-black/10' +
+                    ''
+                  }
+                >
+                  <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
+                      Collection Name
+                    </div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
+                      Collection Code
+                    </div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
+                      Variant Number
+                    </div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
+                      DIMENSION (mm)
+                    </div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
+                      Price
+                    </div>
+
+                    {currentCollectionVariants[0] ? (
+                      <React.Fragment key={currentCollectionVariants[0].id}>
+                        {(() => {
+                          const v = currentCollectionVariants[0];
+                          const baseClass =
+                            selectedIds.has(v.id)
+                              ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 font-semibold text-emerald-900 dark:text-emerald-100'
+                              : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight hover:bg-white dark:bg-black/20 dark:hover:bg-black/30 font-semibold text-black dark:text-white';
+                          const handler = (e: React.PointerEvent | React.MouseEvent) => {
+                            e.stopPropagation();
+                            
+                            // Handle Shift+Click for selection/deselection
+                            if (e.shiftKey) {
+                              toggleSelected(v.id);
+                              return;
+                            }
+                            
+                            const key = (v.collectionNameNormalized || '').trim();
+                            if (key) setFamilyCollectionName(key);
+                            setPreviewId(v.id);
+                            setPreviewIndex((i) => (i === null ? 0 : i));
+                          };
+                          return (
+                            <>
+                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
+                                <div className="whitespace-normal break-words sm:truncate">{v.title}</div>
+                              </button>
+                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
+                                <div className="whitespace-normal break-words sm:truncate">{v.code || '—'}</div>
+                              </button>
+                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
+                                <div className="whitespace-normal break-words sm:truncate">{v.variant || '—'}</div>
+                              </button>
+                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
+                                <div className="whitespace-normal break-words sm:truncate">{v.dimension || '—'}</div>
+                              </button>
+                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
+                                <div className="whitespace-normal break-words sm:truncate">{v.price ? `AED ${v.price}` : '—'}</div>
+                              </button>
+                            </>
+                          );
+                        })()}
+                      </React.Fragment>
+                    ) : null}
                   </div>
 
-                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
-                    <div className="whitespace-normal break-words sm:truncate">{currentItem.title}</div>
-                  </div>
-                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
-                    <div className="whitespace-normal break-words sm:truncate">{currentItem.code || '—'}</div>
-                  </div>
-                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
-                    <div className="whitespace-normal break-words sm:truncate">{currentItem.variant || '—'}</div>
-                  </div>
-                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
-                    <div className="whitespace-normal break-words sm:truncate">{currentItem.dimension || '—'}</div>
-                  </div>
-                  <div className="bg-white/70 px-3 py-2 text-sm font-semibold leading-tight text-black dark:bg-black/20 dark:text-white">
-                    <div className="whitespace-normal break-words sm:truncate">
-                      {currentItem.price ? `AED ${currentItem.price}` : '—'}
+                  <div
+                    className={
+                      'transition-[max-height] duration-300 ease-out overflow-hidden ' +
+                      (lightboxDetailsCollapsed
+                        ? 'max-h-[96px] pointer-events-none'
+                        : 'max-h-[40vh]')
+                    }
+                  >
+                    <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
+                      {currentCollectionVariants.slice(1).map((v) => (
+                        <React.Fragment key={v.id}>
+                          <button
+                            type="button"
+                            className={
+                              selectedIds.has(v.id)
+                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              // Handle Shift+Click for selection/deselection
+                              if (e.shiftKey) {
+                                toggleSelected(v.id);
+                                return;
+                              }
+                              
+                              const key = (v.collectionNameNormalized || '').trim();
+                              if (key) setFamilyCollectionName(key);
+                              setPreviewId(v.id);
+                              setPreviewIndex((i) => (i === null ? 0 : i));
+                            }}
+                          >
+                            <div className="whitespace-normal break-words sm:truncate">{v.title}</div>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              selectedIds.has(v.id)
+                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              // Handle Shift+Click for selection/deselection
+                              if (e.shiftKey) {
+                                toggleSelected(v.id);
+                                return;
+                              }
+                              
+                              const key = (v.collectionNameNormalized || '').trim();
+                              if (key) setFamilyCollectionName(key);
+                              setPreviewId(v.id);
+                              setPreviewIndex((i) => (i === null ? 0 : i));
+                            }}
+                          >
+                            <div className="whitespace-normal break-words sm:truncate">{v.code || '—'}</div>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              selectedIds.has(v.id)
+                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              // Handle Shift+Click for selection/deselection
+                              if (e.shiftKey) {
+                                toggleSelected(v.id);
+                                return;
+                              }
+                              
+                              const key = (v.collectionNameNormalized || '').trim();
+                              if (key) setFamilyCollectionName(key);
+                              setPreviewId(v.id);
+                              setPreviewIndex((i) => (i === null ? 0 : i));
+                            }}
+                          >
+                            <div className="whitespace-normal break-words sm:truncate">{v.variant || '—'}</div>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              selectedIds.has(v.id)
+                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              // Handle Shift+Click for selection/deselection
+                              if (e.shiftKey) {
+                                toggleSelected(v.id);
+                                return;
+                              }
+                              
+                              const key = (v.collectionNameNormalized || '').trim();
+                              if (key) setFamilyCollectionName(key);
+                              setPreviewId(v.id);
+                              setPreviewIndex((i) => (i === null ? 0 : i));
+                            }}
+                          >
+                            <div className="whitespace-normal break-words sm:truncate">{v.dimension || '—'}</div>
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              selectedIds.has(v.id)
+                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
+                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
+                            }
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              
+                              // Handle Shift+Click for selection/deselection
+                              if (e.shiftKey) {
+                                toggleSelected(v.id);
+                                return;
+                              }
+                              
+                              const key = (v.collectionNameNormalized || '').trim();
+                              if (key) setFamilyCollectionName(key);
+                              setPreviewId(v.id);
+                              setPreviewIndex((i) => (i === null ? 0 : i));
+                            }}
+                          >
+                            <div className="whitespace-normal break-words sm:truncate">{v.price ? `AED ${v.price}` : '—'}</div>
+                          </button>
+                        </React.Fragment>
+                      ))}
                     </div>
                   </div>
                 </div>
+
               </div>
 
             </div>
@@ -1303,12 +1589,22 @@ return (
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => {
                         if (familyCollectionName) {
+                          const familyKey = (currentItem?.collectionNameNormalized || '').trim();
+                          if (familyKey) {
+                            const mappedIdx = baseGalleryItems.findIndex((x) => x.collectionNameNormalized === familyKey);
+                            if (mappedIdx >= 0) {
+                              setPreviewIndex(mappedIdx);
+                              setPreviewId(baseGalleryItems[mappedIdx].id);
+                            }
+                          }
                           setFamilyCollectionName(null);
                           return;
                         }
                         const current =
-                          (previewId ? baseGalleryItems.find((x) => x.id === previewId) : null) ??
-                          currentItem;
+                          typeof currentIndex === 'number' && currentIndex >= 0
+                            ? galleryItems[currentIndex]
+                            : (previewId ? baseGalleryItems.find((x) => x.id === previewId) : null) ??
+                              currentItem;
                         const key = (current?.collectionNameNormalized || '').trim();
                         if (!key) return;
                         setFamilyCollectionName(key);
@@ -1323,7 +1619,7 @@ return (
                             : 'border-white/10 bg-black/10 text-white/45')
                       }
                     >
-                      <span className="truncate">{familyCollectionName ? 'ALL' : 'Family'}</span>
+                      <span className="truncate">{familyCollectionName ? 'ALL' : 'Collection'}</span>
                     </button>
                   </div>
                 </div>
