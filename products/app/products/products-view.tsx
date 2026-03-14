@@ -1261,6 +1261,9 @@ return (
                 e.stopPropagation();
                 if (swipeRef.current.swiped) return;
                 
+                // Don't handle if parent container has pointer capture
+                if (swipeRef.current.pointerId !== null) return;
+                
                 // Handle Shift+Click for selection/deselection
                 if (e.shiftKey) {
                   toggleSelected(currentItem.id);
@@ -1294,8 +1297,8 @@ return (
                 }
                 
                 // Handle quick tap (not swipe) for touch selection
-                // Add a small delay to allow swipe detection
-                if (e.pointerType === 'touch') {
+                // Only handle if parent doesn't have pointer capture
+                if (e.pointerType === 'touch' && swipeRef.current.pointerId === null) {
                   setTimeout(() => {
                     if (!swipeRef.current.moved && !swipeRef.current.swiped) {
                       toggleSelected(currentItem.id);
