@@ -190,6 +190,7 @@ export function ProductsView({
   const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
+  const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsAirtableRecord[] = data?.records ?? [];
@@ -1256,9 +1257,37 @@ return (
               className="max-h-[90vh] w-auto max-w-[95vw] select-none object-contain"
               draggable={false}
               style={{ touchAction: 'pan-y' }}
-              onClick={() => {
+              onPointerDown={(e) => {
+                e.stopPropagation();
                 if (swipeRef.current.swiped) return;
-                toggleSelected(currentItem.id);
+                
+                // Handle Shift+Click for selection/deselection
+                if (e.shiftKey) {
+                  toggleSelected(currentItem.id);
+                  return;
+                }
+                
+                // Start long press timer for mobile
+                if (e.pointerType === 'touch') {
+                  const timer = setTimeout(() => {
+                    toggleSelected(currentItem.id);
+                  }, 1000); // 1 second long press
+                  setImageLongPressTimer(timer);
+                }
+              }}
+              onPointerUp={(e) => {
+                // Clear long press timer if released early
+                if (imageLongPressTimer) {
+                  clearTimeout(imageLongPressTimer);
+                  setImageLongPressTimer(null);
+                }
+              }}
+              onPointerLeave={(e) => {
+                // Clear long press timer if pointer leaves the image
+                if (imageLongPressTimer) {
+                  clearTimeout(imageLongPressTimer);
+                  setImageLongPressTimer(null);
+                }
               }}
             />
           </div>
@@ -1304,7 +1333,7 @@ return (
                 +
                 (lightboxDetailsCollapsed ? ' max-h-[160px] sm:max-h-[200px] overflow-hidden mt-5' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
-              onClick={() => toggleSelected(currentItem.id)}
+              onClick={() => setLightboxDetailsCollapsed((v) => !v)}
             >
               <div className="relative">
                 {currentCollectionVariants.length > 1 && (
@@ -1402,6 +1431,8 @@ return (
                             if (key) setFamilyCollectionName(key);
                             setPreviewId(v.id);
                             setPreviewIndex((i) => (i === null ? 0 : i));
+                            // Auto-collapse table when clicking to view image
+                            setLightboxDetailsCollapsed(true);
                           };
                           return (
                             <>
@@ -1459,6 +1490,8 @@ return (
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
+                              // Auto-collapse table when clicking to view image
+                              setLightboxDetailsCollapsed(true);
                             }}
                           >
                             <div className="whitespace-normal break-words sm:truncate">{v.title}</div>
@@ -1484,6 +1517,8 @@ return (
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
+                              // Auto-collapse table when clicking to view image
+                              setLightboxDetailsCollapsed(true);
                             }}
                           >
                             <div className="whitespace-normal break-words sm:truncate">{v.code || '—'}</div>
@@ -1509,6 +1544,8 @@ return (
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
+                              // Auto-collapse table when clicking to view image
+                              setLightboxDetailsCollapsed(true);
                             }}
                           >
                             <div className="whitespace-normal break-words sm:truncate">{v.variant || '—'}</div>
@@ -1534,6 +1571,8 @@ return (
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
+                              // Auto-collapse table when clicking to view image
+                              setLightboxDetailsCollapsed(true);
                             }}
                           >
                             <div className="whitespace-normal break-words sm:truncate">{v.dimension || '—'}</div>
@@ -1559,6 +1598,8 @@ return (
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
+                              // Auto-collapse table when clicking to view image
+                              setLightboxDetailsCollapsed(true);
                             }}
                           >
                             <div className="whitespace-normal break-words sm:truncate">{v.price ? `AED ${v.price}` : '—'}</div>
