@@ -96,8 +96,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
   }
   if (col === 'image') {
     const urls = extractUrls(value);
-    const u = urls[0];
-    if (!u) return null;
+    const u = urls[0] ?? '';
     return (
       <button
         type="button"
@@ -106,21 +105,27 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
           e.stopPropagation();
           onImageClick?.(u);
         }}
-        title={u}
+        title={u ? 'Click to maximize' : 'No image'}
         className="block text-left"
       >
         <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={u}
-            alt="product"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-            className="block h-full w-full object-cover"
-          />
+          {u ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={u}
+              alt="product"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+              className="block h-full w-full object-cover"
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-[11px] text-black/60">
+              No image
+            </span>
+          )}
         </span>
       </button>
     );
@@ -492,6 +497,37 @@ export function ProductsView({
     return galleryItems[previewIndex] ?? null;
   }, [galleryItems, previewId, previewIndex]);
 
+  const swipeRef = React.useRef<{
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    moved: boolean;
+    swiped: boolean;
+  }>({ pointerId: null, startX: 0, startY: 0, moved: false, swiped: false });
+
+  React.useEffect(() => {
+    const isOpen = Boolean(currentItem?.url);
+    if (!isOpen) return;
+
+    const el = document.documentElement;
+    const body = document.body;
+
+    const prevOverflowEl = el.style.overflow;
+    const prevOverflowBody = body.style.overflow;
+    const prevPaddingRightBody = body.style.paddingRight;
+
+    const scrollbarWidth = window.innerWidth - el.clientWidth;
+    el.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) body.style.paddingRight = `${scrollbarWidth}px`;
+
+    return () => {
+      el.style.overflow = prevOverflowEl;
+      body.style.overflow = prevOverflowBody;
+      body.style.paddingRight = prevPaddingRightBody;
+    };
+  }, [currentItem?.url]);
+
   const shareSelected = React.useCallback(async () => {
     const items = getSelectedItems(previewIndex);
     if (items.length === 0) return;
@@ -800,7 +836,7 @@ return (
                     onClick={() => {
                       if (img) openPreviewByUrl(img);
                     }}
-                    title={img || 'No image'}
+                    title={img ? 'Click to maximize' : 'No image'}
                     disabled={!img}
                   >
                     <div className="aspect-square w-full bg-black/5">
@@ -923,9 +959,35 @@ return (
             if (e.target === e.currentTarget) closePreview();
           }}
         >
+          <div className="fixed left-3 top-3 z-30 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/35 text-white/85 shadow-lg backdrop-blur"
+              onClick={(e) => {
+                e.stopPropagation();
+                closePreview();
+              }}
+              title="Close"
+              aria-label="Close"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+
+            <div className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/85 backdrop-blur-md">
+              {(typeof currentIndex === 'number' ? currentIndex + 1 : 1)} / {galleryItems.length}
+            </div>
+          </div>
+
           {selectedIds.has(currentItem.id) ? (
             <div
-              className="fixed right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200/60 bg-emerald-500/20 text-emerald-50 shadow-lg backdrop-blur"
+              className="fixed right-3 top-3 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200/60 bg-emerald-500/20 text-emerald-50 shadow-lg backdrop-blur"
               onPointerDown={(e) => e.stopPropagation()}
               title="Selected"
               aria-label="Selected"
@@ -943,20 +1005,58 @@ return (
           ) : null}
 
           <div
-            className="fixed left-3 top-3 rounded-full border border-white/10 bg-black/35 px-3 py-1 text-xs font-semibold text-white/85 backdrop-blur-md"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {(typeof currentIndex === 'number' ? currentIndex + 1 : 1)} / {galleryItems.length}
-          </div>
+            className="relative flex items-center justify-center"
+            style={{ transform: 'translateY(-20%)' }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              if (galleryItems.length <= 1) return;
+              swipeRef.current.pointerId = e.pointerId;
+              swipeRef.current.startX = e.clientX;
+              swipeRef.current.startY = e.clientY;
+              swipeRef.current.moved = false;
+              swipeRef.current.swiped = false;
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // ignore
+              }
+            }}
+            onPointerMove={(e) => {
+              if (swipeRef.current.pointerId !== e.pointerId) return;
+              const dx = e.clientX - swipeRef.current.startX;
+              const dy = e.clientY - swipeRef.current.startY;
+              if (!swipeRef.current.moved) {
+                if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+                swipeRef.current.moved = true;
+              }
 
-          <div className="relative flex items-center justify-center" onPointerDown={(e) => e.stopPropagation()}>
+              if (swipeRef.current.swiped) return;
+              if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+                swipeRef.current.swiped = true;
+                if (dx < 0) goNext();
+                else goPrev();
+              }
+            }}
+            onPointerUp={(e) => {
+              if (swipeRef.current.pointerId !== e.pointerId) return;
+              swipeRef.current.pointerId = null;
+            }}
+            onPointerCancel={(e) => {
+              if (swipeRef.current.pointerId !== e.pointerId) return;
+              swipeRef.current.pointerId = null;
+            }}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={currentItem.url}
               alt={currentItem.title}
               className="max-h-[90vh] w-auto max-w-[95vw] select-none object-contain"
               draggable={false}
-              onClick={() => toggleSelected(currentItem.id)}
+              style={{ touchAction: 'pan-y' }}
+              onClick={() => {
+                if (swipeRef.current.swiped) return;
+                toggleSelected(currentItem.id);
+              }}
             />
           </div>
 
