@@ -474,7 +474,7 @@ export function ProductsView({
   const closePreview = React.useCallback(() => {
     setPreviewIndex(null);
     setPreviewId(null);
-    setLightboxDetailsCollapsed(false);
+    setLightboxDetailsCollapsed(true);
     setFamilyCollectionName(null);
   }, []);
 
@@ -1478,7 +1478,7 @@ return (
                     className={
                       'transition-[max-height] duration-300 ease-out ' +
                       (lightboxDetailsCollapsed
-                        ? 'max-h-[28px] sm:max-h-[96px] pointer-events-none overflow-hidden'
+                        ? 'max-h-0 sm:max-h-[96px] pointer-events-none overflow-hidden'
                         : 'max-h-[50vh] sm:max-h-[40vh] overflow-y-auto')
                     }
                   >
