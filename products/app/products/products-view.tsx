@@ -1297,7 +1297,7 @@ return (
                   ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
                   : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
                 +
-                (lightboxDetailsCollapsed ? ' max-h-[180px] sm:max-h-[200px] overflow-hidden mt-5' : ' max-h-[35vh] sm:max-h-[45vh] overflow-hidden')
+                (lightboxDetailsCollapsed ? ' max-h-[160px] sm:max-h-[200px] overflow-hidden mt-5' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
               onClick={() => toggleSelected(currentItem.id)}
             >
@@ -1397,10 +1397,10 @@ return (
 
                   <div
                     className={
-                      'transition-[max-height] duration-300 ease-out overflow-hidden ' +
+                      'transition-[max-height] duration-300 ease-out ' +
                       (lightboxDetailsCollapsed
-                        ? 'max-h-[80px] sm:max-h-[96px] pointer-events-none'
-                        : 'max-h-[30vh] sm:max-h-[40vh]')
+                        ? 'max-h-[60px] sm:max-h-[96px] pointer-events-none overflow-hidden'
+                        : 'max-h-[50vh] sm:max-h-[40vh] overflow-auto')
                     }
                   >
                     <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
