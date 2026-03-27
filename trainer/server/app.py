@@ -145,6 +145,34 @@ def _utc_now_iso() -> str:
   return datetime.now(timezone.utc).isoformat()
 
 
+_CONTENT_CALENDAR_FIELDS = [
+  "Title",
+  "Publish Date",
+  "Day of Week",
+  "Content Pillar",
+  "Format",
+  "Status",
+  "Caption Idea",
+  "CTA",
+  "Tone of Voice",
+  "Target Audience",
+  "Week Number",
+  "# Hashtag",
+  "Product",
+  "Product Image",
+]
+
+
+def _sanitize_content_calendar_fields(raw: Any) -> dict[str, Any]:
+  if not isinstance(raw, dict):
+    return {}
+  out: dict[str, Any] = {}
+  for k in _CONTENT_CALENDAR_FIELDS:
+    if k in raw:
+      out[k] = raw.get(k)
+  return out
+
+
 def _safe_write_json(path: Path, data: Any) -> None:
   tmp = path.with_suffix(path.suffix + ".tmp")
   tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -492,6 +520,124 @@ async def auth_me(user: dict[str, Any] = Depends(_get_current_user)):
     "is_admin": bool(user.get("is_admin")),
     "permissions": _normalize_permissions(user.get("permissions")),
   }
+
+
+@api.get("/content-calendar")
+async def content_calendar_list(
+  limit: int = 200,
+  skip: int = 0,
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  lim = max(1, min(int(limit), 500))
+  sk = max(0, int(skip))
+
+  items: list[dict[str, Any]] = []
+  cursor = (
+    db["content_calendar"]
+    .find({}, {"_id": 1, "fields": 1, "publish_date": 1, "created_at": 1, "updated_at": 1})
+    .sort([("publish_date", 1), ("created_at", -1)])
+    .skip(sk)
+    .limit(lim)
+  )
+  async for doc in cursor:
+    items.append(
+      {
+        "id": doc.get("_id"),
+        "fields": doc.get("fields") or {},
+        "publish_date": doc.get("publish_date"),
+        "created_at": doc.get("created_at"),
+        "updated_at": doc.get("updated_at"),
+      }
+    )
+
+  return {"items": items, "limit": lim, "skip": sk}
+
+
+@api.post("/content-calendar")
+async def content_calendar_create(
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  raw_fields = payload.get("fields") if isinstance(payload, dict) else None
+  fields = _sanitize_content_calendar_fields(raw_fields)
+
+  now = _utc_now_iso()
+  doc_id = str(uuid.uuid4())
+  publish_date = fields.get("Publish Date")
+  publish_date_norm = publish_date if isinstance(publish_date, str) and publish_date.strip() else None
+
+  doc = {
+    "_id": doc_id,
+    "fields": fields,
+    "publish_date": publish_date_norm,
+    "created_at": now,
+    "updated_at": now,
+    "created_by": user.get("_id"),
+    "updated_by": user.get("_id"),
+  }
+
+  await db["content_calendar"].insert_one(doc)
+  return {
+    "id": doc_id,
+    "fields": fields,
+    "publish_date": publish_date_norm,
+    "created_at": now,
+    "updated_at": now,
+  }
+
+
+@api.patch("/content-calendar/{item_id}")
+async def content_calendar_update(
+  item_id: str,
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  raw_fields = payload.get("fields") if isinstance(payload, dict) else None
+  patch_fields = _sanitize_content_calendar_fields(raw_fields)
+  if not patch_fields:
+    raise HTTPException(status_code=400, detail="EMPTY_PATCH")
+
+  now = _utc_now_iso()
+  update_doc: dict[str, Any] = {"updated_at": now, "updated_by": user.get("_id")}
+  for k, v in patch_fields.items():
+    update_doc[f"fields.{k}"] = v
+  if "Publish Date" in patch_fields:
+    v = patch_fields.get("Publish Date")
+    update_doc["publish_date"] = v if isinstance(v, str) and v.strip() else None
+
+  res = await db["content_calendar"].update_one({"_id": item_id}, {"$set": update_doc})
+  if res.matched_count == 0:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+  doc = await db["content_calendar"].find_one(
+    {"_id": item_id},
+    {"_id": 1, "fields": 1, "publish_date": 1, "created_at": 1, "updated_at": 1},
+  )
+  if not doc:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+  return {
+    "id": doc.get("_id"),
+    "fields": doc.get("fields") or {},
+    "publish_date": doc.get("publish_date"),
+    "created_at": doc.get("created_at"),
+    "updated_at": doc.get("updated_at"),
+  }
+
+
+@api.delete("/content-calendar/{item_id}")
+async def content_calendar_delete(
+  item_id: str,
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  res = await db["content_calendar"].delete_one({"_id": item_id})
+  if res.deleted_count == 0:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+  return {"ok": True}
 
 
 @api.get("/admin/users")

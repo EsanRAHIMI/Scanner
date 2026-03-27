@@ -32,6 +32,10 @@ export default function Home() {
     ? 'http://localhost:3004/products'
     : 'https://scanner.ehsanrahimi.com/products';
 
+  const calendarUrl = isLocal
+    ? 'http://localhost:3004/calendar'
+    : `${productsUrl}/calendar`;
+
   const scannerUrl = isLocal
     ? 'http://localhost:3003/scanner'
     : '/scanner';
@@ -196,7 +200,7 @@ export default function Home() {
             {/* Quick Actions */}
             <section className={`mb-12 transition-all duration-1000 delay-200 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
               <h2 className="text-xl font-semibold text-gray-300 mb-6">Quick Actions</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Link 
                   href={productsUrl}
                   className="group relative overflow-hidden bg-gradient-to-r from-pink-600/20 to-rose-600/20 border border-pink-800/50 rounded-xl p-6 hover:border-pink-600 transition-all duration-300 hover:shadow-lg hover:shadow-pink-600/20"
@@ -283,6 +287,35 @@ export default function Home() {
                     )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-green-600/10 to-teal-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                </Link>
+
+                <Link
+                  href={calendarUrl}
+                  className="group relative overflow-hidden bg-gradient-to-r from-cyan-600/20 to-sky-600/20 border border-cyan-800/50 rounded-xl p-6 hover:border-cyan-600 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-600/20"
+                >
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-10 h-10 bg-cyan-600 rounded-lg flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          ></path>
+                        </svg>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Products Service']?.status || 'loading')}`}></div>
+                        <svg className="w-5 h-5 text-cyan-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
+                        </svg>
+                      </div>
+                    </div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Content Calendar</h3>
+                    <p className="text-gray-400 text-sm">Plan and manage publishing</p>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/10 to-sky-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 </Link>
               </div>
             </section>
