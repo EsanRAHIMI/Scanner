@@ -1,4 +1,3 @@
-export default function HomePage() {
-  const { redirect } = require('next/navigation');
-  redirect('/products');
-}
+import ProductsPage from './products/page';
+
+export default ProductsPage;

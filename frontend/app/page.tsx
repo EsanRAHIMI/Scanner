@@ -25,15 +25,15 @@ export default function Home() {
                   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
   const trainerUrl = isLocal 
-    ? 'http://localhost:3010/trainer'
+    ? 'http://localhost:3010/'
     : 'https://trainer.ehsanrahimi.com/';
 
   const productsUrl = isLocal
-    ? 'http://localhost:3004/products'
+    ? 'http://localhost:3004'
     : 'https://products.ehsanrahimi.com/';
 
   const calendarUrl = isLocal
-    ? 'http://localhost:3004/calendar'
+    ? 'http://localhost:3005/calendar'
     : `${productsUrl}/calendar`;
 
   const marketingUrl = isLocal
