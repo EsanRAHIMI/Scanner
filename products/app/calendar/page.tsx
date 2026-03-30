@@ -66,6 +66,11 @@ export default function ContentCalendarPage() {
   const [accountError, setAccountError] = React.useState<string | null>(null);
   const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+  const isLocal =
+    process.env.NODE_ENV === 'development' ||
+    (typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+  const homeUrl = isLocal ? 'http://localhost:3003/' : '/';
 
   const COLUMN_WIDTHS_STORAGE_KEY = 'contentCalendar.columnWidths.v1';
   const MIN_COL_PX = 120;
@@ -231,6 +236,7 @@ export default function ContentCalendarPage() {
       'Content Pillar',
       'Format',
       'Status',
+      'Content Link',
       'Caption Idea',
       'CTA',
       'Tone of Voice',
@@ -281,6 +287,36 @@ export default function ContentCalendarPage() {
     el.style.height = `${el.scrollHeight}px`;
   };
 
+  const normalizeContentLinkInput = React.useCallback((raw: string) => {
+    const s = raw.trim();
+    if (!s) return '';
+
+    const permalinkAttr = /data-instgrm-permalink\s*=\s*"([^"]+)"/i.exec(s);
+    const decodedAttr = permalinkAttr?.[1]?.replace(/&amp;/g, '&');
+    if (decodedAttr && /^https?:\/\//i.test(decodedAttr)) return decodedAttr;
+
+    const urlMatch = /(https?:\/\/www\.instagram\.com\/[^\s"']+)/i.exec(s);
+    if (urlMatch?.[1]) return urlMatch[1].replace(/&amp;/g, '&');
+
+    return s;
+  }, []);
+
+  const getInstagramEmbedUrl = React.useCallback((url: string) => {
+    try {
+      const u = new URL(url);
+      if (!/^(www\.)?instagram\.com$/i.test(u.hostname)) return null;
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      const type = parts[0];
+      const shortcode = parts[1];
+      if (!shortcode) return null;
+      if (!['p', 'reel', 'tv'].includes(type)) return null;
+      return `https://www.instagram.com/${type}/${shortcode}/embed`;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const patchFields = async (id: string, fields: Record<string, string>) => {
     const res = await fetch(`/api/content-calendar/${encodeURIComponent(id)}`, {
       method: 'PATCH',
@@ -301,7 +337,7 @@ export default function ContentCalendarPage() {
       if (isSaving) return;
 
       const { id, column } = editingCell;
-      const nextValue = override ? override.value : cellDraftValue;
+      let nextValue = override ? override.value : cellDraftValue;
 
       if (nextValue === cellOriginalValue) {
         cancelCellEdit();
@@ -312,6 +348,10 @@ export default function ContentCalendarPage() {
       setError(null);
 
       const colLower = column.trim().toLowerCase();
+      if (colLower === 'content link') {
+        nextValue = normalizeContentLinkInput(nextValue);
+      }
+
       const next: Record<string, string> = { [column]: nextValue };
 
       if (colLower === 'publish date') {
@@ -580,10 +620,16 @@ export default function ContentCalendarPage() {
       if (!selectedItem?.id) return;
       setIsSaving(true);
       setError(null);
+
+      const fieldsToSend = { ...editorFields };
+      if (typeof fieldsToSend['Content Link'] === 'string') {
+        fieldsToSend['Content Link'] = normalizeContentLinkInput(fieldsToSend['Content Link']);
+      }
+
       const res = await fetch(`/api/content-calendar/${encodeURIComponent(selectedItem.id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fields: editorFields }),
+        body: JSON.stringify({ fields: fieldsToSend }),
       });
       const text = await res.text();
       if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
@@ -653,10 +699,8 @@ export default function ContentCalendarPage() {
         for (const key of Object.keys(fields)) columnsSet.add(key);
       }
 
-      // Filter to only include columns that exist in the data, in the requested order
-      const finalColumns = orderedColumns.filter((col) => columnsSet.has(col));
-      // Ensure even empty Mongo dataset still shows the ordered columns
-      if (finalColumns.length === 0) finalColumns.push(...orderedColumns);
+      // Always include ordered columns, even if missing/empty in the dataset
+      const finalColumns = [...orderedColumns];
 
       // Add any remaining columns that weren't in the ordered list (at the end)
       const remainingColumns = Array.from(columnsSet).filter((col) => !orderedColumns.includes(col));
@@ -844,6 +888,55 @@ export default function ContentCalendarPage() {
     if (value === null || value === undefined) return <span className="text-black/40 dark:text-white/40">—</span>;
 
     const col = column.trim().toLowerCase();
+
+    if (col === 'content link') {
+      const raw = typeof value === 'string' ? normalizeContentLinkInput(value) : normalizeContentLinkInput(String(value));
+      if (!raw) return <span className="text-black/40 dark:text-white/40">—</span>;
+
+      const igEmbed = getInstagramEmbedUrl(raw);
+      if (igEmbed) {
+        return (
+          <div className="w-full">
+            <iframe
+              src={igEmbed}
+              className="h-[220px] w-full rounded-lg border border-black/10 bg-white dark:border-white/10"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              sandbox="allow-scripts allow-same-origin allow-popups"
+              title="Instagram embed"
+            />
+            <a
+              href={raw}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 block w-full truncate text-xs text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
+              title={raw}
+            >
+              {raw}
+            </a>
+          </div>
+        );
+      }
+      const isHttp = /^https?:\/\//i.test(raw);
+      if (isHttp) {
+        return (
+          <a
+            href={raw}
+            target="_blank"
+            rel="noreferrer"
+            className="block w-full truncate text-sm text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-300 dark:hover:text-sky-200"
+            title={raw}
+          >
+            {raw}
+          </a>
+        );
+      }
+      return (
+        <span className={`block w-full text-sm ${alignClassForValue(raw)}`} dir={dirForValue(raw)}>
+          {raw}
+        </span>
+      );
+    }
 
     if (col === 'day of week') {
       if (typeof value === 'string' && value.trim()) return <span className="text-sm">{value}</span>;
@@ -1388,6 +1481,23 @@ export default function ContentCalendarPage() {
               className="px-3 py-1.5 text-sm bg-black/10 hover:bg-black/20 rounded-lg transition-colors dark:bg-white/10 dark:hover:bg-white/20"
             >
               Products
+            </a>
+            <a
+              href={homeUrl}
+              className="inline-flex items-center justify-center rounded-lg px-2 py-1.5 text-sm bg-black/10 hover:bg-black/20 transition-colors dark:bg-white/10 dark:hover:bg-white/20"
+              title="Home"
+              aria-label="Home"
+            >
+              <span className="inline-flex h-5 w-5 items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
+                  <path
+                    d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6a2 2 0 0 0-2-2H11a2 2 0 0 0-2 2v6H4a1 1 0 0 1-1-1v-9.5Z"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
             </a>
             <div className="relative" ref={accountMenuRef}>
               <button

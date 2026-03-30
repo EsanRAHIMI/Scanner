@@ -152,6 +152,7 @@ _CONTENT_CALENDAR_FIELDS = [
   "Content Pillar",
   "Format",
   "Status",
+  "Content Link",
   "Caption Idea",
   "CTA",
   "Tone of Voice",
