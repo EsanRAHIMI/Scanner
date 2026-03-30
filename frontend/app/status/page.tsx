@@ -35,8 +35,8 @@ export default async function StatusPage() {
 
   const local = isLocalHost(host);
 
-  const backendBase = local ? 'http://localhost:8000' : `${origin}/api`;
-  const trainerBase = local ? 'http://localhost:8010' : `${origin}/trainer/api`;
+  const backendBase = local ? 'http://localhost:8000' : 'https://lorenzo.ehsanrahimi.com/api';
+  const trainerBase = local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
 
   const backendHealthUrl = `${backendBase}/health`;
   const trainerHealthUrl = `${trainerBase}/health`;
@@ -61,7 +61,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Backend API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8000' : '/api'}</CardDescription>
+              <CardDescription>{local ? 'http://localhost:8000' : 'https://lorenzo.ehsanrahimi.com/api'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
@@ -97,7 +97,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Trainer Server API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8010' : '/trainer/api'}</CardDescription>
+              <CardDescription>{local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
@@ -114,17 +114,17 @@ export default async function StatusPage() {
             <CardFooter className="flex flex-wrap gap-2">
               <Button asChild variant="outline">
                 <Link href={trainerHealthUrl} target="_blank">
-                  {local ? trainerHealthUrl : '/trainer/api/health'}
+                  {local ? trainerHealthUrl : 'https://trainer.ehsanrahimi.com/api/health'}
                 </Link>
               </Button>
               <Button asChild variant="outline">
                 <Link href={`${trainerBase}/docs`} target="_blank">
-                  {local ? `${trainerBase}/docs` : '/trainer/api/docs'}
+                  {local ? `${trainerBase}/docs` : 'https://trainer.ehsanrahimi.com/api/docs'}
                 </Link>
               </Button>
               <Button asChild variant="outline">
                 <Link href={`${trainerBase}/openapi.json`} target="_blank">
-                  {local ? `${trainerBase}/openapi.json` : '/trainer/api/openapi.json'}
+                  {local ? `${trainerBase}/openapi.json` : 'https://trainer.ehsanrahimi.com/api/openapi.json'}
                 </Link>
               </Button>
             </CardFooter>

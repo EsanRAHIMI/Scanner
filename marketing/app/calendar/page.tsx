@@ -70,7 +70,7 @@ export default function ContentCalendarPage() {
     process.env.NODE_ENV === 'development' ||
     (typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-  const homeUrl = isLocal ? 'http://localhost:3003/' : '/';
+  const homeUrl = isLocal ? 'http://localhost:3003/' : 'https://lorenzo.ehsanrahimi.com/';
 
   const COLUMN_WIDTHS_STORAGE_KEY = 'contentCalendar.columnWidths.v1';
   const MIN_COL_PX = 120;
@@ -877,7 +877,7 @@ export default function ContentCalendarPage() {
     const scheduled = contentItems.filter(item => item.fields?.['Status'] === 'Scheduled').length;
     const inProgress = contentItems.filter(item => item.fields?.['Status'] === 'In Progress').length;
     const draft = contentItems.filter(item => item.fields?.['Status'] === 'Draft').length;
-    // Remove reach calculations as these fields don't exist in the actual Airtable
+    // Remove reach calculations as these fields don't exist in the current dataset
     const totalReach = 0;
     const actualReach = 0;
 
@@ -1017,12 +1017,12 @@ export default function ContentCalendarPage() {
     }
     
     if (col === 'estimated reach' || col === 'actual reach') {
-      // These fields don't exist in the actual Airtable data
+      // These fields don't exist in the current dataset
       return <span className="text-black/40 dark:text-white/40">—</span>;
     }
     
     if (col === 'engagement rate') {
-      // This field doesn't exist in the actual Airtable data
+      // This field doesn't exist in the current dataset
       return <span className="text-black/40 dark:text-white/40">—</span>;
     }
     
@@ -1248,12 +1248,6 @@ export default function ContentCalendarPage() {
                 >
                   Try Again
                 </button>
-                <a 
-                  href="/products"
-                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-                >
-                  Back to Products
-                </a>
               </div>
             </div>
           </div>
@@ -1476,12 +1470,6 @@ export default function ContentCalendarPage() {
             >
               New
             </button>
-            <a 
-              href="/products"
-              className="px-3 py-1.5 text-sm bg-black/10 hover:bg-black/20 rounded-lg transition-colors dark:bg-white/10 dark:hover:bg-white/20"
-            >
-              Products
-            </a>
             <a
               href={homeUrl}
               className="inline-flex items-center justify-center rounded-lg px-2 py-1.5 text-sm bg-black/10 hover:bg-black/20 transition-colors dark:bg-white/10 dark:hover:bg-white/20"

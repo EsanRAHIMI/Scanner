@@ -206,13 +206,20 @@ http://localhost:3003/scanner
 
 ---
 
-## Terminal 5 — products
+## Terminal 5 — Products
 ```bash
 cd products
 npm install
 npm run dev -- -p 3004
 ```
+---
 
+## Terminal 6 — Marketing
+```bash
+cd marketing
+npm install
+npm run dev -- -p 3005
+```
 باز کردن:
 
 ```

@@ -26,15 +26,19 @@ export default function Home() {
 
   const trainerUrl = isLocal 
     ? 'http://localhost:3010/trainer'
-    : '/trainer';
+    : 'https://trainer.ehsanrahimi.com/';
 
   const productsUrl = isLocal
     ? 'http://localhost:3004/products'
-    : 'https://scanner.ehsanrahimi.com/products';
+    : 'https://products.ehsanrahimi.com/';
 
   const calendarUrl = isLocal
     ? 'http://localhost:3004/calendar'
     : `${productsUrl}/calendar`;
+
+  const marketingUrl = isLocal
+    ? 'http://localhost:3005'
+    : 'https://marketing.ehsanrahimi.com/';
 
   const scannerUrl = isLocal
     ? 'http://localhost:3003/scanner'
@@ -46,11 +50,11 @@ export default function Home() {
 
   const apiDocsUrl = isLocal
     ? 'http://localhost:8000/docs'
-    : '/api/docs';
+    : 'https://lorenzo.ehsanrahimi.com/api/docs';
 
   const trainerApiDocsUrl = isLocal
     ? 'http://localhost:8010/docs'
-    : '/trainer/api/docs';
+    : 'https://trainer.ehsanrahimi.com/api/docs';
 
   // Service health check
   useEffect(() => {
@@ -88,9 +92,10 @@ export default function Home() {
 
     // Check all services
     const services = [
-      { name: 'Backend API', url: isLocal ? 'http://localhost:8000/health' : '/api/health' },
-      { name: 'Trainer API', url: isLocal ? 'http://localhost:8010/health' : '/trainer/api/health' },
+      { name: 'Backend API', url: isLocal ? 'http://localhost:8000/health' : 'https://lorenzo.ehsanrahimi.com/api/health' },
+      { name: 'Trainer API', url: isLocal ? 'http://localhost:8010/health' : 'https://trainer.ehsanrahimi.com/api/health' },
       { name: 'Products Service', url: isLocal ? 'http://localhost:3004' : productsUrl },
+      { name: 'Marketing Service', url: marketingUrl },
       { name: 'MongoDB', url: isLocal ? 'http://localhost:8000/mongodb/health' : '/api/mongodb/health' }
     ];
 
@@ -121,7 +126,7 @@ export default function Home() {
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(interval);
-  }, [isLocal, productsUrl]);
+  }, [isLocal, productsUrl, marketingUrl]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -290,7 +295,7 @@ export default function Home() {
                 </Link>
 
                 <Link
-                  href={calendarUrl}
+                  href={marketingUrl}
                   className="group relative overflow-hidden bg-gradient-to-r from-cyan-600/20 to-sky-600/20 border border-cyan-800/50 rounded-xl p-6 hover:border-cyan-600 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-600/20"
                 >
                   <div className="relative z-10">
@@ -306,14 +311,19 @@ export default function Home() {
                         </svg>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Products Service']?.status || 'loading')}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Marketing Service']?.status || 'loading')}`}></div>
                         <svg className="w-5 h-5 text-cyan-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
-                    <h3 className="text-lg font-semibold text-white mb-2">Content Calendar</h3>
-                    <p className="text-gray-400 text-sm">Plan and manage publishing</p>
+                    <h3 className="text-lg font-semibold text-white mb-2">Digital Marketing OS</h3>
+                    <p className="text-gray-400 text-sm">Digital Marketing OS</p>
+                    {serviceStatuses['Marketing Service']?.responseTime && (
+                      <p className="text-gray-500 text-xs mt-2">
+                        Response: {serviceStatuses['Marketing Service'].responseTime}ms
+                      </p>
+                    )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/10 to-sky-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 </Link>

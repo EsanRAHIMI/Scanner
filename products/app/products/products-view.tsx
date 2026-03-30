@@ -3,7 +3,7 @@
 import * as React from 'react';
 
 import { useProductsCache } from '../products-cache-provider';
-import type { ProductsAirtableRecord } from '@/types/trainer';
+import type { ProductsRecord } from '@/types/trainer';
 
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -193,7 +193,7 @@ export function ProductsView({
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
 
   const columns: string[] = data?.columns ?? [];
-  const records: ProductsAirtableRecord[] = data?.records ?? [];
+  const records: ProductsRecord[] = data?.records ?? [];
 
   const displayedColumns = React.useMemo(() => {
     const primary = ['Image', 'Price', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
@@ -217,7 +217,7 @@ export function ProductsView({
     return out;
   }, [columns]);
 
-  const getSearchText = React.useCallback((r: ProductsAirtableRecord, usedColumns: string[]) => {
+  const getSearchText = React.useCallback((r: ProductsRecord, usedColumns: string[]) => {
     const parts: string[] = [];
     for (const c of usedColumns) {
       const v = r.fields?.[c];
@@ -259,7 +259,7 @@ export function ProductsView({
     return base.filter((r) => selectedIds.has(r.id));
   }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly]);
 
-  const getSortValue = React.useCallback((r: ProductsAirtableRecord, key: string) => {
+  const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
     const k = key.trim().toLowerCase();
 
     if (k === 'image') {
@@ -328,7 +328,7 @@ export function ProductsView({
     if (familyMode !== 'main') return sortedRecords;
 
     const seen = new Set<string>();
-    const out: ProductsAirtableRecord[] = [];
+    const out: ProductsRecord[] = [];
 
     for (const r of sortedRecords) {
       const raw =

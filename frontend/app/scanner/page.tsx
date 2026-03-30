@@ -193,7 +193,7 @@ export default function ScannerPage() {
           ? true
           : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-      const base = isLocal ? 'http://localhost:8010' : '/trainer/api';
+      const base = isLocal ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
       const res = await fetch(`${base}/classes`, { cache: 'no-store' });
       const text = await res.text();
       if (!res.ok) throw new Error(text || `Classes failed (${res.status})`);
@@ -522,7 +522,7 @@ export default function ScannerPage() {
           ? true
           : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-      const base = isLocal ? 'http://localhost:8010' : '/trainer/api';
+      const base = isLocal ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
       const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
       const res = await fetch(url, { cache: 'no-store' });
       const text = await res.text();
@@ -582,7 +582,7 @@ export default function ScannerPage() {
       typeof window === 'undefined'
         ? true
         : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    return isLocal ? 'http://localhost:3010/trainer/dam' : '/trainer/dam';
+    return isLocal ? 'http://localhost:3010/trainer/dam' : 'https://trainer.ehsanrahimi.com/dam';
   }, []);
 
   React.useEffect(() => {

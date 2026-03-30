@@ -1,4 +1,4 @@
-export type ProductsAirtableRecord = {
+export type ProductsRecord = {
   id: string;
   createdTime?: string;
   fields: Record<string, unknown>;
@@ -6,6 +6,6 @@ export type ProductsAirtableRecord = {
 
 export type ProductsAssetsResponse = {
   columns: string[];
-  records: ProductsAirtableRecord[];
+  records: ProductsRecord[];
   count: number;
 };
