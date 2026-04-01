@@ -2,8 +2,278 @@
 
 import * as React from 'react';
 
+import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
+
+type AuthMe = {
+  email: string;
+  username: string;
+  is_admin: boolean;
+  permissions: string[];
+};
+
+function AccountMenu() {
+  const [open, setOpen] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [me, setMe] = React.useState<AuthMe | null>(null);
+  const [mode, setMode] = React.useState<'login' | 'register'>('login');
+  const [email, setEmail] = React.useState('');
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [registerDone, setRegisterDone] = React.useState<{ status: string; user_id: string } | null>(null);
+
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function onMouseDown(e: MouseEvent) {
+      const el = menuRef.current;
+      if (!el) return;
+      if (open && e.target instanceof Node && !el.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('mousedown', onMouseDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [open]);
+
+  async function loadMe() {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await apiFetch('/auth/me');
+      if (res.status === 401) {
+        setMe(null);
+        return;
+      }
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Failed to load user (${res.status})`);
+      const data = JSON.parse(text) as { email?: string; username?: string; is_admin?: boolean; permissions?: unknown };
+      const perms = Array.isArray(data.permissions) ? data.permissions.filter((p): p is string => typeof p === 'string') : [];
+      if (!data.email || !data.username) throw new Error('Invalid /auth/me response');
+      setMe({ email: data.email, username: data.username, is_admin: Boolean(data.is_admin), permissions: perms });
+    } catch (e) {
+      setMe(null);
+      setError(e instanceof Error ? e.message : 'Failed to load user');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onToggle() {
+    const next = !open;
+    setOpen(next);
+    setError(null);
+    if (next) {
+      setRegisterDone(null);
+      await loadMe();
+    }
+  }
+
+  async function onLogout() {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await apiFetch('/auth/logout', { method: 'POST' });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Logout failed (${res.status})`);
+      setMe(null);
+      setMode('login');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Logout failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      if (mode === 'login') {
+        const res = await apiFetch('/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || `Login failed (${res.status})`);
+        await loadMe();
+        setOpen(false);
+        return;
+      }
+
+      const res = await apiFetch('/auth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, username, password }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Register failed (${res.status})`);
+      const data = JSON.parse(text) as { status: string; user_id: string };
+      setRegisterDone({ status: data.status, user_id: data.user_id });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : mode === 'login' ? 'Login failed' : 'Register failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white/40 text-black/70 backdrop-blur hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:text-white/70 dark:hover:bg-black/30"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Account"
+      >
+        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
+          <path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      {open ? (
+        <div
+          className="absolute right-0 top-full z-50 mt-2 w-[340px] rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/70"
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {loading ? <div className="text-sm text-black/60 dark:text-white/60">Loading...</div> : null}
+
+          {!loading && me ? (
+            <div className="space-y-2">
+              <div className="rounded-lg border border-black/10 bg-black/5 p-3 dark:border-white/10 dark:bg-white/5">
+                <div className="text-xs text-black/60 dark:text-white/60">Signed in as</div>
+                <div className="mt-1 text-sm font-medium text-black dark:text-white">{me.username}</div>
+                <div className="text-xs text-black/70 dark:text-white/70">{me.email}</div>
+              </div>
+
+              {error ? <div className="text-sm text-red-700 dark:text-red-200">{error}</div> : null}
+
+              <button
+                type="button"
+                onClick={onLogout}
+                disabled={loading}
+                className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
+                role="menuitem"
+              >
+                Logout
+              </button>
+            </div>
+          ) : null}
+
+          {!loading && !me ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('login');
+                    setRegisterDone(null);
+                    setError(null);
+                  }}
+                  className={
+                    'flex-1 rounded-md px-3 py-2 text-sm font-medium border ' +
+                    (mode === 'login'
+                      ? 'border-black/20 bg-black text-white dark:border-white/15'
+                      : 'border-black/15 bg-transparent text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/70 dark:hover:bg-white/5')
+                  }
+                >
+                  Login
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('register');
+                    setRegisterDone(null);
+                    setError(null);
+                  }}
+                  className={
+                    'flex-1 rounded-md px-3 py-2 text-sm font-medium border ' +
+                    (mode === 'register'
+                      ? 'border-black/20 bg-black text-white dark:border-white/15'
+                      : 'border-black/15 bg-transparent text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/70 dark:hover:bg-white/5')
+                  }
+                >
+                  Register
+                </button>
+              </div>
+
+              {registerDone ? (
+                <div className="rounded-lg border border-black/10 bg-black/5 p-3 text-sm text-black/80 dark:border-white/10 dark:bg-white/5 dark:text-white/75">
+                  Status: <span className="font-medium">{registerDone.status}</span>
+                </div>
+              ) : (
+                <form className="space-y-2" onSubmit={onSubmit}>
+                  <div className="space-y-1">
+                    <label className="text-xs text-black/60 dark:text-white/60">Email</label>
+                    <input
+                      className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      type="email"
+                      autoComplete="email"
+                      required
+                    />
+                  </div>
+
+                  {mode === 'register' ? (
+                    <div className="space-y-1">
+                      <label className="text-xs text-black/60 dark:text-white/60">Username</label>
+                      <input
+                        className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        type="text"
+                        autoComplete="username"
+                        required
+                      />
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-1">
+                    <label className="text-xs text-black/60 dark:text-white/60">Password</label>
+                    <input
+                      className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      type="password"
+                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      required
+                    />
+                  </div>
+
+                  {error ? <div className="text-sm text-red-700 dark:text-red-200">{error}</div> : null}
+
+                  <button
+                    className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
+                    disabled={loading}
+                    type="submit"
+                  >
+                    {mode === 'login' ? (loading ? 'Logging in...' : 'Login') : loading ? 'Creating...' : 'Create account'}
+                  </button>
+                </form>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -66,6 +336,24 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
   const col = column.trim().toLowerCase();
+  if (col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url')) {
+    const urls = extractUrls(value);
+    const u = urls[0] ?? '';
+    if (!u) return formatScalar(value);
+    return (
+      <a
+        href={u}
+        target="_blank"
+        rel="noreferrer"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex max-w-[260px] items-center gap-2 truncate text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
+        title={u}
+      >
+        <span className="truncate">{u}</span>
+      </a>
+    );
+  }
   if (col === 'price') {
     const formatted = formatPrice(value);
     if (!formatted) return formatScalar(value);
@@ -196,7 +484,7 @@ export function ProductsView({
   const records: ProductsRecord[] = data?.records ?? [];
 
   const displayedColumns = React.useMemo(() => {
-    const primary = ['Image', 'Price', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
+    const primary = ['Image', 'Price', 'URL', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
     const trailing = ['CODE NUMBER', 'L000', 'Num'] as const;
     const primarySet = new Set<string>(primary as readonly string[]);
     const trailingSet = new Set<string>(trailing as readonly string[]);
@@ -844,24 +1132,60 @@ const viewToggleNode = (
   </button>
 );
 
+const familyToggleNode = (
+  <button
+    type="button"
+    onClick={() => {
+      setFamilyMode((m) => (m === 'main' ? 'collection' : 'main'));
+      setFamilyCollectionName(null);
+    }}
+    aria-pressed={familyMode !== 'main'}
+    title={familyMode !== 'main' ? 'Grouped view (on)' : 'Grouped view (off)'}
+    className={
+      headerToggleBase +
+      (familyMode !== 'main'
+        ? ' border-black/20 bg-white text-black'
+        : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
+      ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
+      (familyMode !== 'main' ? ' dark:border-white/20' : ' dark:border-white/10')
+    }
+  >
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+      <path
+        d="M4.5 7.5h6.5M4.5 12h15M4.5 16.5h9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d="M13.5 6.5h6a1 1 0 0 1 1 1v4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  </button>
+);
+
 const themeToggleNode = (
   <button
     type="button"
     onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
     aria-pressed={theme === 'dark'}
-    title={theme === 'dark' ? 'Dark mode (on)' : 'Dark mode (off)'}
+    title={theme === 'dark' ? 'Dark (on)' : 'Dark (off)'}
     className={
       headerToggleBase +
       (theme === 'dark'
         ? ' border-black/20 bg-white text-black'
-        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
-      + (theme === 'dark' ? ' dark:border-white/25 dark:bg-black/25 dark:text-white' : '')
+        : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
+      ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
+      (theme === 'dark' ? ' dark:border-white/20' : ' dark:border-white/10')
     }
   >
     {theme === 'dark' ? (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
         <path
-          d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"
+          d="M21 14.2A7.5 7.5 0 0 1 9.8 3a6.5 6.5 0 1 0 11.2 11.2Z"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinejoin="round"
@@ -869,83 +1193,42 @@ const themeToggleNode = (
       </svg>
     ) : (
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M12 2v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M12 20v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M4.93 4.93l1.41 1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M17.66 17.66l1.41 1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M2 12h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M20 12h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M4.93 19.07l1.41-1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <path d="M17.66 6.34l1.41-1.41" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    )}
-  </button>
-);
-
-const familyToggleNode = (
-  <button
-    type="button"
-    onClick={() => setFamilyMode((v) => (v === 'collection' ? 'main' : 'collection'))}
-    aria-pressed={familyMode === 'collection'}
-    title={familyMode === 'collection' ? 'Collection (on)' : 'Collection (off)'}
-    className={
-      headerToggleBase +
-      (familyMode === 'collection'
-        ? ' border-black/20 bg-white text-black'
-        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
-      + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
-      + (familyMode === 'collection' ? ' dark:border-white/20' : ' dark:border-white/10')
-    }
-  >
-    {familyMode === 'collection' ? (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path d="M7.5 7.5h9v9h-9v-9Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path
-          d="M4.5 10.5V6.7c0-1 .8-1.8 1.8-1.8h3.8"
+          d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+        <path
+          d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8M19.1 19.1l-1.8-1.8M6.7 6.7 4.9 4.9"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinecap="round"
-        />
-        <path
-          d="M19.5 13.5v3.8c0 1-.8 1.8-1.8 1.8h-3.8"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-      </svg>
-    ) : (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path
-          d="M12 3.5l2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3.5Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
         />
       </svg>
     )}
   </button>
 );
 
-return (
-  <main
-    className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
-  >
-    <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
-      <div className="flex w-full items-center gap-2 sm:hidden">
-        {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
-        <input
-          className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base dark:border-white/15 dark:bg-black/25 dark:text-white"
-          placeholder="Search…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <div className="flex flex-none items-center gap-2">
-          {viewToggleNode}
-          {familyToggleNode}
-          {themeToggleNode}
+  return (
+    <main
+      className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
+    >
+      <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
+        <div className="flex w-full items-center gap-2 sm:hidden">
+          {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
+          <input
+            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base dark:border-white/15 dark:bg-black/25 dark:text-white"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="flex flex-none items-center gap-2">
+            {viewToggleNode}
+            {familyToggleNode}
+            {themeToggleNode}
+            <AccountMenu />
+          </div>
         </div>
-      </div>
 
       <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
         <div>
@@ -964,6 +1247,7 @@ return (
             {viewToggleNode}
             {familyToggleNode}
             {themeToggleNode}
+            <AccountMenu />
           </div>
         </div>
       </div>

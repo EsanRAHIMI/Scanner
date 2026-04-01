@@ -106,6 +106,29 @@ def _auth_cookie_name() -> str:
   return _env_str("TRAINER_AUTH_COOKIE_NAME", "trainer_auth")
 
 
+def _cookie_domain() -> str | None:
+  raw = os.environ.get("TRAINER_COOKIE_DOMAIN")
+  if not raw:
+    return None
+  v = raw.strip()
+  return v if v else None
+
+
+def _admin_email_norm() -> str:
+  raw = os.environ.get("TRAINER_ADMIN_EMAIL")
+  v = raw.strip().lower() if isinstance(raw, str) else ""
+  return v if v else "ehsanrahimi8@gmail.com"
+
+
+def _normalize_role(value: Any) -> str:
+  if not isinstance(value, str):
+    return "user"
+  v = value.strip().lower()
+  if v in ["user", "sales", "admin"]:
+    return v
+  return "user"
+
+
 def _normalize_permissions(value: Any) -> list[str]:
   if not isinstance(value, list):
     return []
@@ -278,11 +301,16 @@ api.add_middleware(
   allow_origins=[
     "http://localhost:3010",
     "http://127.0.0.1:3010",
+    "http://localhost:3004",
+    "http://127.0.0.1:3004",
     "http://localhost:3003",
     "http://127.0.0.1:3003",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://scanner.ehsanrahimi.com",
+    "https://products.ehsanrahimi.com",
+    "https://marketing.ehsanrahimi.com",
+    "https://trainer.ehsanrahimi.com",
   ],
   allow_credentials=True,
   allow_methods=["*"],
@@ -347,23 +375,19 @@ async def _startup_mongo_after_env_loaded():
   except Exception as e:
     print(f"[MongoDB] ⚠  Could not create indexes: {e}", flush=True)
 
-  admin_email = os.environ.get("TRAINER_ADMIN_EMAIL")
-  if not admin_email or not admin_email.strip():
-    print("[MongoDB] ⚠  TRAINER_ADMIN_EMAIL not set — no admin bootstrap.", flush=True)
-  else:
-    admin_email_norm = admin_email.strip().lower()
-    try:
-      existing = await users.find_one({"email": admin_email_norm})
-      if existing is not None:
-        await users.update_one(
-          {"_id": existing.get("_id")},
-          {"$set": {"is_admin": True, "status": "approved", "updated_at": _utc_now_iso()}},
-        )
-        print(f"[MongoDB] ✓ Admin '{admin_email_norm}' marked approved+admin.", flush=True)
-      else:
-        print(f"[MongoDB] ℹ  Admin '{admin_email_norm}' not registered yet — auto-approved on first register.", flush=True)
-    except Exception as e:
-      print(f"[MongoDB] ⚠  Admin bootstrap error: {e}", flush=True)
+  admin_email_norm = _admin_email_norm()
+  try:
+    existing = await users.find_one({"email": admin_email_norm})
+    if existing is not None:
+      await users.update_one(
+        {"_id": existing.get("_id")},
+        {"$set": {"is_admin": True, "role": "admin", "status": "approved", "updated_at": _utc_now_iso()}},
+      )
+      print(f"[MongoDB] ✓ Admin '{admin_email_norm}' marked approved+admin.", flush=True)
+    else:
+      print(f"[MongoDB] ℹ  Admin '{admin_email_norm}' not registered yet — auto-approved on first register.", flush=True)
+  except Exception as e:
+    print(f"[MongoDB] ⚠  Admin bootstrap error: {e}", flush=True)
 
 
 
@@ -423,10 +447,10 @@ async def auth_register(payload: dict[str, Any], db=Depends(_get_db)):
   except EmailNotValidError:
     raise HTTPException(status_code=400, detail="INVALID_EMAIL")
 
-  admin_email = os.environ.get("TRAINER_ADMIN_EMAIL")
-  admin_email_norm = admin_email.strip().lower() if admin_email else ""
-  is_admin = bool(admin_email_norm and email_norm == admin_email_norm)
+  admin_email_norm = _admin_email_norm()
+  is_admin = bool(email_norm == admin_email_norm)
   status = "approved" if is_admin else "pending"
+  role = "admin" if is_admin else "user"
 
   user_id = uuid.uuid4().hex
   doc = {
@@ -436,6 +460,7 @@ async def auth_register(payload: dict[str, Any], db=Depends(_get_db)):
     "password_hash": _hash_password(password_raw),
     "status": status,
     "is_admin": is_admin,
+    "role": role,
     "permissions": ["trainer:all"] if is_admin else [],
     "created_at": _utc_now_iso(),
     "updated_at": _utc_now_iso(),
@@ -483,6 +508,7 @@ async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRe
 
   is_https = (req.url.scheme == "https")
   secure_cookie = _is_production() and is_https
+  cookie_domain = _cookie_domain()
 
   response.set_cookie(
     key=_auth_cookie_name(),
@@ -491,6 +517,7 @@ async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRe
     secure=secure_cookie,
     samesite="lax",
     path="/",
+    domain=cookie_domain,
   )
 
   response.set_cookie(
@@ -500,6 +527,7 @@ async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRe
     secure=secure_cookie,
     samesite="lax",
     path="/",
+    domain=cookie_domain,
   )
 
   return {"ok": True}
@@ -507,8 +535,9 @@ async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRe
 
 @api.post("/auth/logout")
 async def auth_logout(response: Response):
-  response.delete_cookie(key=_auth_cookie_name(), path="/")
-  response.delete_cookie(key="trainer_logged_in", path="/")
+  cookie_domain = _cookie_domain()
+  response.delete_cookie(key=_auth_cookie_name(), path="/", domain=cookie_domain)
+  response.delete_cookie(key="trainer_logged_in", path="/", domain=cookie_domain)
   return {"ok": True}
 
 
@@ -520,6 +549,7 @@ async def auth_me(user: dict[str, Any] = Depends(_get_current_user)):
     "username": user.get("username"),
     "status": user.get("status"),
     "is_admin": bool(user.get("is_admin")),
+    "role": _normalize_role(user.get("role")),
     "permissions": _normalize_permissions(user.get("permissions")),
   }
 
@@ -653,6 +683,7 @@ async def admin_users(_: dict[str, Any] = Depends(_require_admin), db=Depends(_g
         "username": u.get("username"),
         "status": u.get("status"),
         "is_admin": bool(u.get("is_admin")),
+        "role": _normalize_role(u.get("role")),
         "permissions": _normalize_permissions(u.get("permissions")),
         "created_at": u.get("created_at"),
         "updated_at": u.get("updated_at"),
@@ -684,6 +715,9 @@ async def admin_update_user(
 
   if "permissions" in payload:
     patch["permissions"] = _normalize_permissions(payload.get("permissions"))
+
+  if "role" in payload:
+    patch["role"] = _normalize_role(payload.get("role"))
 
   if not patch:
     raise HTTPException(status_code=400, detail="EMPTY_PATCH")

@@ -354,3 +354,4 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 
 Private internal project.
 
+git add . && git commit -m "Fix" && git push origin main

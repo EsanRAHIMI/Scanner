@@ -10,6 +10,7 @@ type UserRow = {
   username: string;
   status: 'pending' | 'approved' | 'disabled';
   is_admin: boolean;
+  role?: 'user' | 'sales' | 'admin';
   permissions: string[];
   created_at?: string;
   updated_at?: string;
@@ -76,6 +77,7 @@ export default function AdminUsersPage() {
         body: JSON.stringify({
           status: u.status,
           is_admin: u.is_admin,
+          role: u.role,
           permissions: u.permissions,
         }),
       });
@@ -112,6 +114,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">Username</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Admin</th>
+                <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Permissions</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -144,6 +147,17 @@ export default function AdminUsersPage() {
                       />
                       <span className="text-xs text-black/70">is_admin</span>
                     </label>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <select
+                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1"
+                      value={u.role ?? 'user'}
+                      onChange={(e) => setUserPatch(u.id, { role: e.target.value as UserRow['role'] })}
+                    >
+                      <option value="user">user</option>
+                      <option value="sales">sales</option>
+                      <option value="admin">admin</option>
+                    </select>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <input

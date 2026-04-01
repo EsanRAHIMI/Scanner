@@ -3,10 +3,12 @@ import { getTrainerApiBase } from '@/lib/env';
 export async function apiFetch(path: string, init?: RequestInit) {
   const base = getTrainerApiBase();
   let baseResolved = base;
+  let cookieHeader: string | null = null;
   if (base.startsWith('/') && typeof window === 'undefined') {
     const { headers } = await import('next/headers');
     const h = await headers();
     const host = h.get('host');
+    cookieHeader = h.get('cookie');
     const proto = h.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'production' ? 'https' : 'http');
     const origin = host ? `${proto}://${host}` : 'http://localhost:3004';
     baseResolved = `${origin}${base}`;
@@ -16,8 +18,10 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   const res = await fetch(url, {
     cache: 'no-store',
+    credentials: 'include',
     ...init,
     headers: {
+      ...(cookieHeader ? { cookie: cookieHeader } : {}),
       ...(init?.headers ?? {}),
     },
   });
