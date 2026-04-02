@@ -314,6 +314,38 @@ function extractUrls(v: unknown): string[] {
   return [];
 }
 
+function getDriveDirectLink(url: string): string {
+  if (!url.includes('drive.google.com') && !url.includes('google.com/file/d/')) return url;
+  
+  // Extract ID from various formats
+  // Format 1: /file/d/[ID]/view
+  // Format 2: ?id=[ID]
+  // Format 3: /open?id=[ID]
+  
+  let id = '';
+  // Try to find the /file/d/ pattern
+  const matchD = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (matchD && matchD[1]) {
+    id = matchD[1];
+  } else {
+    // Try query parameters
+    try {
+      const u = new URL(url);
+      id = u.searchParams.get('id') || u.searchParams.get('fileId') || '';
+    } catch {
+      // Fallback: search for id= pattern manually if URL parsing fails
+      const manualMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (manualMatch) id = manualMatch[1];
+    }
+  }
+  
+  if (id) {
+    // High-performance direct link format requested by user
+    return `https://lh3.googleusercontent.com/d/${id}=w1000`;
+  }
+  return url;
+}
+
 function formatPrice(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -382,9 +414,12 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
       </span>
     );
   }
-  if (col === 'image') {
+  if (col === 'image' || col === 'dam') {
     const urls = extractUrls(value);
-    const u = urls[0] ?? '';
+    let u = urls[0] ?? '';
+    if (col === 'dam' && u) {
+      u = getDriveDirectLink(u);
+    }
     return (
       <button
         type="button"
@@ -484,7 +519,7 @@ export function ProductsView({
   const records: ProductsRecord[] = data?.records ?? [];
 
   const displayedColumns = React.useMemo(() => {
-    const primary = ['Image', 'Price', 'URL', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
+    const primary = ['Image', 'DAM', 'Price', 'URL', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
     const trailing = ['CODE NUMBER', 'L000', 'Num'] as const;
     const primarySet = new Set<string>(primary as readonly string[]);
     const trailingSet = new Set<string>(trailing as readonly string[]);
@@ -1303,32 +1338,45 @@ const themeToggleNode = (
                     (selectedIds.has(r.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
                   }
                 >
-                  {displayedColumns.map((c, idx) => (
-                    <td
-                      key={c}
-                      className={
-                        (idx === 0
-                          ? 'sticky left-0 z-10 ' +
-                            (selectedIds.has(r.id)
-                              ? 'bg-emerald-50 dark:bg-emerald-900/20 '
-                              : 'bg-white dark:bg-black/10 ')
-                          : '') +
-                        (idx === 0
-                          ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                          : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')
-                      }
-                      onClick={() => {
-                        if (c.trim().toLowerCase() === 'image') {
-                          const u = extractUrls(r.fields?.[c])[0] ?? '';
-                          if (u) openPreviewByUrl(u);
-                          return;
+                  {displayedColumns.map((c, idx) => {
+                    const isDAM = c === 'DAM';
+                    let cellValue = r.fields?.[c];
+                    if (isDAM) {
+                      const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
+                        const kl = k.trim().toLowerCase();
+                        return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+                      });
+                      cellValue = urlEntry?.[1];
+                    }
+                    return (
+                      <td
+                        key={c}
+                        className={
+                          (idx === 0
+                            ? 'sticky left-0 z-10 ' +
+                              (selectedIds.has(r.id)
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 '
+                                : 'bg-white dark:bg-black/10 ')
+                            : '') +
+                          (idx === 0
+                            ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                            : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')
                         }
-                        toggleSelected(r.id);
-                      }}
-                    >
-                      {renderCell(c, r.fields?.[c], openPreviewByUrl)}
-                    </td>
-                  ))}
+                        onClick={() => {
+                          const colLower = c.trim().toLowerCase();
+                          if (colLower === 'image' || isDAM) {
+                            const u = extractUrls(cellValue)[0] ?? '';
+                            const finalUrl = isDAM ? getDriveDirectLink(u) : u;
+                            if (finalUrl) openPreviewByUrl(finalUrl);
+                            return;
+                          }
+                          toggleSelected(r.id);
+                        }}
+                      >
+                        {renderCell(c, cellValue, openPreviewByUrl)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
               {records.length === 0 ? (
