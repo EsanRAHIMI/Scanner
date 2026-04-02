@@ -285,8 +285,8 @@ function formatScalar(value: unknown): string {
 
 function extractUrls(v: unknown): string[] {
   if (typeof v === 'string') {
-    const s = v.trim();
-    return /^https?:\/\//i.test(s) ? [s] : [];
+    const parts = v.split(/[\s,\n]+/).map((s) => s.trim()).filter(Boolean);
+    return parts.filter((s) => /^https?:\/\//i.test(s));
   }
   if (Array.isArray(v)) {
     const out: string[] = [];
@@ -362,133 +362,6 @@ function formatPrice(value: unknown): string | null {
   return null;
 }
 
-function renderCell(column: string, value: unknown, onImageClick?: (url: string) => void) {
-  if (value === null || value === undefined) return null;
-
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-
-  const col = column.trim().toLowerCase();
-  if (col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url')) {
-    const urls = extractUrls(value);
-    const u = urls[0] ?? '';
-    if (!u) return formatScalar(value);
-    return (
-      <a
-        href={u}
-        target="_blank"
-        rel="noreferrer"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-        className="inline-flex max-w-[260px] items-center gap-2 truncate text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
-        title={u}
-      >
-        <span className="truncate">{u}</span>
-      </a>
-    );
-  }
-  if (col === 'price') {
-    const formatted = formatPrice(value);
-    if (!formatted) return formatScalar(value);
-    return (
-      <span className="inline-flex items-baseline gap-1">
-        <span className="inline-flex items-baseline">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`${basePath}/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg`}
-            alt="AED"
-            className="inline-block h-[9px] w-auto"
-            onLoad={(e) => {
-              const parent = e.currentTarget.parentElement;
-              const fallback = parent?.querySelector('[data-dirham-fallback]') as HTMLElement | null;
-              if (fallback) fallback.style.display = 'none';
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-          <span data-dirham-fallback className="text-[11px] text-black/80">
-            AED
-          </span>
-        </span>
-        <span>{formatted}</span>
-      </span>
-    );
-  }
-  if (col === 'image' || col === 'dam') {
-    const urls = extractUrls(value);
-    let u = urls[0] ?? '';
-    if (col === 'dam' && u) {
-      u = getDriveDirectLink(u);
-    }
-    return (
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onImageClick?.(u);
-        }}
-        title={u ? 'Click to maximize' : 'No image'}
-        className="block text-left"
-      >
-        <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
-          {u ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={u}
-              alt="product"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-              className="block h-full w-full object-cover"
-            />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center text-[11px] text-black/60 dark:text-white/60">
-              No image
-            </span>
-          )}
-        </span>
-      </button>
-    );
-  }
-
-  if (Array.isArray(value)) {
-    const arr = value as unknown[];
-    const allStrings = arr.every((x) => typeof x === 'string');
-    if (allStrings) {
-      const items = arr as string[];
-      return (
-        <div className="flex flex-wrap gap-1">
-          {items.map((label) => (
-            <span
-              key={label}
-              className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] dark:border-white/10 dark:bg-white/5"
-              title={label}
-            >
-              <span className="max-w-[240px] truncate">{label}</span>
-            </span>
-          ))}
-        </div>
-      );
-    }
-
-    return <span className="text-xs text-black/60 dark:text-white/60">[{arr.length}]</span>;
-  }
-
-  const scalar = formatScalar(value);
-  if (scalar) return scalar;
-
-  if (typeof value === 'object') {
-    const maybe = value as Record<string, unknown>;
-    if (typeof maybe.name === 'string') return maybe.name;
-    if (typeof maybe.url === 'string') return maybe.url;
-    return <span className="text-xs text-black/60 dark:text-white/60">Object</span>;
-  }
-
-  return String(value);
-}
 
 export function ProductsView({
   title = 'Products',
@@ -514,6 +387,54 @@ export function ProductsView({
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
+  const [user, setUser] = React.useState<{ role: string } | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string } | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/trainer/auth/me');
+        if (res.ok) {
+          const json = await res.json();
+          setUser(json);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  const canEdit = user?.role === 'admin' || user?.role === 'sales';
+
+  const handleSaveUrl = async () => {
+    if (!editingUrl || isSaving) return;
+    setIsSaving(true);
+    try {
+      // Find the actual field name for URL
+      const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
+      
+      const res = await fetch(`/api/products/${editingUrl.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            [urlFieldName]: editingUrl.value
+          }
+        })
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      
+      // Update local state by forcing a refresh
+      setEditingUrl(null);
+      window.location.reload(); 
+    } catch (err) {
+      alert('Error saving URL: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
@@ -546,9 +467,10 @@ export function ProductsView({
       const v = r.fields?.[c];
       if (v === null || v === undefined) continue;
 
-      if (c.trim().toLowerCase() === 'image') {
+      const colLower = c.trim().toLowerCase();
+      if (colLower === 'image' || colLower === 'dam') {
         const urls = extractUrls(v);
-        if (urls[0]) parts.push(urls[0]);
+        if (urls.length > 0) parts.push(urls.join(' | '));
         continue;
       }
 
@@ -935,6 +857,236 @@ export function ProductsView({
 
     return current ? [current, ...rest] : [...variants];
   }, [allGalleryItems, currentItem?.collectionNameNormalized, currentItem?.id]);
+
+  const renderCell = React.useCallback(
+    (column: string, value: unknown, recordId: string) => {
+      if (value === null || value === undefined) return null;
+
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+      const col = column.trim().toLowerCase();
+
+      const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
+
+      if (isUrl) {
+        if (editingUrl?.id === recordId) {
+          return (
+            <div
+              className="flex items-center gap-1"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <textarea
+                className="min-h-[60px] w-full rounded border border-black/20 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-white/20 dark:bg-black"
+                value={editingUrl.value}
+                onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                autoFocus
+              />
+              <div className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={handleSaveUrl}
+                  className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  title="Save"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingUrl(null)}
+                  className="flex h-7 w-7 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                  title="Cancel"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        const urls = extractUrls(value);
+        return (
+          <div className="group relative flex min-h-[1.5rem] flex-col gap-1 pr-6">
+            {urls.length === 0 ? (
+              <span className="text-[11px] font-medium text-black/30 italic dark:text-white/30">
+                {String(value || '')}
+              </span>
+            ) : (
+              urls.map((u, i) => (
+                <a
+                  key={u + i}
+                  href={u}
+                  target="_blank"
+                  rel="noreferrer"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex max-w-[260px] items-center gap-2 truncate text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
+                  title={u}
+                >
+                  <span className="truncate">{u}</span>
+                </a>
+              ))
+            )}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingUrl({ id: recordId, value: String(value || '') });
+                }}
+                className="absolute right-0 top-0 hidden rounded p-1 text-black/40 hover:bg-black/5 group-hover:block dark:text-white/40 dark:hover:bg-white/5"
+                title="Edit URL"
+              >
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path
+                    d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        );
+      }
+
+      if (col === 'price') {
+        const formatted = formatPrice(value);
+        if (!formatted) return formatScalar(value);
+        return (
+          <span className="inline-flex items-baseline gap-1">
+            <span className="inline-flex items-baseline">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`${basePath}/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg`}
+                alt="AED"
+                className="inline-block h-[9px] w-auto"
+                onLoad={(e) => {
+                  const parent = e.currentTarget.parentElement;
+                  const fallback = parent?.querySelector('[data-dirham-fallback]') as HTMLElement | null;
+                  if (fallback) fallback.style.display = 'none';
+                }}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <span data-dirham-fallback className="text-[11px] text-black/80">
+                AED
+              </span>
+            </span>
+            <span>{formatted}</span>
+          </span>
+        );
+      }
+      if (col === 'image' || col === 'dam') {
+        const urls = extractUrls(value);
+        if (urls.length === 0) {
+          return (
+            <span className="flex h-20 w-20 items-center justify-center text-[10px] text-black/40 dark:text-white/40 rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5 font-medium italic">
+              No image
+            </span>
+          );
+        }
+
+        const maxItems = 4;
+        const visibleUrls = urls.slice(0, maxItems);
+
+        return (
+          <div className="relative h-24 w-24 flex items-center justify-center">
+            {visibleUrls
+              .slice()
+              .reverse()
+              .map((u, i) => {
+                const revIdx = visibleUrls.length - 1 - i;
+                const finalUrl = col === 'dam' ? getDriveDirectLink(u) : u;
+                return (
+                  <button
+                    key={u + i}
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openPreviewByUrl?.(finalUrl);
+                    }}
+                    title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
+                    style={{
+                      transformOrigin: 'bottom center',
+                      transform: `rotate(${(revIdx % 2 === 0 ? 1 : -1) * revIdx * 6}deg) translate(${revIdx * 1.5}px, ${
+                        -revIdx * 1.5
+                      }px)`,
+                      zIndex: visibleUrls.length - revIdx,
+                    }}
+                    className="absolute pointer-events-auto"
+                  >
+                    <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px] transition-transform hover:scale-110 active:scale-95">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={finalUrl}
+                        alt="product"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                        className="block h-full w-full object-cover"
+                      />
+                    </span>
+                  </button>
+                );
+              })}
+            {urls.length > maxItems && (
+              <div className="absolute bottom-1 right-1 z-[100] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
+                +{urls.length - maxItems}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (Array.isArray(value)) {
+        const arr = value as unknown[];
+        const allStrings = arr.every((x) => typeof x === 'string');
+        if (allStrings) {
+          const items = arr as string[];
+          return (
+            <div className="flex flex-wrap gap-1">
+              {items.map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] dark:border-white/10 dark:bg-white/5"
+                  title={label}
+                >
+                  <span className="max-w-[240px] truncate">{label}</span>
+                </span>
+              ))}
+            </div>
+          );
+        }
+
+        return <span className="text-xs text-black/60 dark:text-white/60">[{arr.length}]</span>;
+      }
+
+      const scalar = formatScalar(value);
+      if (scalar) return scalar;
+
+      if (typeof value === 'object') {
+        const maybe = value as Record<string, unknown>;
+        if (typeof maybe.name === 'string') return maybe.name;
+        if (typeof maybe.url === 'string') return maybe.url;
+        return <span className="text-xs text-black/60 dark:text-white/60">Object</span>;
+      }
+
+      return String(value);
+    },
+    [editingUrl, isSaving, handleSaveUrl, canEdit, openPreviewByUrl]
+  );
+
 
   const swipeRef = React.useRef<{
     pointerId: number | null;
@@ -1360,7 +1512,9 @@ const themeToggleNode = (
                             : '') +
                           (idx === 0
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                            : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')
+                            : (isDAM 
+                                ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                                : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))
                         }
                         onClick={() => {
                           const colLower = c.trim().toLowerCase();
@@ -1373,7 +1527,7 @@ const themeToggleNode = (
                           toggleSelected(r.id);
                         }}
                       >
-                        {renderCell(c, cellValue, openPreviewByUrl)}
+                        {renderCell(c, cellValue, r.id)}
                       </td>
                     );
                   })}

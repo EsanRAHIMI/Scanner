@@ -824,6 +824,67 @@ def public_products_assets():
   return {"columns": columns, "records": records, "count": len(records)}
 
 
+def _airtable_patch_json(url: str, api_key: str, payload: dict[str, Any]) -> str:
+  timeout_s_raw = os.environ.get("AIRTABLE_HTTP_TIMEOUT_SECONDS") or os.environ.get("AIRTABLE_HTTP_TIMEOUT")
+  try:
+    timeout_s = int(timeout_s_raw) if timeout_s_raw else 60
+  except Exception:
+    timeout_s = 60
+
+  retries_raw = os.environ.get("AIRTABLE_HTTP_RETRIES")
+  try:
+    retries = int(retries_raw) if retries_raw else 2
+  except Exception:
+    retries = 2
+
+  req = Request(url, method="PATCH")
+  req.add_header("Authorization", f"Bearer {api_key}")
+  req.add_header("Accept", "application/json")
+  req.add_header("Content-Type", "application/json")
+  
+  body_bytes = json.dumps(payload).encode("utf-8")
+
+  last_err: Exception | None = None
+  for attempt in range(retries + 1):
+    try:
+      with urlopen(req, data=body_bytes, timeout=timeout_s) as resp:
+        return resp.read().decode("utf-8")
+    except Exception as e:
+      last_err = e
+      if attempt >= retries:
+        break
+      backoff = 0.6 * (2**attempt) + random.random() * 0.25
+      time.sleep(backoff)
+
+  raise last_err or Exception("Unknown airtable patch error")
+
+
+@api.patch("/products/assets/{record_id}")
+async def patch_product_asset(
+  record_id: str,
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+):
+  if _normalize_role(user.get("role")) not in ["admin", "sales"]:
+    raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
+
+  api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
+  base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
+  table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")
+  if not api_key or not base_id or not table:
+    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
+
+  url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}/{quote(record_id, safe='')}"
+  
+  # Airtable PATCH expected format: {"fields": {"FieldName": "Value"}}
+  try:
+    body = _airtable_patch_json(url, api_key, payload)
+    return json.loads(body)
+  except Exception as e:
+    logger.error(f"AIRTABLE_PATCH_FAILED: {e}")
+    raise HTTPException(status_code=502, detail=f"AIRTABLE_PATCH_FAILED: {e}")
+
+
 @api.get("/products/assets")
 def products_assets(_: dict[str, Any] = Depends(_get_current_user)):
   api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
