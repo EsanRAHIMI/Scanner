@@ -387,8 +387,8 @@ export function ProductsView({
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
-  const [user, setUser] = React.useState<{ role: string } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string } | null>(null);
+  const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string } | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -397,7 +397,10 @@ export function ProductsView({
         const res = await fetch('/api/trainer/auth/me');
         if (res.ok) {
           const json = await res.json();
-          setUser(json);
+          setUser({
+            role: json.role || 'user',
+            is_admin: Boolean(json.is_admin || json.role === 'admin')
+          });
         }
       } catch {
         // ignore
@@ -405,7 +408,7 @@ export function ProductsView({
     })();
   }, []);
 
-  const canEdit = user?.role === 'admin' || user?.role === 'sales';
+  const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
 
   const handleSaveUrl = async () => {
     if (!editingUrl || isSaving) return;
@@ -868,7 +871,7 @@ export function ProductsView({
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
 
       if (isUrl) {
-        if (editingUrl?.id === recordId) {
+        if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column)) {
           return (
             <div
               className="flex items-center gap-1"
@@ -987,10 +990,78 @@ export function ProductsView({
       if (col === 'image' || col === 'dam') {
         const urls = extractUrls(value);
         if (urls.length === 0) {
+          const isDAMTarget = column.trim().toLowerCase() === 'dam';
+          if (isDAMTarget && editingUrl?.id === recordId && editingUrl.column === column) {
+            return (
+              <div
+                className="flex items-center justify-center p-1"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <textarea
+                  className="min-h-[60px] w-[140px] rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
+                  value={editingUrl.value}
+                  onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                  placeholder="Paste URL..."
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSaveUrl();
+                    }
+                  }}
+                />
+                <div className="flex flex-col gap-1 ml-1">
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={handleSaveUrl}
+                    className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingUrl(null)}
+                    className="flex h-7 w-7 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          if (isDAMTarget) {
+            return (
+              <div className="flex h-12 w-full items-center justify-center">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingUrl({ id: recordId, value: '', column });
+                  }}
+                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white dark:bg-emerald-500/20 dark:text-emerald-400"
+                  title="Add image URL to DAM"
+                >
+                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            );
+          }
+
           return (
-            <span className="flex h-20 w-20 items-center justify-center text-[10px] text-black/40 dark:text-white/40 rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5 font-medium italic">
-              No image
-            </span>
+            <div className="flex h-20 w-20 items-center justify-center rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
+              <span className="text-[10px] items-center justify-center font-medium italic text-black/40 dark:text-white/40">
+                No image
+              </span>
+            </div>
           );
         }
 
@@ -1491,7 +1562,8 @@ const themeToggleNode = (
                   }
                 >
                   {displayedColumns.map((c, idx) => {
-                    const isDAM = c === 'DAM';
+                    const normalizedCol = c.trim().toLowerCase();
+                    const isDAM = normalizedCol === 'dam';
                     let cellValue = r.fields?.[c];
                     if (isDAM) {
                       const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
@@ -1600,8 +1672,64 @@ const themeToggleNode = (
                           }}
                           className="h-full w-full object-cover"
                         />
+                      ) : canEdit && editingUrl?.id === r.id && editingUrl.column === 'Image' ? (
+                        <div
+                          className="flex h-full w-full flex-col items-center justify-center gap-2 bg-white p-2 dark:bg-black"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <textarea
+                            className="w-full flex-1 rounded border border-emerald-500/30 bg-white p-2 text-xs font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
+                            value={editingUrl.value}
+                            onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                            placeholder="Paste URL..."
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSaveUrl();
+                              }
+                            }}
+                          />
+                          <div className="flex w-full gap-2">
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={handleSaveUrl}
+                              className="flex-1 rounded bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-sm"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingUrl(null)}
+                              className="flex-1 rounded bg-black/5 py-1.5 text-xs font-semibold text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs text-black/40 dark:text-white/40">No image</div>
+                        <div className="group/btn relative h-full w-full overflow-hidden bg-emerald-500/5 dark:bg-emerald-500/10">
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingUrl({ id: r.id, value: '', column: 'Image' });
+                              }}
+                              className="flex h-full w-full items-center justify-center text-emerald-600/40 transition-all hover:bg-emerald-600/90 hover:text-white dark:text-emerald-400/50 dark:hover:text-white"
+                              title="Add image URL"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-xs text-black/40 italic dark:text-white/40">
+                              No image
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </button>
