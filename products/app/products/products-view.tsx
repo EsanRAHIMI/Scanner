@@ -1195,25 +1195,8 @@ export function ProductsView({
                 </div>
               );
             }
-            return (
-              <div className="flex h-12 w-full items-center justify-center">
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingUrl({ id: recordId, value: '', column });
-                  }}
-                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
-                  title="Add URL for Image"
-                >
-                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-            );
           }
+
           return (
             <div className="flex h-20 w-20 items-center justify-center rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
               <span className="text-[10px] items-center justify-center font-medium italic text-black/40 dark:text-white/40">
@@ -1228,22 +1211,6 @@ export function ProductsView({
 
         return (
           <>
-            {canEdit && urls.length > 0 && (
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingUrl({ id: recordId, value: '', column });
-                }}
-                className="absolute left-0 top-0 z-[60] flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
-                title="Add Image URL"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                  <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            )}
           <div className="relative h-24 w-24 flex items-center justify-center">
             {visibleUrls
               .slice()
