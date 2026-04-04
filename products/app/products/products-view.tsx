@@ -960,7 +960,7 @@ export function ProductsView({
 
         const urls = extractUrls(value);
         return (
-          <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : 'pr-6'}`}>
+          <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : ''}`}>
             {urls.length === 0 ? (
               <div className="flex w-full items-center justify-center py-1">
                 {canEdit ? (
@@ -982,7 +982,7 @@ export function ProductsView({
                 )}
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5 py-0.5">
+              <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5">
                 {canEdit && (
                   <button
                     type="button"
@@ -999,7 +999,7 @@ export function ProductsView({
                   </button>
                 )}
                 {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
-                  <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black">
+                  <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
                     <input
                       className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                       value={editingUrl.value}
@@ -1042,7 +1042,7 @@ export function ProductsView({
                   const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
                   if (isBeingEdited) {
                     return (
-                      <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black">
+                      <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
                         <input
                           className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                           value={editingUrl.value}
@@ -1083,7 +1083,7 @@ export function ProductsView({
                   }
 
                   return (
-                    <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5">
+                    <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5 pl-4 pr-1">
                       <a
                         href={u}
                         target="_blank"
@@ -1240,8 +1240,7 @@ export function ProductsView({
                     title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
                     style={{
                       transformOrigin: 'bottom center',
-                      transform: `rotate(${(revIdx % 2 === 0 ? 1 : -1) * revIdx * 6}deg) translate(${revIdx * 1.5}px, ${-revIdx * 1.5
-                        }px)`,
+                      transform: `rotate(${revIdx * 3.2}deg) translate(${revIdx * 4}px, ${-revIdx * 2}px)`,
                       zIndex: visibleUrls.length - revIdx,
                     }}
                     className="absolute pointer-events-auto"
@@ -1262,9 +1261,9 @@ export function ProductsView({
                   </button>
                 );
               })}
-            {urls.length > maxItems && (
+            {urls.length > 1 && (
               <div className="absolute bottom-1 right-1 z-[100] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
-                +{urls.length - maxItems}
+                +{urls.length - 1}
               </div>
             )}
           </div>
@@ -1600,6 +1599,27 @@ export function ProductsView({
     <main
       className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
     >
+      <style>{`
+        .scrollbar-minimal::-webkit-scrollbar {
+          width: 4px;
+        }
+        .scrollbar-minimal::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .scrollbar-minimal::-webkit-scrollbar-thumb {
+          background: rgba(16, 185, 129, 0.15);
+          border-radius: 10px;
+        }
+        .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
+          background: rgba(16, 185, 129, 0.4);
+        }
+        .dark .scrollbar-minimal::-webkit-scrollbar-thumb {
+          background: rgba(52, 211, 153, 0.15);
+        }
+        .dark .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
+          background: rgba(52, 211, 153, 0.4);
+        }
+      `}</style>
       <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
         <div className="flex w-full items-center gap-2 sm:hidden">
           {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
@@ -1728,7 +1748,7 @@ export function ProductsView({
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
                             : (isDAM
                               ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                              : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')) +
+                              : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')) +
                           (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
                         }
                         onClick={() => {
