@@ -13,7 +13,7 @@ type AuthMe = {
   permissions: string[];
 };
 
-function AccountMenu() {
+function AccountMenu({ onAuthChange }: { onAuthChange?: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -88,6 +88,7 @@ function AccountMenu() {
       if (!res.ok) throw new Error(text || `Logout failed (${res.status})`);
       setMe(null);
       setMode('login');
+      onAuthChange?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed');
     } finally {
@@ -110,6 +111,7 @@ function AccountMenu() {
         if (!res.ok) throw new Error(text || `Login failed (${res.status})`);
         await loadMe();
         setOpen(false);
+        onAuthChange?.();
         return;
       }
 
@@ -391,22 +393,26 @@ export function ProductsView({
   const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' }| null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
-  React.useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch('/api/trainer/auth/me');
-        if (res.ok) {
-          const json = await res.json();
-          setUser({
-            role: json.role || 'user',
-            is_admin: Boolean(json.is_admin || json.role === 'admin')
-          });
-        }
-      } catch {
-        // ignore
+  const fetchUserSession = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/trainer/auth/me');
+      if (res.ok) {
+        const json = await res.json();
+        setUser({
+          role: json.role || 'user',
+          is_admin: Boolean(json.is_admin || json.role === 'admin')
+        });
+      } else {
+        setUser(null);
       }
-    })();
+    } catch {
+      setUser(null);
+    }
   }, []);
+
+  React.useEffect(() => {
+    void fetchUserSession();
+  }, [fetchUserSession]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
 
@@ -1195,6 +1201,25 @@ export function ProductsView({
                 </div>
               );
             }
+
+            return (
+              <div className="flex h-12 w-full items-center justify-center">
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingUrl({ id: recordId, value: '', column });
+                  }}
+                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
+                  title="Add URL for Image"
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            );
           }
 
           return (
@@ -1628,7 +1653,7 @@ export function ProductsView({
             {viewToggleNode}
             {familyToggleNode}
             {themeToggleNode}
-            <AccountMenu />
+            <AccountMenu onAuthChange={fetchUserSession} />
           </div>
         </div>
 
@@ -1649,7 +1674,7 @@ export function ProductsView({
               {viewToggleNode}
               {familyToggleNode}
               {themeToggleNode}
-              <AccountMenu />
+              <AccountMenu onAuthChange={fetchUserSession} />
             </div>
           </div>
         </div>
