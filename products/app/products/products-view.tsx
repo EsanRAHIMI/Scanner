@@ -894,8 +894,9 @@ export function ProductsView({
       const col = column.trim().toLowerCase();
 
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
+      const isDAM = col === 'dam';
 
-      if ((value === null || value === undefined) && !isUrl) return null;
+      if ((value === null || value === undefined) && !isUrl && !isDAM) return null;
 
       if (isUrl) {
         if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column)) {
@@ -1035,6 +1036,69 @@ export function ProductsView({
 
         // For image and dam: only show the image stack, or 'No image' if empty
         if (urls.length === 0) {
+          if (col === 'dam' && canEdit) {
+            if (editingUrl?.id === recordId && editingUrl.column === column) {
+              return (
+                <div
+                  className="flex items-center gap-1"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <textarea
+                    className="min-h-[40px] w-full rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
+                    value={editingUrl.value}
+                    onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                    autoFocus
+                    placeholder="URL for Image..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSaveUrl();
+                      }
+                    }}
+                  />
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={handleSaveUrl}
+                      className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingUrl(null)}
+                      className="flex h-6 w-6 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="flex h-12 w-full items-center justify-center">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingUrl({ id: recordId, value: '', column });
+                  }}
+                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white"
+                  title="Add URL for Image"
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+            );
+          }
           return (
             <div className="flex h-20 w-20 items-center justify-center rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
               <span className="text-[10px] items-center justify-center font-medium italic text-black/40 dark:text-white/40">
