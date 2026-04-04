@@ -388,7 +388,7 @@ export function ProductsView({
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
   const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null }| null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' }| null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -428,6 +428,10 @@ export function ProductsView({
             finalValueToSave = urls.join('\n');
           }
         }
+      } else if (editingUrl.mode === 'prepend' && data?.records) {
+        const record = data.records.find(r => r.id === editingUrl.id);
+        const currentFieldValue = String(record?.fields[urlFieldName] || '').trim();
+        finalValueToSave = currentFieldValue ? (editingUrl.value + '\n' + currentFieldValue) : editingUrl.value;
       }
 
       const res = await fetch(`/api/products/${editingUrl.id}`, {
@@ -940,7 +944,7 @@ export function ProductsView({
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSaveUrl();
-                  } else if (e.key === 'Escape') {
+                  } else if (e.key === 'Escape' || e.key === 'Esc') {
                     setEditingUrl(null);
                   }
                 }}
@@ -956,7 +960,7 @@ export function ProductsView({
 
         const urls = extractUrls(value);
         return (
-          <div className={`group relative flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : 'pr-6'}`}>
+          <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : 'pr-6'}`}>
             {urls.length === 0 ? (
               <div className="flex w-full items-center justify-center py-1">
                 {canEdit ? (
@@ -979,21 +983,76 @@ export function ProductsView({
               </div>
             ) : (
               <div className="flex flex-col gap-1.5 py-0.5">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
+                    }}
+                    className="absolute left-0 top-0 z-30 flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95"
+                    title="Add URL to top"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                )}
+                {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
+                  <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black">
+                    <input
+                      className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
+                      value={editingUrl.value}
+                      onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                      autoFocus
+                      placeholder="New URL..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveUrl();
+                        } else if (e.key === 'Escape' || e.key === 'Esc') {
+                          setEditingUrl(null);
+                        }
+                      }}
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
+                        className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
+                        className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {urls.map((u, i) => {
                   const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
                   if (isBeingEdited) {
                     return (
                       <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black">
-                        <textarea
+                        <input
                           className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                           value={editingUrl.value}
                           onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
                           autoFocus
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
+                            if (e.key === 'Enter') {
                               e.preventDefault();
                               handleSaveUrl();
-                            } else if (e.key === 'Escape') {
+                            } else if (e.key === 'Escape' || e.key === 'Esc') {
                               setEditingUrl(null);
                             }
                           }}
@@ -1109,7 +1168,7 @@ export function ProductsView({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <textarea
-                    className="h-full w-full resize-none border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
+                    className="h-full w-full resize-none overflow-hidden border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                     value={editingUrl.value}
                     onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
                     autoFocus
@@ -1118,7 +1177,7 @@ export function ProductsView({
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSaveUrl();
-                      } else if (e.key === 'Escape') {
+                      } else if (e.key === 'Escape' || e.key === 'Esc') {
                         setEditingUrl(null);
                       }
                     }}
