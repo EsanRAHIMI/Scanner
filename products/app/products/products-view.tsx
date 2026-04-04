@@ -960,44 +960,48 @@ export function ProductsView({
 
         const urls = extractUrls(value);
         return (
-          <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : ''}`}>
-            {urls.length === 0 ? (
-              <div className="flex w-full items-center justify-center py-1">
-                {canEdit ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingUrl({ id: recordId, value: '', column });
-                    }}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white"
-                    title="Add URL"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                ) : (
-                  <span className="text-2xl font-light text-red-500/60 dark:text-red-400/60">+</span>
-                )}
-              </div>
-            ) : (
-              <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5">
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
-                    }}
-                    className="absolute left-0 top-0 z-30 flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95"
-                    title="Add URL to top"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                )}
+          <>
+            {canEdit && urls.length > 0 && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
+                }}
+                className="absolute left-0 top-0 z-[60] flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
+                title="Add URL to top"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+            <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : ''}`}>
+              {urls.length === 0 ? (
+                <div className="flex w-full items-center justify-center py-1">
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingUrl({ id: recordId, value: '', column });
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
+                      title="Add URL"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <span className="text-2xl font-light text-red-500/60 dark:text-red-400/60">+</span>
+                  )}
+                </div>
+              ) : (
+                <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5">
+
                 {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
                   <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
                     <input
@@ -1123,6 +1127,7 @@ export function ProductsView({
               </div>
             )}
           </div>
+          </>
         );
       }
 
@@ -1194,11 +1199,12 @@ export function ProductsView({
               <div className="flex h-12 w-full items-center justify-center">
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     setEditingUrl({ id: recordId, value: '', column });
                   }}
-                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white"
+                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
                   title="Add URL for Image"
                 >
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1221,6 +1227,23 @@ export function ProductsView({
         const visibleUrls = urls.slice(0, maxItems);
 
         return (
+          <>
+            {canEdit && urls.length > 0 && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingUrl({ id: recordId, value: '', column });
+                }}
+                className="absolute left-0 top-0 z-[60] flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
+                title="Add Image URL"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                  <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           <div className="relative h-24 w-24 flex items-center justify-center">
             {visibleUrls
               .slice()
@@ -1267,6 +1290,7 @@ export function ProductsView({
               </div>
             )}
           </div>
+          </>
         );
       }
 
@@ -1601,23 +1625,27 @@ export function ProductsView({
     >
       <style>{`
         .scrollbar-minimal::-webkit-scrollbar {
-          width: 4px;
+          width: 6px;
+          height: 6px;
         }
         .scrollbar-minimal::-webkit-scrollbar-track {
           background: transparent;
         }
         .scrollbar-minimal::-webkit-scrollbar-thumb {
-          background: rgba(16, 185, 129, 0.15);
-          border-radius: 10px;
+          background: rgba(16, 185, 129, 0.2);
+          border-radius: 20px;
+          border: 1.5px solid transparent;
+          background-clip: content-box;
         }
         .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-          background: rgba(16, 185, 129, 0.4);
+          background: rgba(16, 185, 129, 0.45);
+          background-clip: content-box;
         }
         .dark .scrollbar-minimal::-webkit-scrollbar-thumb {
-          background: rgba(52, 211, 153, 0.15);
+          background: rgba(52, 211, 153, 0.2);
         }
         .dark .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-          background: rgba(52, 211, 153, 0.4);
+          background: rgba(52, 211, 153, 0.45);
         }
       `}</style>
       <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
@@ -1677,9 +1705,9 @@ export function ProductsView({
       ) : null}
 
       {viewMode === 'list' ? (
-        <div className="w-full overflow-x-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
+        <div className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
           <table className="min-w-full table-auto text-left text-sm">
-            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm dark:bg-black/35 dark:text-white/60">
+            <thead className="bg-transparent text-xs uppercase tracking-wide text-black/60 dark:text-white/60">
               <tr>
                 {displayedColumns.map((c, idx) => {
                   const normalizedCol = c.trim().toLowerCase();
@@ -1688,9 +1716,10 @@ export function ProductsView({
                     <th
                       key={c}
                       className={
-                        (idx === 0 ? 'sticky left-0 z-30 bg-white dark:bg-black/35 ' : '') +
+                        'sticky top-0 bg-white/70 shadow-sm backdrop-blur-md dark:bg-black/45 ' +
+                        (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
                         (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : '') +
-                        'px-4 py-3'
+                        'px-4 py-3 text-left'
                       }
                     >
                       <button

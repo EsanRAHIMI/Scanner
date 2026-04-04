@@ -39,7 +39,7 @@ export default function ProductsPage() {
   }, []);
 
   return (
-    <div className="relative">
+    <div className="relative flex flex-1 w-full min-h-0 flex-col">
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
