@@ -72,7 +72,7 @@ function renderCell(column: string, value: unknown, onImageClick?: (url: string)
         <span className="inline-flex items-baseline">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/trainer/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
+            src="/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
             alt="AED"
             className="inline-block h-[9px] w-auto"
             onLoad={(e) => {

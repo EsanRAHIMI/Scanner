@@ -80,7 +80,7 @@ export function TrainerNavbar({ scannerUrl }: { scannerUrl: string }) {
       if (!res.ok) {
         throw new Error(text || `Logout failed (${res.status})`);
       }
-      window.location.href = '/trainer/login';
+      window.location.href = '/login';
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed');
     } finally {
@@ -161,7 +161,7 @@ export function TrainerNavbar({ scannerUrl }: { scannerUrl: string }) {
                       {me.is_admin ? (
                         <a
                           className="block w-full rounded-md border border-black/15 px-4 py-2 text-center text-sm text-black hover:bg-black/5"
-                          href="/trainer/admin/users"
+                          href="/admin/users"
                           role="menuitem"
                         >
                           Manage users
@@ -196,7 +196,7 @@ export function TrainerNavbar({ scannerUrl }: { scannerUrl: string }) {
                       </button>
                       <a
                         className="block w-full rounded-md border border-black/15 px-4 py-2 text-center text-sm text-black hover:bg-black/5"
-                        href="/trainer/login"
+                        href="/login"
                         role="menuitem"
                       >
                         Go to login

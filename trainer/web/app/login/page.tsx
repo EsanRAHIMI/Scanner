@@ -11,9 +11,8 @@ export default function LoginPage() {
   const [loading, setLoading] = React.useState(false);
 
   function normalizeNext(raw: string | null) {
-    if (!raw) return '/trainer';
-    if (!raw.startsWith('/')) return '/trainer';
-    if (!raw.startsWith('/trainer')) return `/trainer${raw}`;
+    if (!raw) return '/';
+    if (!raw.startsWith('/')) return '/';
     return raw;
   }
 
@@ -83,7 +82,7 @@ export default function LoginPage() {
             {loading ? 'Logging in...' : 'Login'}
           </button>
 
-          <a className="block text-center text-sm text-black/70 underline" href="/trainer/register">
+          <a className="block text-center text-sm text-black/70 underline" href="/register">
             Create an account
           </a>
         </form>

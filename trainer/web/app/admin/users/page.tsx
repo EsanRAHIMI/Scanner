@@ -35,7 +35,7 @@ export default function AdminUsersPage() {
         }
         const me = JSON.parse(meText) as { is_admin?: boolean };
         if (!me.is_admin) {
-          window.location.href = '/trainer';
+          window.location.href = '/';
           return;
         }
 

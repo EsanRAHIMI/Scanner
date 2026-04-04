@@ -46,7 +46,7 @@ export default function RegisterPage() {
             <div className="rounded-md border border-black/10 bg-black/5 p-3 text-sm">
               Status: <span className="font-medium">{done.status}</span>
             </div>
-            <a className="block text-center text-sm text-black/70 underline" href="/trainer/login">
+            <a className="block text-center text-sm text-black/70 underline" href="/login">
               Go to login
             </a>
           </div>
@@ -98,7 +98,7 @@ export default function RegisterPage() {
               {loading ? 'Creating...' : 'Create account'}
             </button>
 
-            <a className="block text-center text-sm text-black/70 underline" href="/trainer/login">
+            <a className="block text-center text-sm text-black/70 underline" href="/login">
               Back to login
             </a>
           </form>

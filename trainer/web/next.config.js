@@ -1,6 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  basePath: '/trainer',
   async rewrites() {
     if (process.env.NODE_ENV === 'production') return [];
     return {

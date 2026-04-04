@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server';
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const basePath = req.nextUrl.basePath ?? '/trainer';
+  const basePath = req.nextUrl.basePath ?? '';
 
   if (pathname.startsWith('/login') || pathname.startsWith('/register')) {
     return NextResponse.next();
