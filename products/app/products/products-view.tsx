@@ -395,7 +395,7 @@ export function ProductsView({
 
   const fetchUserSession = React.useCallback(async () => {
     try {
-      const res = await fetch('/api/trainer/auth/me');
+      const res = await apiFetch('/auth/me');
       if (res.ok) {
         const json = await res.json();
         setUser({

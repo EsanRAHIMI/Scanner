@@ -1,10 +1,11 @@
 import { getTrainerApiBase } from '@/lib/env';
 
 export async function apiFetch(path: string, init?: RequestInit) {
-  const base = getTrainerApiBase();
+  const isBrowser = typeof window !== 'undefined';
+  const base = isBrowser ? '/api/trainer' : getTrainerApiBase();
   let baseResolved = base;
   let cookieHeader: string | null = null;
-  if (base.startsWith('/') && typeof window === 'undefined') {
+  if (base.startsWith('/') && !isBrowser) {
     const { headers } = await import('next/headers');
     const h = await headers();
     const host = h.get('host');
