@@ -388,7 +388,7 @@ export function ProductsView({
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
   const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string } | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null }| null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -417,12 +417,25 @@ export function ProductsView({
       // Find the actual field name for URL
       const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
 
+      let finalValueToSave = editingUrl.value;
+      if (typeof editingUrl.index === 'number' && data?.records) {
+        const record = data.records.find(r => r.id === editingUrl.id);
+        if (record) {
+          const currentFieldValue = String(record.fields[urlFieldName] || '');
+          const urls = extractUrls(currentFieldValue);
+          if (editingUrl.index >= 0 && editingUrl.index < urls.length) {
+            urls[editingUrl.index] = editingUrl.value;
+            finalValueToSave = urls.join('\n');
+          }
+        }
+      }
+
       const res = await fetch(`/api/products/${editingUrl.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fields: {
-            [urlFieldName]: editingUrl.value
+            [urlFieldName]: finalValueToSave
           }
         })
       });
@@ -437,7 +450,7 @@ export function ProductsView({
             ...r,
             fields: {
               ...r.fields,
-              [urlFieldName]: editingUrl?.value
+              [urlFieldName]: finalValueToSave
             }
           } : r) as any
         };
@@ -629,7 +642,13 @@ export function ProductsView({
     return visibleRecords
       .map((r) => {
         const fields = r.fields ?? {};
-        const url = extractUrls(r.fields?.Image)[0] ?? '';
+        const urlEntry = Object.entries(fields).find(([k]) => {
+          const kl = k.trim().toLowerCase();
+          return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+        });
+        const damUrls = extractUrls(urlEntry?.[1]);
+        const imageUrls = extractUrls(fields.Image);
+        const url = damUrls[0] || imageUrls[0] || '';
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
         const collectionNameNormalized = collectionName.trim();
@@ -688,7 +707,13 @@ export function ProductsView({
     return sortedRecords
       .map((r) => {
         const fields = r.fields ?? {};
-        const url = extractUrls(r.fields?.Image)[0] ?? '';
+        const urlEntry = Object.entries(fields).find(([k]) => {
+          const kl = k.trim().toLowerCase();
+          return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+        });
+        const damUrls = extractUrls(urlEntry?.[1]);
+        const imageUrls = extractUrls(fields.Image);
+        const url = damUrls[0] || imageUrls[0] || '';
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
         const collectionNameNormalized = collectionName.trim();
@@ -899,44 +924,32 @@ export function ProductsView({
       if ((value === null || value === undefined) && !isUrl && !isDAM) return null;
 
       if (isUrl) {
-        if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column)) {
+        if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && (editingUrl.index === undefined || editingUrl.index === null)) {
           return (
             <div
-              className="flex items-center gap-1"
+              className="absolute inset-0 z-40 bg-white dark:bg-black"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
+              onClick={(e) => e.stopPropagation()}
             >
               <textarea
-                className="min-h-[60px] w-full rounded border border-black/20 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-white/20 dark:bg-black"
+                className="h-full w-full resize-none border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                 value={editingUrl.value}
                 onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
                 autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveUrl();
+                  } else if (e.key === 'Escape') {
+                    setEditingUrl(null);
+                  }
+                }}
               />
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  disabled={isSaving}
-                  onClick={handleSaveUrl}
-                  className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                  title="Save"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingUrl(null)}
-                  className="flex h-7 w-7 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                  title="Cancel"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
+              {isSaving && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-black/50">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                </div>
+              )}
             </div>
           );
         }
@@ -965,39 +978,90 @@ export function ProductsView({
                 )}
               </div>
             ) : (
-              urls.map((u, i) => (
-                <a
-                  key={u + i}
-                  href={u}
-                  target="_blank"
-                  rel="noreferrer"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex max-w-[260px] items-center gap-2 truncate text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-300"
-                  title={u}
-                >
-                  <span className="truncate">{u}</span>
-                </a>
-              ))
-            )}
-            {urls.length > 0 && canEdit && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingUrl({ id: recordId, value: String(value || ''), column });
-                }}
-                className="absolute right-0 top-0 hidden rounded p-1 text-black/40 hover:bg-black/5 group-hover:block dark:text-white/40 dark:hover:bg-white/5"
-                title="Edit URL"
-              >
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path
-                    d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
+              <div className="flex flex-col gap-1.5 py-0.5">
+                {urls.map((u, i) => {
+                  const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
+                  if (isBeingEdited) {
+                    return (
+                      <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black">
+                        <textarea
+                          className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
+                          value={editingUrl.value}
+                          onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSaveUrl();
+                            } else if (e.key === 'Escape') {
+                              setEditingUrl(null);
+                            }
+                          }}
+                        />
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            disabled={isSaving}
+                            onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
+                            className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                              <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
+                            className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                              <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5">
+                      <a
+                        href={u}
+                        target="_blank"
+                        rel="noreferrer"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                        title={u}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <span className="truncate">{u}</span>
+                        </div>
+                      </a>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingUrl({ id: recordId, value: u, column, index: i });
+                          }}
+                          className="hidden h-7 w-7 items-center justify-center rounded-md bg-black/5 text-black/40 hover:bg-black/10 group-hover/link:flex dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                          title="Edit this link"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         );
@@ -1040,12 +1104,12 @@ export function ProductsView({
             if (editingUrl?.id === recordId && editingUrl.column === column) {
               return (
                 <div
-                  className="flex items-center gap-1"
+                  className="absolute inset-0 z-40 bg-white dark:bg-black"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <textarea
-                    className="min-h-[40px] w-full rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
+                    className="h-full w-full resize-none border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                     value={editingUrl.value}
                     onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
                     autoFocus
@@ -1054,30 +1118,16 @@ export function ProductsView({
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleSaveUrl();
+                      } else if (e.key === 'Escape') {
+                        setEditingUrl(null);
                       }
                     }}
                   />
-                  <div className="flex flex-col gap-1">
-                    <button
-                      type="button"
-                      disabled={isSaving}
-                      onClick={handleSaveUrl}
-                      className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingUrl(null)}
-                      className="flex h-6 w-6 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </div>
+                  {isSaving && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-black/50">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -1574,24 +1624,32 @@ export function ProductsView({
           <table className="min-w-full table-auto text-left text-sm">
             <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm dark:bg-black/35 dark:text-white/60">
               <tr>
-                {displayedColumns.map((c, idx) => (
-                  <th
-                    key={c}
-                    className={(idx === 0 ? 'sticky left-0 z-30 bg-white dark:bg-black/35 ' : '') + 'px-4 py-3'}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(c)}
-                      className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
-                      title="Sort"
+                {displayedColumns.map((c, idx) => {
+                  const normalizedCol = c.trim().toLowerCase();
+                  const isURL = normalizedCol === 'url';
+                  return (
+                    <th
+                      key={c}
+                      className={
+                        (idx === 0 ? 'sticky left-0 z-30 bg-white dark:bg-black/35 ' : '') +
+                        (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : '') +
+                        'px-4 py-3'
+                      }
                     >
-                      <span>{c}</span>
-                      {sortKey === c ? (
-                        <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
-                      ) : null}
-                    </button>
-                  </th>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(c)}
+                        className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
+                        title="Sort"
+                      >
+                        <span>{c}</span>
+                        {sortKey === c ? (
+                          <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
+                        ) : null}
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -1621,12 +1679,14 @@ export function ProductsView({
                       <td
                         key={c}
                         className={
+                          'relative ' +
                           (idx === 0
                             ? 'sticky left-0 z-10 ' +
                             (selectedIds.has(r.id)
                               ? 'bg-emerald-50 dark:bg-emerald-900/20 '
                               : 'bg-white dark:bg-black/10 ')
                             : '') +
+                          (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : '') +
                           (idx === 0
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
                             : (isDAM
@@ -1670,7 +1730,7 @@ export function ProductsView({
                 return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
               });
               const urlValue = urlEntry?.[1];
-              const img = extractUrls(r.fields?.Image || r.fields?.DAM || urlValue)[0] ?? '';
+              const img = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
               const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
               const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
               const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
