@@ -11,8 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode
+from urllib.request import Request
 
 from typing_extensions import TypedDict
 
@@ -212,36 +212,7 @@ def _read_json(path: Path, default: Any) -> Any:
     return default
 
 
-def _airtable_read_text(url: str, api_key: str) -> str:
-  timeout_s_raw = os.environ.get("AIRTABLE_HTTP_TIMEOUT_SECONDS") or os.environ.get("AIRTABLE_HTTP_TIMEOUT")
-  try:
-    timeout_s = int(timeout_s_raw) if timeout_s_raw else 60
-  except Exception:
-    timeout_s = 60
 
-  retries_raw = os.environ.get("AIRTABLE_HTTP_RETRIES")
-  try:
-    retries = int(retries_raw) if retries_raw else 2
-  except Exception:
-    retries = 2
-
-  req = Request(url)
-  req.add_header("Authorization", f"Bearer {api_key}")
-  req.add_header("Accept", "application/json")
-
-  last_err: Exception | None = None
-  for attempt in range(retries + 1):
-    try:
-      with urlopen(req, timeout=timeout_s) as resp:
-        return resp.read().decode("utf-8")
-    except Exception as e:
-      last_err = e
-      if attempt >= retries:
-        break
-      backoff = 0.6 * (2**attempt) + random.random() * 0.25
-      time.sleep(backoff)
-
-  raise last_err or Exception("Unknown airtable fetch error")
 
 
 def _validate_class_id(value: str) -> None:
@@ -254,6 +225,7 @@ def _validate_class_id(value: str) -> None:
 api = FastAPI(title="Lorenzo Trainer Server")
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/trainer/api", api)
 app.mount("/api", api)
 app.mount("/", api)
@@ -731,132 +703,59 @@ async def admin_update_user(
 
 
 @api.get("/dam/assets")
-def dam_assets(_: dict[str, Any] = Depends(_get_current_user)):
-  api_key = os.environ.get("AIRTABLE_API_KEY")
-  base_id = os.environ.get("AIRTABLE_BASE_ID")
-  table = os.environ.get("AIRTABLE_TABLE")
-  if not api_key or not base_id or not table:
-    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
-
+async def dam_assets(
+  _: dict[str, Any] = Depends(_get_current_user), 
+  db=Depends(_get_db)
+):
   records: list[dict[str, Any]] = []
-  offset: str | None = None
-  for _ in range(20):
-    params: dict[str, str] = {"pageSize": "100"}
-    if offset:
-      params["offset"] = offset
-
-    url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
-    try:
-      body = _airtable_read_text(url, api_key)
-    except Exception as e:
-      raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
-
-    try:
-      data = json.loads(body)
-    except Exception:
-      raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
-
-    batch = data.get("records")
-    if isinstance(batch, list):
-      records.extend(batch)
-
-    off = data.get("offset")
-    offset = off if isinstance(off, str) else None
-    if not offset:
-      break
+  cursor = db["dam_assets"].find({}).sort("created_at", -1).limit(2000)
+  
+  async for doc in cursor:
+    records.append({
+      "id": doc.get("_id"),
+      "fields": doc.get("fields") or {},
+      "createdTime": doc.get("created_at")
+    })
 
   columns_set: set[str] = set()
   for r in records:
-    f = r.get("fields") if isinstance(r, dict) else None
+    f = r.get("fields")
     if isinstance(f, dict):
       for k in f.keys():
-        if isinstance(k, str):
-          columns_set.add(k)
+        columns_set.add(k)
+
+  # Ensure the DAM column is always present for the UI
+  columns_set.add("DAM")
 
   columns = sorted(columns_set)
   return {"columns": columns, "records": records, "count": len(records)}
 
 
 @api.get("/public/products/assets")
-def public_products_assets():
-  api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
-  base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
-  table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")
-  if not api_key or not base_id or not table:
-    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
-
+async def public_products_assets(db=Depends(_get_db)):
   records: list[dict[str, Any]] = []
-  offset: str | None = None
-  for _ in range(20):
-    params: dict[str, str] = {"pageSize": "100"}
-    if offset:
-      params["offset"] = offset
-
-    url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
-    try:
-      body = _airtable_read_text(url, api_key)
-    except Exception as e:
-      raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
-
-    try:
-      data = json.loads(body)
-    except Exception:
-      raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
-
-    batch = data.get("records")
-    if isinstance(batch, list):
-      records.extend(batch)
-
-    off = data.get("offset")
-    offset = off if isinstance(off, str) else None
-    if not offset:
-      break
+  cursor = db["products"].find({}).sort("created_at", -1).limit(2000)
+  
+  async for doc in cursor:
+    records.append({
+      "id": doc.get("_id"),
+      "fields": doc.get("fields") or {},
+      "createdTime": doc.get("created_at")
+    })
 
   columns_set: set[str] = set()
   for r in records:
-    f = r.get("fields") if isinstance(r, dict) else None
+    f = r.get("fields")
     if isinstance(f, dict):
       for k in f.keys():
-        if isinstance(k, str):
-          columns_set.add(k)
-
+        columns_set.add(k)
+  columns_set.add("DAM")
   columns = sorted(columns_set)
+
   return {"columns": columns, "records": records, "count": len(records)}
 
 
-def _airtable_patch_json(url: str, api_key: str, payload: dict[str, Any]) -> str:
-  timeout_s_raw = os.environ.get("AIRTABLE_HTTP_TIMEOUT_SECONDS") or os.environ.get("AIRTABLE_HTTP_TIMEOUT")
-  try:
-    timeout_s = int(timeout_s_raw) if timeout_s_raw else 60
-  except Exception:
-    timeout_s = 60
 
-  retries_raw = os.environ.get("AIRTABLE_HTTP_RETRIES")
-  try:
-    retries = int(retries_raw) if retries_raw else 2
-  except Exception:
-    retries = 2
-
-  req = Request(url, method="PATCH")
-  req.add_header("Authorization", f"Bearer {api_key}")
-  req.add_header("Accept", "application/json")
-  req.add_header("Content-Type", "application/json")
-  
-  body_bytes = json.dumps(payload).encode("utf-8")
-
-  last_err: Exception | None = None
-  for attempt in range(retries + 1):
-    try:
-      with urlopen(req, data=body_bytes, timeout=timeout_s) as resp:
-        return resp.read().decode("utf-8")
-    except Exception as e:
-      last_err = e
-      if attempt >= retries:
-        break
-      backoff = 0.6 * (2**attempt) + random.random() * 0.25
-      time.sleep(backoff)
-
-  raise last_err or Exception("Unknown airtable patch error")
 
 
 @api.patch("/products/assets/{record_id}")
@@ -864,152 +763,85 @@ async def patch_product_asset(
   record_id: str,
   payload: dict[str, Any],
   user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
 ):
   if _normalize_role(user.get("role")) not in ["admin", "sales"]:
     raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
 
-  api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
-  base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
-  table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")
-  if not api_key or not base_id or not table:
-    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
+  fields_to_update = payload.get("fields")
+  if not isinstance(fields_to_update, dict):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD_EXPECTED_FIELDS")
 
-  url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}/{quote(record_id, safe='')}"
-  
-  # Airtable PATCH expected format: {"fields": {"FieldName": "Value"}}
-  try:
-    body = _airtable_patch_json(url, api_key, payload)
-    return json.loads(body)
-  except Exception as e:
-    logger.error(f"AIRTABLE_PATCH_FAILED: {e}")
-    raise HTTPException(status_code=502, detail=f"AIRTABLE_PATCH_FAILED: {e}")
+  update_doc = {"updated_at": _utc_now_iso()}
+  for k, v in fields_to_update.items():
+    update_doc[f"fields.{k}"] = v
+
+  res = await db["products"].update_one({"_id": record_id}, {"$set": update_doc})
+  if res.matched_count == 0:
+    raise HTTPException(status_code=404, detail="PRODUCT_NOT_FOUND")
+
+  doc = await db["products"].find_one({"_id": record_id})
+  return {"id": doc["_id"], "fields": doc["fields"]}
 
 
 @api.get("/products/assets")
-def products_assets(_: dict[str, Any] = Depends(_get_current_user)):
-  api_key = os.environ.get("AIRTABLE_PRODUCTS_API_KEY")
-  base_id = os.environ.get("AIRTABLE_PRODUCTS_BASE_ID")
-  table = os.environ.get("AIRTABLE_PRODUCTS_TABLE")
-  if not api_key or not base_id or not table:
-    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
-
+async def products_assets(
+  _: dict[str, Any] = Depends(_get_current_user), 
+  db=Depends(_get_db)
+):
   records: list[dict[str, Any]] = []
-  offset: str | None = None
-  for _ in range(20):
-    params: dict[str, str] = {"pageSize": "100"}
-    if offset:
-      params["offset"] = offset
-
-    url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{urlencode(params)}"
-    try:
-      body = _airtable_read_text(url, api_key)
-    except Exception as e:
-      raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
-
-    try:
-      data = json.loads(body)
-    except Exception:
-      raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
-
-    batch = data.get("records")
-    if isinstance(batch, list):
-      records.extend(batch)
-
-    off = data.get("offset")
-    offset = off if isinstance(off, str) else None
-    if not offset:
-      break
+  cursor = db["products"].find({}).sort("created_at", -1).limit(2000)
+  
+  async for doc in cursor:
+    records.append({
+      "id": doc.get("_id"),
+      "fields": doc.get("fields") or {},
+      "createdTime": doc.get("created_at")
+    })
 
   columns_set: set[str] = set()
   for r in records:
-    f = r.get("fields") if isinstance(r, dict) else None
+    f = r.get("fields")
     if isinstance(f, dict):
       for k in f.keys():
-        if isinstance(k, str):
-          columns_set.add(k)
+        columns_set.add(k)
 
   columns = sorted(columns_set)
   return {"columns": columns, "records": records, "count": len(records)}
 
 
 @api.get("/dam/collection-code")
-def dam_collection_code(collection_name: str):
-  api_key = os.environ.get("AIRTABLE_API_KEY")
-  base_id = os.environ.get("AIRTABLE_BASE_ID")
-  table = os.environ.get("AIRTABLE_TABLE")
-  if not api_key or not base_id or not table:
-    raise HTTPException(status_code=500, detail="AIRTABLE_NOT_CONFIGURED")
-
+async def dam_collection_code(collection_name: str, db=Depends(_get_db)):
   name = collection_name.strip()
   if not name:
     raise HTTPException(status_code=400, detail="COLLECTION_NAME_REQUIRED")
 
-  formula = f"LOWER({{Collection Name}})=LOWER({json.dumps(name)})"
-  params = urlencode(
-    [
-      ("maxRecords", "1"),
-      ("pageSize", "1"),
-      ("filterByFormula", formula),
-      ("fields[]", "Collection Code"),
-      ("fields[]", "Variant Number"),
-      ("fields[]", "Price"),
-      ("fields[]", "Collection Name"),
-    ]
-  )
-
-  url = f"https://api.airtable.com/v0/{base_id}/{quote(table, safe='')}?{params}"
-  req = Request(url)
-  req.add_header("Authorization", f"Bearer {api_key}")
-  req.add_header("Accept", "application/json")
-
-  try:
-    with urlopen(req, timeout=20) as resp:
-      body = resp.read().decode("utf-8")
-  except Exception as e:
-    raise HTTPException(status_code=502, detail=f"AIRTABLE_FETCH_FAILED: {type(e).__name__}: {e}")
-
-  try:
-    data = json.loads(body)
-  except Exception:
-    raise HTTPException(status_code=502, detail="AIRTABLE_INVALID_JSON")
-
-  records = data.get("records")
-  if not isinstance(records, list) or not records:
+  # Search in dam_assets where "Collection Name" matches (case-insensitive)
+  # Airtable filter formula was: LOWER({Collection Name})=LOWER("name")
+  import re
+  query = {"fields.Collection Name": re.compile(f"^{re.escape(name)}$", re.IGNORECASE)}
+  
+  doc = await db["dam_assets"].find_one(query)
+  
+  if not doc or not doc.get("fields"):
     return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
 
-  first = records[0]
-  if not isinstance(first, dict):
-    return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
+  fields = doc["fields"]
+  
+  def _format_field(val):
+    if val is None: return None
+    if isinstance(val, (int, float)):
+      return str(int(val)) if float(val).is_integer() else str(val)
+    if isinstance(val, str):
+      return val.strip()
+    return str(val)
 
-  fields = first.get("fields")
-  if not isinstance(fields, dict):
-    return {"collection_name": name, "collection_code": None, "variant_number": None, "price": None}
-
-  code = fields.get("Collection Code")
-  if isinstance(code, (int, float)):
-    code = str(int(code)) if float(code).is_integer() else str(code)
-  if isinstance(code, str):
-    code = code.strip()
-  else:
-    code = None
-
-  variant = fields.get("Variant Number")
-  if isinstance(variant, (int, float)):
-    variant = str(int(variant)) if float(variant).is_integer() else str(variant)
-  if isinstance(variant, str):
-    variant = variant.strip()
-  else:
-    variant = None
-
-  price = fields.get("Price")
-  if isinstance(price, (int, float)):
-    price = str(int(price)) if float(price).is_integer() else str(price)
-  if isinstance(price, str):
-    price = price.strip()
-  else:
-    price = None
-
-  return {"collection_name": name, "collection_code": code, "variant_number": variant, "price": price}
+  return {
+    "collection_name": name,
+    "collection_code": _format_field(fields.get("Collection Code")),
+    "variant_number": _format_field(fields.get("Variant Number")),
+    "price": _format_field(fields.get("Price")),
+  }
 
 
 def _load_classes() -> list[ClassItem]:

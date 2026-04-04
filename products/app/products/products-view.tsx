@@ -316,12 +316,12 @@ function extractUrls(v: unknown): string[] {
 
 function getDriveDirectLink(url: string): string {
   if (!url.includes('drive.google.com') && !url.includes('google.com/file/d/')) return url;
-  
+
   // Extract ID from various formats
   // Format 1: /file/d/[ID]/view
   // Format 2: ?id=[ID]
   // Format 3: /open?id=[ID]
-  
+
   let id = '';
   // Try to find the /file/d/ pattern
   const matchD = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
@@ -338,7 +338,7 @@ function getDriveDirectLink(url: string): string {
       if (manualMatch) id = manualMatch[1];
     }
   }
-  
+
   if (id) {
     // High-performance direct link format requested by user
     return `https://lh3.googleusercontent.com/d/${id}=w1000`;
@@ -416,7 +416,7 @@ export function ProductsView({
     try {
       // Find the actual field name for URL
       const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
-      
+
       const res = await fetch(`/api/products/${editingUrl.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -427,10 +427,10 @@ export function ProductsView({
         })
       });
       if (!res.ok) throw new Error('Failed to save');
-      
+
       // Update local state by forcing a refresh
       setEditingUrl(null);
-      window.location.reload(); 
+      window.location.reload();
     } catch (err) {
       alert('Error saving URL: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -443,23 +443,38 @@ export function ProductsView({
   const records: ProductsRecord[] = data?.records ?? [];
 
   const displayedColumns = React.useMemo(() => {
-    const primary = ['Image', 'DAM', 'Price', 'URL', 'Colecction Name', 'Colecction Code', 'Variant Number'] as const;
-    const trailing = ['CODE NUMBER', 'L000', 'Num'] as const;
-    const primarySet = new Set<string>(primary as readonly string[]);
-    const trailingSet = new Set<string>(trailing as readonly string[]);
+    const ordered = [
+      'Image',
+      'DAM',
+      'Price',
+      'URL',
+      'Colecction Name',
+      'Colecction Code',
+      'Variant Number',
+      'Category',
+      'Content Calendar',
+      'DIMENSION (mm)',
+      'Note',
+      'CODE NUMBER',
+      'L000',
+      'Num'
+    ] as const;
+    const orderedSet = new Set<string>(ordered as readonly string[]);
 
     const out: string[] = [];
 
-    for (const key of primary) out.push(key);
+    // Push ordered headers that exist in API columns (or ones we want always like DAM)
+    for (const key of ordered) {
+      if (columns.includes(key) || key === 'DAM') {
+        out.push(key);
+      }
+    }
 
+    // Add any unknown columns coming from API as extras
     const extras = columns
-      .filter((c) => !primarySet.has(c) && !trailingSet.has(c))
+      .filter((c) => !orderedSet.has(c))
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
-
-    for (const key of trailing) {
-      if (columns.includes(key)) out.push(key);
-    }
 
     return out;
   }, [columns]);
@@ -633,7 +648,7 @@ export function ProductsView({
         const noteKey = (() => {
           const keys = Object.keys(fields);
           const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ' ) || x.n.includes('note'))?.k ?? null;
+          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k ?? null;
         })();
 
         const note =
@@ -987,56 +1002,57 @@ export function ProductsView({
           </span>
         );
       }
-      if (col === 'image' || col === 'dam') {
+      if (col === 'image' || col === 'dam' || col === 'url') {
         const urls = extractUrls(value);
-        if (urls.length === 0) {
-          const isDAMTarget = column.trim().toLowerCase() === 'dam';
-          if (isDAMTarget && editingUrl?.id === recordId && editingUrl.column === column) {
-            return (
-              <div
-                className="flex items-center justify-center p-1"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <textarea
-                  className="min-h-[60px] w-[140px] rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
-                  value={editingUrl.value}
-                  onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                  placeholder="Paste URL..."
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSaveUrl();
-                    }
-                  }}
-                />
-                <div className="flex flex-col gap-1 ml-1">
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={handleSaveUrl}
-                    className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingUrl(null)}
-                    className="flex h-7 w-7 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            );
-          }
 
-          if (isDAMTarget) {
+        // STRICT REQUIREMENT: Only show '+' button for the 'url' column in List View
+        if (col === 'url') {
+          if (urls.length === 0) {
+            if (editingUrl?.id === recordId && editingUrl.column === column) {
+              return (
+                <div
+                  className="flex items-center justify-center p-1"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <textarea
+                    className="min-h-[60px] w-[140px] rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
+                    value={editingUrl?.value ?? ''}
+                    onChange={(e) => setEditingUrl(prev => prev ? { ...prev, value: e.target.value } : null)}
+                    placeholder="Paste URL..."
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSaveUrl();
+                      }
+                    }}
+                  />
+                  <div className="flex flex-col gap-1 ml-1">
+                    <button
+                      type="button"
+                      disabled={isSaving}
+                      onClick={handleSaveUrl}
+                      className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingUrl(null)}
+                      className="flex h-7 w-7 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div className="flex h-12 w-full items-center justify-center">
                 <button
@@ -1046,7 +1062,7 @@ export function ProductsView({
                     setEditingUrl({ id: recordId, value: '', column });
                   }}
                   className="group flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white dark:bg-emerald-500/20 dark:text-emerald-400"
-                  title="Add image URL to DAM"
+                  title="Add URL"
                 >
                   <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
@@ -1055,7 +1071,12 @@ export function ProductsView({
               </div>
             );
           }
+          // Non-empty URL: return null to fallback to scalar text rendering below
+          return null;
+        }
 
+        // For image and dam: only show the image stack, or 'No image' if empty
+        if (urls.length === 0) {
           return (
             <div className="flex h-20 w-20 items-center justify-center rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
               <span className="text-[10px] items-center justify-center font-medium italic text-black/40 dark:text-white/40">
@@ -1088,9 +1109,8 @@ export function ProductsView({
                     title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
                     style={{
                       transformOrigin: 'bottom center',
-                      transform: `rotate(${(revIdx % 2 === 0 ? 1 : -1) * revIdx * 6}deg) translate(${revIdx * 1.5}px, ${
-                        -revIdx * 1.5
-                      }px)`,
+                      transform: `rotate(${(revIdx % 2 === 0 ? 1 : -1) * revIdx * 6}deg) translate(${revIdx * 1.5}px, ${-revIdx * 1.5
+                        }px)`,
                       zIndex: visibleUrls.length - revIdx,
                     }}
                     className="absolute pointer-events-auto"
@@ -1200,11 +1220,11 @@ export function ProductsView({
     if (variantSwipeRef.current.pointerId !== e.pointerId) return;
     const dx = e.clientX - variantSwipeRef.current.startX;
     const variantId = variantSwipeRef.current.variantId;
-    
+
     // Reset swipe state
     variantSwipeRef.current.pointerId = null;
     variantSwipeRef.current.variantId = null;
-    
+
     // Check if it was a swipe
     if (Math.abs(dx) > 50 && variantId) {
       if (dx > 0) {
@@ -1331,141 +1351,141 @@ export function ProductsView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [closePreview, goNext, goPrev, previewIndex]);
 
-React.useEffect(() => {
-  const v = window.localStorage.getItem('products_view_mode');
-  if (v === 'list' || v === 'gallery') setViewMode(v);
-}, []);
+  React.useEffect(() => {
+    const v = window.localStorage.getItem('products_view_mode');
+    if (v === 'list' || v === 'gallery') setViewMode(v);
+  }, []);
 
-React.useEffect(() => {
-  const stored = window.localStorage.getItem('products_theme');
-  if (stored === 'dark' || stored === 'light') setTheme(stored);
-}, []);
+  React.useEffect(() => {
+    const stored = window.localStorage.getItem('products_theme');
+    if (stored === 'dark' || stored === 'light') setTheme(stored);
+  }, []);
 
-React.useEffect(() => {
-  window.localStorage.setItem('products_theme', theme);
-  const el = document.documentElement;
-  if (theme === 'dark') el.classList.add('dark');
-  else el.classList.remove('dark');
-}, [theme]);
+  React.useEffect(() => {
+    window.localStorage.setItem('products_theme', theme);
+    const el = document.documentElement;
+    if (theme === 'dark') el.classList.add('dark');
+    else el.classList.remove('dark');
+  }, [theme]);
 
-React.useEffect(() => {
-  window.localStorage.setItem('products_view_mode', viewMode);
-}, [viewMode]);
+  React.useEffect(() => {
+    window.localStorage.setItem('products_view_mode', viewMode);
+  }, [viewMode]);
 
-const headerToggleBase =
-  'inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm backdrop-blur transition';
+  const headerToggleBase =
+    'inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm backdrop-blur transition';
 
-const viewToggleNode = (
-  <button
-    type="button"
-    onClick={() => setViewMode((v) => (v === 'list' ? 'gallery' : 'list'))}
-    aria-pressed={viewMode === 'list'}
-    title={viewMode === 'list' ? 'List (on)' : 'List (off)'}
-    className={
-      headerToggleBase +
-      (viewMode === 'list'
-        ? ' border-black/20 bg-white text-black'
-        : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
-      + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
-      + (viewMode === 'list' ? ' dark:border-white/20' : ' dark:border-white/10')
-    }
-  >
-    {viewMode === 'list' ? (
+  const viewToggleNode = (
+    <button
+      type="button"
+      onClick={() => setViewMode((v) => (v === 'list' ? 'gallery' : 'list'))}
+      aria-pressed={viewMode === 'list'}
+      title={viewMode === 'list' ? 'List (on)' : 'List (off)'}
+      className={
+        headerToggleBase +
+        (viewMode === 'list'
+          ? ' border-black/20 bg-white text-black'
+          : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
+        + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
+        + (viewMode === 'list' ? ' dark:border-white/20' : ' dark:border-white/10')
+      }
+    >
+      {viewMode === 'list' ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+          <path
+            d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+          <path d="M4.5 5.5h6.5v6.5H4.5V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M13 5.5h6.5v6.5H13V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M4.5 14h6.5v4.5H4.5V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M13 14h6.5v4.5H13V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  );
+
+  const familyToggleNode = (
+    <button
+      type="button"
+      onClick={() => {
+        setFamilyMode((m) => (m === 'main' ? 'collection' : 'main'));
+        setFamilyCollectionName(null);
+      }}
+      aria-pressed={familyMode !== 'main'}
+      title={familyMode !== 'main' ? 'Grouped view (on)' : 'Grouped view (off)'}
+      className={
+        headerToggleBase +
+        (familyMode !== 'main'
+          ? ' border-black/20 bg-white text-black'
+          : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
+        ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
+        (familyMode !== 'main' ? ' dark:border-white/20' : ' dark:border-white/10')
+      }
+    >
       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
         <path
-          d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+          d="M4.5 7.5h6.5M4.5 12h15M4.5 16.5h9"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path
+          d="M13.5 6.5h6a1 1 0 0 1 1 1v4"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinecap="round"
         />
       </svg>
-    ) : (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path d="M4.5 5.5h6.5v6.5H4.5V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M13 5.5h6.5v6.5H13V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M4.5 14h6.5v4.5H4.5V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M13 14h6.5v4.5H13V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      </svg>
-    )}
-  </button>
-);
+    </button>
+  );
 
-const familyToggleNode = (
-  <button
-    type="button"
-    onClick={() => {
-      setFamilyMode((m) => (m === 'main' ? 'collection' : 'main'));
-      setFamilyCollectionName(null);
-    }}
-    aria-pressed={familyMode !== 'main'}
-    title={familyMode !== 'main' ? 'Grouped view (on)' : 'Grouped view (off)'}
-    className={
-      headerToggleBase +
-      (familyMode !== 'main'
-        ? ' border-black/20 bg-white text-black'
-        : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
-      ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
-      (familyMode !== 'main' ? ' dark:border-white/20' : ' dark:border-white/10')
-    }
-  >
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-      <path
-        d="M4.5 7.5h6.5M4.5 12h15M4.5 16.5h9"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      <path
-        d="M13.5 6.5h6a1 1 0 0 1 1 1v4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  </button>
-);
-
-const themeToggleNode = (
-  <button
-    type="button"
-    onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-    aria-pressed={theme === 'dark'}
-    title={theme === 'dark' ? 'Dark (on)' : 'Dark (off)'}
-    className={
-      headerToggleBase +
-      (theme === 'dark'
-        ? ' border-black/20 bg-white text-black'
-        : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
-      ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
-      (theme === 'dark' ? ' dark:border-white/20' : ' dark:border-white/10')
-    }
-  >
-    {theme === 'dark' ? (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path
-          d="M21 14.2A7.5 7.5 0 0 1 9.8 3a6.5 6.5 0 1 0 11.2 11.2Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ) : (
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path
-          d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"
-          stroke="currentColor"
-          strokeWidth="1.6"
-        />
-        <path
-          d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8M19.1 19.1l-1.8-1.8M6.7 6.7 4.9 4.9"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-      </svg>
-    )}
-  </button>
-);
+  const themeToggleNode = (
+    <button
+      type="button"
+      onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+      aria-pressed={theme === 'dark'}
+      title={theme === 'dark' ? 'Dark (on)' : 'Dark (off)'}
+      className={
+        headerToggleBase +
+        (theme === 'dark'
+          ? ' border-black/20 bg-white text-black'
+          : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
+        ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
+        (theme === 'dark' ? ' dark:border-white/20' : ' dark:border-white/10')
+      }
+    >
+      {theme === 'dark' ? (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+          <path
+            d="M21 14.2A7.5 7.5 0 0 1 9.8 3a6.5 6.5 0 1 0 11.2 11.2Z"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+          <path
+            d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          />
+          <path
+            d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8M19.1 19.1l-1.8-1.8M6.7 6.7 4.9 4.9"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+    </button>
+  );
 
   return (
     <main
@@ -1488,28 +1508,28 @@ const themeToggleNode = (
           </div>
         </div>
 
-      <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
-        <div>
-          {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
-          <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
-        </div>
+        <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
+          <div>
+            {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
+            <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
           <div className="flex items-center gap-2">
-            {viewToggleNode}
-            {familyToggleNode}
-            {themeToggleNode}
-            <AccountMenu />
+            <input
+              className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="flex items-center gap-2">
+              {viewToggleNode}
+              {familyToggleNode}
+              {themeToggleNode}
+              <AccountMenu />
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
       <div className="-mx-5 px-5">
         <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
@@ -1564,6 +1584,7 @@ const themeToggleNode = (
                   {displayedColumns.map((c, idx) => {
                     const normalizedCol = c.trim().toLowerCase();
                     const isDAM = normalizedCol === 'dam';
+                    const isURL = normalizedCol === 'url';
                     let cellValue = r.fields?.[c];
                     if (isDAM) {
                       const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
@@ -1572,21 +1593,24 @@ const themeToggleNode = (
                       });
                       cellValue = urlEntry?.[1];
                     }
+                    const isEmpty = extractUrls(cellValue).length === 0;
+                    const isDebugType = (isDAM || isURL) && isEmpty;
                     return (
                       <td
                         key={c}
                         className={
                           (idx === 0
                             ? 'sticky left-0 z-10 ' +
-                              (selectedIds.has(r.id)
-                                ? 'bg-emerald-50 dark:bg-emerald-900/20 '
-                                : 'bg-white dark:bg-black/10 ')
+                            (selectedIds.has(r.id)
+                              ? 'bg-emerald-50 dark:bg-emerald-900/20 '
+                              : 'bg-white dark:bg-black/10 ')
                             : '') +
                           (idx === 0
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                            : (isDAM 
-                                ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                                : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))
+                            : (isDAM
+                              ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                              : 'px-4 py-3 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')) +
+                          (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
                         }
                         onClick={() => {
                           const colLower = c.trim().toLowerCase();
@@ -1619,7 +1643,12 @@ const themeToggleNode = (
         <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {visibleRecords.map((r) => {
-              const img = extractUrls(r.fields?.Image)[0] ?? '';
+              const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
+                const kl = k.trim().toLowerCase();
+                return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+              });
+              const urlValue = urlEntry?.[1];
+              const img = extractUrls(r.fields?.Image || r.fields?.DAM || urlValue)[0] ?? '';
               const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
               const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
               const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
@@ -1650,89 +1679,34 @@ const themeToggleNode = (
 
               return (
                 <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
-                  <button
-                    type="button"
-                    className="block w-full"
-                    onClick={() => {
-                      if (img) openPreviewByUrl(img);
-                    }}
-                    title={img ? 'Click to maximize' : 'No image'}
-                    disabled={!img}
-                  >
+                  <div className="block w-full">
                     <div className="aspect-square w-full bg-black/5 dark:bg-white/5">
                       {img ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={img}
-                          alt="product"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : canEdit && editingUrl?.id === r.id && editingUrl.column === 'Image' ? (
-                        <div
-                          className="flex h-full w-full flex-col items-center justify-center gap-2 bg-white p-2 dark:bg-black"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          className="h-full w-full outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500/30"
+                          onClick={() => openPreviewByUrl?.(img)}
+                          title="Click to maximize"
                         >
-                          <textarea
-                            className="w-full flex-1 rounded border border-emerald-500/30 bg-white p-2 text-xs font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
-                            value={editingUrl.value}
-                            onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                            placeholder="Paste URL..."
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSaveUrl();
-                              }
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={img}
+                            alt="product"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
                             }}
+                            className="h-full w-full object-cover"
                           />
-                          <div className="flex w-full gap-2">
-                            <button
-                              type="button"
-                              disabled={isSaving}
-                              onClick={handleSaveUrl}
-                              className="flex-1 rounded bg-emerald-600 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-sm"
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingUrl(null)}
-                              className="flex-1 rounded bg-black/5 py-1.5 text-xs font-semibold text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
+                        </button>
                       ) : (
-                        <div className="group/btn relative h-full w-full overflow-hidden bg-emerald-500/5 dark:bg-emerald-500/10">
-                          {canEdit ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingUrl({ id: r.id, value: '', column: 'Image' });
-                              }}
-                              className="flex h-full w-full items-center justify-center text-emerald-600/40 transition-all hover:bg-emerald-600/90 hover:text-white dark:text-emerald-400/50 dark:hover:text-white"
-                              title="Add image URL"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xs text-black/40 italic dark:text-white/40">
-                              No image
-                            </div>
-                          )}
+                        <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs italic text-black/40 dark:bg-white/5 dark:text-white/40">
+                          No image
                         </div>
                       )}
                     </div>
-                  </button>
+                  </div>
 
                   <button
                     type="button"
@@ -1933,22 +1907,22 @@ const themeToggleNode = (
               onPointerDown={(e) => {
                 e.stopPropagation();
                 if (swipeRef.current.swiped) return;
-                
+
                 // Don't handle if parent container has pointer capture
                 if (swipeRef.current.pointerId !== null) return;
-                
+
                 // Handle Shift+Click for selection/deselection
                 if (e.shiftKey) {
                   toggleSelected(currentItem.id);
                   return;
                 }
-                
+
                 // Handle regular click for selection (mouse only)
                 if (e.pointerType === 'mouse') {
                   toggleSelected(currentItem.id);
                   return;
                 }
-                
+
                 // For touch, don't handle selection - only swipe navigation
                 // This prevents accidental selection when trying to swipe
               }}
@@ -1958,7 +1932,7 @@ const themeToggleNode = (
                   clearTimeout(imageLongPressTimer);
                   setImageLongPressTimer(null);
                 }
-                
+
                 // Don't handle touch selection on maximized image - only swipe gestures
                 // This prevents accidental selection when trying to swipe
               }}
@@ -2032,17 +2006,17 @@ const themeToggleNode = (
                     aria-label={lightboxDetailsCollapsed ? 'Expand details' : 'Collapse details'}
                     title={lightboxDetailsCollapsed ? 'Expand' : 'Collapse'}
                   >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className={
-                      'h-5 w-5 transition-transform duration-200 ease-out ' +
-                      (lightboxDetailsCollapsed ? '' : 'rotate-180')
-                    }
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className={
+                        'h-5 w-5 transition-transform duration-200 ease-out ' +
+                        (lightboxDetailsCollapsed ? '' : 'rotate-180')
+                      }
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </button>
                 )}
 
@@ -2061,7 +2035,7 @@ const themeToggleNode = (
                     const touch = e.touches[0];
                     const deltaY = touch.clientY - tableSwipeStart.y;
                     const threshold = 50;
-                    
+
                     if (Math.abs(deltaY) > threshold) {
                       if (deltaY > 0 && !lightboxDetailsCollapsed) {
                         // Swipe down - collapse
@@ -2106,13 +2080,13 @@ const themeToggleNode = (
                               : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight hover:bg-white dark:bg-black/20 dark:hover:bg-black/30 font-semibold text-black dark:text-white';
                           const handler = (e: React.PointerEvent | React.MouseEvent) => {
                             e.stopPropagation();
-                            
+
                             // Handle Shift+Click for selection/deselection
                             if (e.shiftKey) {
                               toggleSelected(v.id);
                               return;
                             }
-                            
+
                             const key = (v.collectionNameNormalized || '').trim();
                             if (key) setFamilyCollectionName(key);
                             setPreviewId(v.id);
@@ -2170,13 +2144,13 @@ const themeToggleNode = (
                             onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
-                              
+
                               // Handle Shift+Click for selection/deselection
                               if (e.shiftKey) {
                                 toggleSelected(v.id);
                                 return;
                               }
-                              
+
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
@@ -2202,13 +2176,13 @@ const themeToggleNode = (
                             onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
-                              
+
                               // Handle Shift+Click for selection/deselection
                               if (e.shiftKey) {
                                 toggleSelected(v.id);
                                 return;
                               }
-                              
+
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
@@ -2234,13 +2208,13 @@ const themeToggleNode = (
                             onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
-                              
+
                               // Handle Shift+Click for selection/deselection
                               if (e.shiftKey) {
                                 toggleSelected(v.id);
                                 return;
                               }
-                              
+
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
@@ -2266,13 +2240,13 @@ const themeToggleNode = (
                             onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
-                              
+
                               // Handle Shift+Click for selection/deselection
                               if (e.shiftKey) {
                                 toggleSelected(v.id);
                                 return;
                               }
-                              
+
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
@@ -2298,13 +2272,13 @@ const themeToggleNode = (
                             onPointerUp={handleVariantSwipeEnd}
                             onClick={(e) => {
                               e.stopPropagation();
-                              
+
                               // Handle Shift+Click for selection/deselection
                               if (e.shiftKey) {
                                 toggleSelected(v.id);
                                 return;
                               }
-                              
+
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
@@ -2388,7 +2362,7 @@ const themeToggleNode = (
                           typeof currentIndex === 'number' && currentIndex >= 0
                             ? galleryItems[currentIndex]
                             : (previewId ? baseGalleryItems.find((x) => x.id === previewId) : null) ??
-                              currentItem;
+                            currentItem;
                         const key = (current?.collectionNameNormalized || '').trim();
                         if (!key) return;
                         setFamilyCollectionName(key);
