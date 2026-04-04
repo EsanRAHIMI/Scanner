@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 function getScannerUrl() {
   const fromEnv = process.env.NEXT_PUBLIC_SCANNER_URL;
   if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  return process.env.NODE_ENV === 'production' ? '/scanner' : 'http://localhost:3003/scanner';
+  return process.env.NODE_ENV === 'production' ? 'https://lorenzo.ehsanrahimi.com/scanner' : 'http://localhost:3003/scanner';
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
