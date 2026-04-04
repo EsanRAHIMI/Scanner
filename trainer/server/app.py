@@ -224,6 +224,8 @@ def _validate_class_id(value: str) -> None:
 
 api = FastAPI(title="Lorenzo Trainer Server")
 
+BASE_DIR = Path(__file__).resolve().parent
+
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/trainer/api", api)
@@ -288,8 +290,6 @@ api.add_middleware(
   allow_methods=["*"],
   allow_headers=["*"],
 )
-
-BASE_DIR = Path(__file__).resolve().parent
 
 try:
   from dotenv import load_dotenv  # type: ignore
