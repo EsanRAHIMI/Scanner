@@ -227,7 +227,7 @@ api = FastAPI(title="Lorenzo Trainer Server")
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+api.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/trainer/api", api)
 app.mount("/api", api)
 app.mount("/", api)
