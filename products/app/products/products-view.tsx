@@ -134,14 +134,14 @@ function AccountMenu() {
       <button
         type="button"
         onClick={onToggle}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white/40 text-black/70 backdrop-blur hover:bg-white/60 dark:border-white/10 dark:bg-black/20 dark:text-white/70 dark:hover:bg-black/30"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white/50 text-black/60 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 hover:text-black hover:shadow-md active:scale-95 dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white"
         aria-haspopup="menu"
         aria-expanded={open}
         title="Account"
       >
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
-          <path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          <path d="M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
         </svg>
       </button>
 
@@ -1504,38 +1504,36 @@ export function ProductsView({
   }, [viewMode]);
 
   const headerToggleBase =
-    'inline-flex h-9 w-9 items-center justify-center rounded-full border shadow-sm backdrop-blur transition';
+    'inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm backdrop-blur-md transition-all active:scale-95';
 
   const viewToggleNode = (
     <button
       type="button"
       onClick={() => setViewMode((v) => (v === 'list' ? 'gallery' : 'list'))}
       aria-pressed={viewMode === 'list'}
-      title={viewMode === 'list' ? 'List (on)' : 'List (off)'}
+      title={viewMode === 'list' ? 'List View' : 'Gallery View'}
       className={
         headerToggleBase +
         (viewMode === 'list'
-          ? ' border-black/20 bg-white text-black'
-          : ' border-black/10 bg-white/70 text-black/65 hover:text-black')
-        + ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white '
-        + (viewMode === 'list' ? ' dark:border-white/20' : ' dark:border-white/10')
+          ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
+          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
       }
     >
       {viewMode === 'list' ? (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-          <path
-            d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" />
+          <line x1="3" y1="12" x2="3.01" y2="12" />
+          <line x1="3" y1="18" x2="3.01" y2="18" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-          <path d="M4.5 5.5h6.5v6.5H4.5V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M13 5.5h6.5v6.5H13V5.5Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M4.5 14h6.5v4.5H4.5V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-          <path d="M13 14h6.5v4.5H13V14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="7" />
+          <rect x="14" y="3" width="7" height="7" />
+          <rect x="14" y="14" width="7" height="7" />
+          <rect x="3" y="14" width="7" height="7" />
         </svg>
       )}
     </button>
@@ -1549,29 +1547,18 @@ export function ProductsView({
         setFamilyCollectionName(null);
       }}
       aria-pressed={familyMode !== 'main'}
-      title={familyMode !== 'main' ? 'Grouped view (on)' : 'Grouped view (off)'}
+      title={familyMode !== 'main' ? 'Collection View' : 'All Products'}
       className={
         headerToggleBase +
         (familyMode !== 'main'
-          ? ' border-black/20 bg-white text-black'
-          : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
-        ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
-        (familyMode !== 'main' ? ' dark:border-white/20' : ' dark:border-white/10')
+          ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
+          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
       }
     >
-      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-        <path
-          d="M4.5 7.5h6.5M4.5 12h15M4.5 16.5h9"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-        <path
-          d="M13.5 6.5h6a1 1 0 0 1 1 1v4"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 12 12 17 22 12" />
+        <polyline points="2 17 12 22 22 17" />
       </svg>
     </button>
   );
@@ -1581,38 +1568,29 @@ export function ProductsView({
       type="button"
       onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
       aria-pressed={theme === 'dark'}
-      title={theme === 'dark' ? 'Dark (on)' : 'Dark (off)'}
+      title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       className={
         headerToggleBase +
         (theme === 'dark'
-          ? ' border-black/20 bg-white text-black'
-          : ' border-black/10 bg-white/70 text-black/65 hover:text-black') +
-        ' dark:bg-black/35 dark:text-white/85 dark:hover:text-white ' +
-        (theme === 'dark' ? ' dark:border-white/20' : ' dark:border-white/10')
+          ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
+          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
       }
     >
       {theme === 'dark' ? (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-          <path
-            d="M21 14.2A7.5 7.5 0 0 1 9.8 3a6.5 6.5 0 1 0 11.2 11.2Z"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinejoin="round"
-          />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-          <path
-            d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z"
-            stroke="currentColor"
-            strokeWidth="1.6"
-          />
-          <path
-            d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8M19.1 19.1l-1.8-1.8M6.7 6.7 4.9 4.9"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
       )}
     </button>
