@@ -372,7 +372,7 @@ export function ProductsView({
   titleNode?: React.ReactNode;
   mobileTitleNode?: React.ReactNode;
 }) {
-  const { data, loading, error } = useProductsCache();
+  const { data, loading, error, setData } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
   const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
   const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
@@ -428,9 +428,21 @@ export function ProductsView({
       });
       if (!res.ok) throw new Error('Failed to save');
 
-      // Update local state by forcing a refresh
+      // Update local state without reload
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map(r => r.id === (editingUrl?.id) ? {
+            ...r,
+            fields: {
+              ...r.fields,
+              [urlFieldName]: editingUrl?.value
+            }
+          } : r) as any
+        };
+      });
       setEditingUrl(null);
-      window.location.reload();
     } catch (err) {
       alert('Error saving URL: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -878,12 +890,12 @@ export function ProductsView({
 
   const renderCell = React.useCallback(
     (column: string, value: unknown, recordId: string) => {
-      if (value === null || value === undefined) return null;
-
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
       const col = column.trim().toLowerCase();
 
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
+
+      if ((value === null || value === undefined) && !isUrl) return null;
 
       if (isUrl) {
         if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column)) {
@@ -930,11 +942,27 @@ export function ProductsView({
 
         const urls = extractUrls(value);
         return (
-          <div className="group relative flex min-h-[1.5rem] flex-col gap-1 pr-6">
+          <div className={`group relative flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : 'pr-6'}`}>
             {urls.length === 0 ? (
-              <span className="text-[11px] font-medium text-black/30 italic dark:text-white/30">
-                {String(value || '')}
-              </span>
+              <div className="flex w-full items-center justify-center py-1">
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingUrl({ id: recordId, value: '', column });
+                    }}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white"
+                    title="Add URL"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : (
+                  <span className="text-2xl font-light text-red-500/60 dark:text-red-400/60">+</span>
+                )}
+              </div>
             ) : (
               urls.map((u, i) => (
                 <a
@@ -951,12 +979,12 @@ export function ProductsView({
                 </a>
               ))
             )}
-            {canEdit && (
+            {urls.length > 0 && canEdit && (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setEditingUrl({ id: recordId, value: String(value || '') });
+                  setEditingUrl({ id: recordId, value: String(value || ''), column });
                 }}
                 className="absolute right-0 top-0 hidden rounded p-1 text-black/40 hover:bg-black/5 group-hover:block dark:text-white/40 dark:hover:bg-white/5"
                 title="Edit URL"
@@ -1002,78 +1030,8 @@ export function ProductsView({
           </span>
         );
       }
-      if (col === 'image' || col === 'dam' || col === 'url') {
+      if (col === 'image' || col === 'dam') {
         const urls = extractUrls(value);
-
-        // STRICT REQUIREMENT: Only show '+' button for the 'url' column in List View
-        if (col === 'url') {
-          if (urls.length === 0) {
-            if (editingUrl?.id === recordId && editingUrl.column === column) {
-              return (
-                <div
-                  className="flex items-center justify-center p-1"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <textarea
-                    className="min-h-[60px] w-[140px] rounded border border-emerald-500/30 bg-white p-1 text-[11px] font-medium leading-relaxed dark:border-emerald-500/40 dark:bg-black ring-2 ring-emerald-500/20"
-                    value={editingUrl?.value ?? ''}
-                    onChange={(e) => setEditingUrl(prev => prev ? { ...prev, value: e.target.value } : null)}
-                    placeholder="Paste URL..."
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSaveUrl();
-                      }
-                    }}
-                  />
-                  <div className="flex flex-col gap-1 ml-1">
-                    <button
-                      type="button"
-                      disabled={isSaving}
-                      onClick={handleSaveUrl}
-                      className="flex h-7 w-7 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditingUrl(null)}
-                      className="flex h-7 w-7 items-center justify-center rounded bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div className="flex h-12 w-full items-center justify-center">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingUrl({ id: recordId, value: '', column });
-                  }}
-                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white dark:bg-emerald-500/20 dark:text-emerald-400"
-                  title="Add URL"
-                >
-                  <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-            );
-          }
-          // Non-empty URL: return null to fallback to scalar text rendering below
-          return null;
-        }
 
         // For image and dam: only show the image stack, or 'No image' if empty
         if (urls.length === 0) {

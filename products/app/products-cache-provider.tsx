@@ -8,6 +8,7 @@ type ProductsCacheContextValue = {
   data: ProductsAssetsResponse | null;
   loading: boolean;
   error: string | null;
+  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
 };
 
 const ProductsCacheContext = React.createContext<ProductsCacheContextValue | null>(null);
@@ -47,7 +48,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     })();
   }, []);
 
-  const value = React.useMemo<ProductsCacheContextValue>(() => ({ data, loading, error }), [data, error, loading]);
+  const value = React.useMemo<ProductsCacheContextValue>(() => ({ data, loading, error, setData }), [data, error, loading]);
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;
 }
