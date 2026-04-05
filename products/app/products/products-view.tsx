@@ -277,6 +277,129 @@ function AccountMenu({ onAuthChange }: { onAuthChange?: () => void }) {
   );
 }
 
+function FilterDropdown({
+  id,
+  title,
+  options,
+  selected,
+  activeDropdown,
+  setActiveDropdown,
+  onChange,
+}: {
+  id: string;
+  title: string;
+  options: string[];
+  selected: Set<string>;
+  activeDropdown: string | null;
+  setActiveDropdown: (id: string | null) => void;
+  onChange: (val: Set<string>) => void;
+}) {
+  const [search, setSearch] = React.useState('');
+  const isOpen = activeDropdown === id;
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setActiveDropdown(null);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+      setSearch('');
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, setActiveDropdown]);
+
+  const filteredOptions = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+  const toggleOption = (opt: string) => {
+    const next = new Set(selected);
+    if (next.has(opt)) next.delete(opt);
+    else next.add(opt);
+    onChange(next);
+  };
+
+  const clear = () => {
+    onChange(new Set());
+  };
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setActiveDropdown(isOpen ? null : id)}
+        className={`flex h-[24px] items-center gap-1.5 rounded border px-2.5 py-0 font-medium transition-all ${
+          selected.size > 0
+            ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/80'
+            : 'border-black/10 bg-black/5 text-black/60 hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
+        }`}
+      >
+        <span className="text-[10px] uppercase tracking-wider">{title}</span>
+        {selected.size > 0 ? (
+          <span className="flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-bold text-white">
+            {selected.size}
+          </span>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" className="h-3 w-3 opacity-40" stroke="currentColor" strokeWidth="3">
+            <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full z-[110] mt-1 w-[220px] rounded-lg border border-black/10 bg-white p-2 shadow-xl dark:border-white/20 dark:bg-black/90 dark:backdrop-blur-xl">
+          <div className="mb-2">
+            <input
+              autoFocus
+              className="w-full rounded border border-black/10 bg-black/5 px-2 py-1 text-[11px] outline-none dark:border-white/10 dark:bg-white/5"
+              placeholder={`Search ${title}...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+          <div className="scrollbar-minimal max-h-[220px] overflow-y-auto pr-1">
+            {filteredOptions.length === 0 ? (
+              <div className="py-2 text-center text-[10px] italic text-black/40 dark:text-white/40">No options found</div>
+            ) : (
+              filteredOptions.map((opt) => (
+                <label
+                  key={opt}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 cursor-pointer rounded border-black/20 accent-emerald-600 dark:border-white/20"
+                    checked={selected.has(opt)}
+                    onChange={() => toggleOption(opt)}
+                  />
+                  <span className="flex-1 truncate text-left text-[11px] text-black/80 dark:text-white/80">
+                    {opt}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          {selected.size > 0 && (
+            <div className="mt-2 border-t border-black/10 pt-2 dark:border-white/10">
+              <button
+                type="button"
+                onClick={clear}
+                className="w-full text-center text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
+              >
+                Clear Selections
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -392,6 +515,10 @@ export function ProductsView({
   const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
   const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' }| null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
+  const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
+  const [selectedSpaces, setSelectedSpaces] = React.useState<Set<string>>(new Set());
+  const [activeFilterDropdown, setActiveFilterDropdown] = React.useState<string | null>(null);
 
   const fetchUserSession = React.useCallback(async () => {
     try {
@@ -477,6 +604,24 @@ export function ProductsView({
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
 
+  const categoryFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'category') || 'Category', [columns]);
+  const colorFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'color') || 'Color', [columns]);
+  const spaceFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'space') || 'Space', [columns]);
+
+  const getUniqueValues = React.useCallback((fieldName: string) => {
+    const vals = new Set<string>();
+    records.forEach(r => {
+      const v = r.fields?.[fieldName];
+      if (typeof v === 'string' && v.trim()) vals.add(v.trim());
+      else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && x.trim() && vals.add(x.trim()));
+    });
+    return Array.from(vals).sort((a, b) => a.localeCompare(b));
+  }, [records]);
+
+  const uniqueCategories = React.useMemo(() => getUniqueValues(categoryFieldName), [getUniqueValues, categoryFieldName]);
+  const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
+  const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
+
   const displayedColumns = React.useMemo(() => {
     const ordered = [
       'Image',
@@ -552,10 +697,41 @@ export function ProductsView({
 
   const filteredRecords = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    const base = !q ? records : records.filter((r) => getSearchText(r, displayedColumns).includes(q));
+    let base = !q ? records : records.filter((r) => getSearchText(r, displayedColumns).includes(q));
+
+    // Category Filter
+    if (selectedCategories.size > 0) {
+      base = base.filter(r => {
+        const v = r.fields?.[categoryFieldName];
+        if (typeof v === 'string') return selectedCategories.has(v.trim());
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedCategories.has(x.trim()));
+        return false;
+      });
+    }
+
+    // Color Filter
+    if (selectedColors.size > 0) {
+      base = base.filter(r => {
+        const v = r.fields?.[colorFieldName];
+        if (typeof v === 'string') return selectedColors.has(v.trim());
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedColors.has(x.trim()));
+        return false;
+      });
+    }
+
+    // Space Filter
+    if (selectedSpaces.size > 0) {
+      base = base.filter(r => {
+        const v = r.fields?.[spaceFieldName];
+        if (typeof v === 'string') return selectedSpaces.has(v.trim());
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedSpaces.has(x.trim()));
+        return false;
+      });
+    }
+
     if (!showSelectedOnly) return base;
     return base.filter((r) => selectedIds.has(r.id));
-  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly]);
+  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, categoryFieldName, colorFieldName, spaceFieldName]);
 
   const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
     const k = key.trim().toLowerCase();
@@ -1687,6 +1863,59 @@ export function ProductsView({
           <span className="font-medium text-black/60 dark:text-white/60">Matched:</span> {data ? visibleRecords.length : '—'}
           <span className="mx-2 text-black/25 dark:text-white/20">|</span>
           <span className="font-medium text-black/60 dark:text-white/60">Columns:</span> {data ? columns.length : '—'}
+          {(uniqueCategories.length > 0 || uniqueColors.length > 0 || uniqueSpaces.length > 0) && (
+            <>
+              <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+              <div className="inline-flex items-center gap-2">
+                {uniqueCategories.length > 0 && (
+                  <FilterDropdown
+                    id="category"
+                    title="Category"
+                    options={uniqueCategories}
+                    selected={selectedCategories}
+                    activeDropdown={activeFilterDropdown}
+                    setActiveDropdown={setActiveFilterDropdown}
+                    onChange={setSelectedCategories}
+                  />
+                )}
+                {uniqueColors.length > 0 && (
+                  <FilterDropdown
+                    id="color"
+                    title="Color"
+                    options={uniqueColors}
+                    selected={selectedColors}
+                    activeDropdown={activeFilterDropdown}
+                    setActiveDropdown={setActiveFilterDropdown}
+                    onChange={setSelectedColors}
+                  />
+                )}
+                {uniqueSpaces.length > 0 && (
+                  <FilterDropdown
+                    id="space"
+                    title="Space"
+                    options={uniqueSpaces}
+                    selected={selectedSpaces}
+                    activeDropdown={activeFilterDropdown}
+                    setActiveDropdown={setActiveFilterDropdown}
+                    onChange={setSelectedSpaces}
+                  />
+                )}
+                {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategories(new Set());
+                      setSelectedColors(new Set());
+                      setSelectedSpaces(new Set());
+                    }}
+                    className="ml-1 text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400"
+                  >
+                    Reset All
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
