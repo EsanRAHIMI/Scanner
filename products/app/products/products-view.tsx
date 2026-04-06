@@ -1151,7 +1151,7 @@ export function ProductsView({
                   e.stopPropagation();
                   setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
                 }}
-                className="absolute left-0 top-0 z-[60] flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
+                className="absolute left-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
                 title="Add URL to top"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
@@ -1350,7 +1350,7 @@ export function ProductsView({
             if (editingUrl?.id === recordId && editingUrl.column === column) {
               return (
                 <div
-                  className="absolute inset-0 z-40 bg-white dark:bg-black"
+                  className="absolute inset-0 z-10 bg-white dark:bg-black"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -1453,7 +1453,7 @@ export function ProductsView({
                 );
               })}
             {urls.length > 1 && (
-              <div className="absolute bottom-1 right-1 z-[100] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
+              <div className="absolute bottom-1 right-1 z-[10] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
                 +{urls.length - 1}
               </div>
             )}
@@ -2191,14 +2191,14 @@ export function ProductsView({
 
       {currentItem?.url ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
           role="dialog"
           aria-modal="true"
           onPointerDown={(e) => {
             if (e.target === e.currentTarget) closePreview();
           }}
         >
-          <div className="fixed left-3 top-3 z-30 flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="fixed left-3 top-3 z-[1010] flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white/70 text-black/80 shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white/85"
@@ -2226,7 +2226,7 @@ export function ProductsView({
 
           {selectedIds.has(currentItem.id) ? (
             <div
-              className="fixed right-3 top-3 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50"
+              className="fixed right-3 top-3 z-[1010] inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50"
               onPointerDown={(e) => e.stopPropagation()}
               title="Selected"
               aria-label="Selected"
