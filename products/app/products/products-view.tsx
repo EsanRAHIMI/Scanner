@@ -6,6 +6,74 @@ import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 
+function TopProgressBar({ loading }: { loading: boolean }) {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (loading) {
+      const t = setTimeout(() => setVisible(true), 200);
+      return () => clearTimeout(t);
+    } else {
+      const t = setTimeout(() => setVisible(false), 500);
+      return () => clearTimeout(t);
+    }
+  }, [loading]);
+
+  if (!visible) return null;
+
+  return (
+    <div className="fixed left-0 right-0 top-0 z-[2000] h-0.5 overflow-hidden bg-emerald-500/10">
+      <div
+        className={`h-full bg-emerald-500 transition-all duration-500 ease-out ${
+          loading ? 'w-[70%] animate-pulse' : 'w-full opacity-0'
+        }`}
+      />
+    </div>
+  );
+}
+
+function ProductsSkeleton({ viewMode, rowsOnly }: { viewMode: 'gallery' | 'list'; rowsOnly?: boolean }) {
+  if (viewMode === 'list') {
+    const rows = [...Array(10)].map((_, i) => (
+      <tr key={i} className="animate-pulse border-t border-black/10 dark:border-white/10">
+        {[...Array(6)].map((_, j) => (
+          <td key={j} className="px-4 py-3">
+            <div className="h-4 w-full rounded bg-black/5 dark:bg-white/5" />
+          </td>
+        ))}
+      </tr>
+    ));
+
+    if (rowsOnly) return <>{rows}</>;
+
+    return (
+      <div className="w-full space-y-4 p-4">
+        <table className="w-full">
+          <tbody>{rows}</tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+      {[...Array(12)].map((_, i) => (
+        <div key={i} className="animate-pulse space-y-3 overflow-hidden rounded-xl bg-black/[0.03] pb-3 dark:bg-white/[0.03]">
+          <div className="aspect-square bg-black/5 dark:bg-white/5" />
+          <div className="space-y-2 px-3">
+            <div className="h-4 w-3/4 rounded bg-black/5 dark:bg-white/5" />
+            <div className="h-3 w-1/2 rounded bg-black/5 dark:bg-white/5" />
+            <div className="flex justify-between pt-1">
+              <div className="h-3 w-1/4 rounded bg-black/5 dark:bg-white/5" />
+              <div className="h-3 w-1/4 rounded bg-black/5 dark:bg-white/5" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type AuthMe = {
   email: string;
   username: string;
@@ -153,7 +221,12 @@ function AccountMenu({ onAuthChange }: { onAuthChange?: () => void }) {
           role="menu"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          {loading ? <div className="text-sm text-black/60 dark:text-white/60">Loading...</div> : null}
+          {loading ? (
+            <div className="space-y-2 animate-pulse">
+              <div className="h-14 w-full rounded-lg bg-black/5 dark:bg-white/5" />
+              <div className="h-10 w-full rounded-md bg-black/5 dark:bg-white/5" />
+            </div>
+          ) : null}
 
           {!loading && me ? (
             <div className="space-y-2">
@@ -331,11 +404,10 @@ function FilterDropdown({
       <button
         type="button"
         onClick={() => setActiveDropdown(isOpen ? null : id)}
-        className={`flex h-[24px] items-center gap-1.5 rounded border px-2.5 py-0 font-medium transition-all ${
-          selected.size > 0
+        className={`flex h-[24px] items-center gap-1.5 rounded border px-2.5 py-0 font-medium transition-all ${selected.size > 0
             ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/80'
             : 'border-black/10 bg-black/5 text-black/60 hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
-        }`}
+          }`}
       >
         <span className="text-[10px] uppercase tracking-wider">{title}</span>
         {selected.size > 0 ? (
@@ -513,7 +585,7 @@ export function ProductsView({
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
   const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' }| null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' } | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
@@ -639,12 +711,17 @@ export function ProductsView({
       'L000',
       'Num'
     ] as const;
-    const orderedSet = new Set<string>(ordered as readonly string[]);
 
+    if (columns.length === 0 && loading) {
+      return ['Image', 'DAM', 'Price', 'Colecction Name', 'Variant Number', 'Category'];
+    }
+
+    const orderedSet = new Set<string>(ordered as readonly string[]);
     const out: string[] = [];
 
     // Push ordered headers that exist in API columns (or ones we want always like DAM)
     for (const key of ordered) {
+      if (key === 'URL') continue;
       if (columns.includes(key) || key === 'DAM') {
         out.push(key);
       }
@@ -652,12 +729,16 @@ export function ProductsView({
 
     // Add any unknown columns coming from API as extras
     const extras = columns
-      .filter((c) => !orderedSet.has(c))
+      .filter((c) => !orderedSet.has(c) && c !== 'URL')
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
+    if (columns.includes('URL')) {
+      out.push('URL');
+    }
+
     return out;
-  }, [columns]);
+  }, [columns, loading]);
 
   const getSearchText = React.useCallback((r: ProductsRecord, usedColumns: string[]) => {
     const parts: string[] = [];
@@ -1184,131 +1265,131 @@ export function ProductsView({
               ) : (
                 <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5">
 
-                {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
-                  <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                    <input
-                      className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                      value={editingUrl.value}
-                      onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                      autoFocus
-                      placeholder="New URL..."
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleSaveUrl();
-                        } else if (e.key === 'Escape' || e.key === 'Esc') {
-                          setEditingUrl(null);
-                        }
-                      }}
-                    />
-                    <div className="flex flex-col gap-0.5">
-                      <button
-                        type="button"
-                        disabled={isSaving}
-                        onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                        className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                          <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                        className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                          <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {urls.map((u, i) => {
-                  const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
-                  if (isBeingEdited) {
-                    return (
-                      <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                        <input
-                          className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                          value={editingUrl.value}
-                          onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleSaveUrl();
-                            } else if (e.key === 'Escape' || e.key === 'Esc') {
-                              setEditingUrl(null);
-                            }
-                          }}
-                        />
-                        <div className="flex flex-col gap-0.5">
-                          <button
-                            type="button"
-                            disabled={isSaving}
-                            onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                            className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                          >
-                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                              <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                            className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                          >
-                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                              <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5 pl-4 pr-1">
-                      <a
-                        href={u}
-                        target="_blank"
-                        rel="noreferrer"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
-                        title={u}
-                      >
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <span className="truncate">{u}</span>
-                        </div>
-                      </a>
-                      {canEdit && (
+                  {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
+                    <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
+                      <input
+                        className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
+                        value={editingUrl.value}
+                        onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                        autoFocus
+                        placeholder="New URL..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveUrl();
+                          } else if (e.key === 'Escape' || e.key === 'Esc') {
+                            setEditingUrl(null);
+                          }
+                        }}
+                      />
+                      <div className="flex flex-col gap-0.5">
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingUrl({ id: recordId, value: u, column, index: i });
-                          }}
-                          className="hidden h-7 w-7 items-center justify-center rounded-md bg-black/5 text-black/40 hover:bg-black/10 group-hover/link:flex dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                          title="Edit this link"
+                          disabled={isSaving}
+                          onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
+                          className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
+                          className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                  )}
+                  {urls.map((u, i) => {
+                    const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
+                    if (isBeingEdited) {
+                      return (
+                        <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
+                          <input
+                            className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
+                            value={editingUrl.value}
+                            onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveUrl();
+                              } else if (e.key === 'Escape' || e.key === 'Esc') {
+                                setEditingUrl(null);
+                              }
+                            }}
+                          />
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              type="button"
+                              disabled={isSaving}
+                              onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
+                              className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
+                              className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
+                                <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5 pl-4 pr-1">
+                        <a
+                          href={u}
+                          target="_blank"
+                          rel="noreferrer"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                          title={u}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" strokeLinecap="round" strokeLinejoin="round" />
+                              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <span className="truncate">{u}</span>
+                          </div>
+                        </a>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingUrl({ id: recordId, value: u, column, index: i });
+                            }}
+                            className="hidden h-7 w-7 items-center justify-center rounded-md bg-black/5 text-black/40 hover:bg-black/10 group-hover/link:flex dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                            title="Edit this link"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
+                              <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </>
         );
       }
@@ -1412,52 +1493,52 @@ export function ProductsView({
 
         return (
           <>
-          <div className="relative h-24 w-24 flex items-center justify-center">
-            {visibleUrls
-              .slice()
-              .reverse()
-              .map((u, i) => {
-                const revIdx = visibleUrls.length - 1 - i;
-                const finalUrl = col === 'dam' ? getDriveDirectLink(u) : u;
-                return (
-                  <button
-                    key={u + i}
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openPreviewByUrl?.(finalUrl);
-                    }}
-                    title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
-                    style={{
-                      transformOrigin: 'bottom center',
-                      transform: `rotate(${revIdx * 3.2}deg) translate(${revIdx * 4}px, ${-revIdx * 2}px)`,
-                      zIndex: visibleUrls.length - revIdx,
-                    }}
-                    className="absolute pointer-events-auto"
-                  >
-                    <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px] transition-transform hover:scale-110 active:scale-95">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={finalUrl}
-                        alt="product"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                        className="block h-full w-full object-cover"
-                      />
-                    </span>
-                  </button>
-                );
-              })}
-            {urls.length > 1 && (
-              <div className="absolute bottom-1 right-1 z-[10] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
-                +{urls.length - 1}
-              </div>
-            )}
-          </div>
+            <div className="relative h-24 w-24 flex items-center justify-center">
+              {visibleUrls
+                .slice()
+                .reverse()
+                .map((u, i) => {
+                  const revIdx = visibleUrls.length - 1 - i;
+                  const finalUrl = col === 'dam' ? getDriveDirectLink(u) : u;
+                  return (
+                    <button
+                      key={u + i}
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openPreviewByUrl?.(finalUrl);
+                      }}
+                      title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
+                      style={{
+                        transformOrigin: 'bottom center',
+                        transform: `rotate(${revIdx * 3.2}deg) translate(${revIdx * 4}px, ${-revIdx * 2}px)`,
+                        zIndex: visibleUrls.length - revIdx,
+                      }}
+                      className="absolute pointer-events-auto"
+                    >
+                      <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px] transition-transform hover:scale-110 active:scale-95">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={finalUrl}
+                          alt="product"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                          className="block h-full w-full object-cover"
+                        />
+                      </span>
+                    </button>
+                  );
+                })}
+              {urls.length > 1 && (
+                <div className="absolute bottom-1 right-1 z-[10] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
+                  +{urls.length - 1}
+                </div>
+              )}
+            </div>
           </>
         );
       }
@@ -1815,7 +1896,15 @@ export function ProductsView({
         .dark .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
           background: rgba(52, 211, 153, 0.45);
         }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.4s ease-out forwards;
+        }
       `}</style>
+      <TopProgressBar loading={loading} />
       <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
         <div className="flex w-full items-center gap-2 sm:hidden">
           {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
@@ -1858,64 +1947,66 @@ export function ProductsView({
 
       <div className="-mx-5 px-5">
         <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
-          <span className="font-medium text-black/60 dark:text-white/60">Records:</span> {data ? data.count : '—'}
-          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-          <span className="font-medium text-black/60 dark:text-white/60">Matched:</span> {data ? visibleRecords.length : '—'}
-          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-          <span className="font-medium text-black/60 dark:text-white/60">Columns:</span> {data ? columns.length : '—'}
-          {(uniqueCategories.length > 0 || uniqueColors.length > 0 || uniqueSpaces.length > 0) && (
-            <>
-              <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-              <div className="inline-flex items-center gap-2">
-                {uniqueCategories.length > 0 && (
-                  <FilterDropdown
-                    id="category"
-                    title="Category"
-                    options={uniqueCategories}
-                    selected={selectedCategories}
-                    activeDropdown={activeFilterDropdown}
-                    setActiveDropdown={setActiveFilterDropdown}
-                    onChange={setSelectedCategories}
-                  />
-                )}
-                {uniqueColors.length > 0 && (
-                  <FilterDropdown
-                    id="color"
-                    title="Color"
-                    options={uniqueColors}
-                    selected={selectedColors}
-                    activeDropdown={activeFilterDropdown}
-                    setActiveDropdown={setActiveFilterDropdown}
-                    onChange={setSelectedColors}
-                  />
-                )}
-                {uniqueSpaces.length > 0 && (
-                  <FilterDropdown
-                    id="space"
-                    title="Space"
-                    options={uniqueSpaces}
-                    selected={selectedSpaces}
-                    activeDropdown={activeFilterDropdown}
-                    setActiveDropdown={setActiveFilterDropdown}
-                    onChange={setSelectedSpaces}
-                  />
-                )}
-                {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCategories(new Set());
-                      setSelectedColors(new Set());
-                      setSelectedSpaces(new Set());
-                    }}
-                    className="ml-1 text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400"
-                  >
-                    Reset All
-                  </button>
-                )}
-              </div>
-            </>
+          <span className="font-medium text-black/60 dark:text-white/60">Records:</span>{' '}
+          {data ? (
+            <span className="animate-fade-in">{data.count}</span>
+          ) : (
+            <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
           )}
+          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+          <span className="font-medium text-black/60 dark:text-white/60">Matched:</span>{' '}
+          {data ? (
+            <span className="animate-fade-in">{visibleRecords.length}</span>
+          ) : (
+            <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+          )}
+          
+          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+          <div className="inline-flex items-center gap-2">
+            <span className="font-medium text-black/60 dark:text-white/60">Category:</span>{' '}
+            <div className="inline-flex items-center gap-2">
+              <FilterDropdown
+                id="category"
+                title="Select"
+                options={uniqueCategories}
+                selected={selectedCategories}
+                activeDropdown={activeFilterDropdown}
+                setActiveDropdown={setActiveFilterDropdown}
+                onChange={setSelectedCategories}
+              />
+              <FilterDropdown
+                id="color"
+                title="Color"
+                options={uniqueColors}
+                selected={selectedColors}
+                activeDropdown={activeFilterDropdown}
+                setActiveDropdown={setActiveFilterDropdown}
+                onChange={setSelectedColors}
+              />
+              <FilterDropdown
+                id="space"
+                title="Space"
+                options={uniqueSpaces}
+                selected={selectedSpaces}
+                activeDropdown={activeFilterDropdown}
+                setActiveDropdown={setActiveFilterDropdown}
+                onChange={setSelectedSpaces}
+              />
+            </div>
+            {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategories(new Set());
+                  setSelectedColors(new Set());
+                  setSelectedSpaces(new Set());
+                }}
+                className="ml-1 text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400"
+              >
+                Reset All
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1926,7 +2017,7 @@ export function ProductsView({
       ) : null}
 
       {viewMode === 'list' ? (
-        <div className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
+        <div className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <table className="min-w-full table-auto text-left text-sm">
             <thead className="bg-transparent text-xs uppercase tracking-wide text-black/60 dark:text-white/60">
               <tr>
@@ -1960,7 +2051,9 @@ export function ProductsView({
               </tr>
             </thead>
             <tbody>
-              {visibleRecords.map((r) => (
+              {loading && records.length === 0 ? (
+                <ProductsSkeleton viewMode="list" rowsOnly />
+              ) : visibleRecords.map((r) => (
                 <tr
                   key={r.id}
                   className={
@@ -2018,10 +2111,10 @@ export function ProductsView({
                   })}
                 </tr>
               ))}
-              {records.length === 0 ? (
+              {records.length === 0 && !loading ? (
                 <tr>
                   <td className="px-4 py-5 text-sm text-black/50 dark:text-white/50" colSpan={displayedColumns.length}>
-                    {loading ? 'Loading…' : 'No records.'}
+                    No records.
                   </td>
                 </tr>
               ) : null}
@@ -2029,9 +2122,11 @@ export function ProductsView({
           </table>
         </div>
       ) : (
-        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25">
+        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {visibleRecords.map((r) => {
+            {loading && records.length === 0 ? (
+              <ProductsSkeleton viewMode="gallery" />
+            ) : visibleRecords.map((r) => {
               const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
                 const kl = k.trim().toLowerCase();
                 return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
@@ -2125,8 +2220,8 @@ export function ProductsView({
             })}
           </div>
 
-          {records.length === 0 ? (
-            <div className="px-2 py-6 text-sm text-black/50 dark:text-white/50">{loading ? 'Loading…' : 'No records.'}</div>
+          {records.length === 0 && visibleRecords.length === 0 && !loading ? (
+            <div className="px-2 py-6 text-sm text-black/50 dark:text-white/50">No records.</div>
           ) : null}
         </div>
       )}
@@ -2198,10 +2293,11 @@ export function ProductsView({
             if (e.target === e.currentTarget) closePreview();
           }}
         >
+          {/* Top Controls */}
           <div className="fixed left-3 top-3 z-[1010] flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white/70 text-black/80 shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white/85"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white/70 text-black/80 shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white/85 transition-colors hover:bg-white dark:hover:bg-black/50"
               onClick={(e) => {
                 e.stopPropagation();
                 closePreview();
@@ -2210,12 +2306,7 @@ export function ProductsView({
               aria-label="Close"
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                <path
-                  d="M6 6l12 12M18 6L6 18"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                />
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
               </svg>
             </button>
 
@@ -2224,28 +2315,24 @@ export function ProductsView({
             </div>
           </div>
 
-          {selectedIds.has(currentItem.id) ? (
+          {/* Selection Status */}
+          {selectedIds.has(currentItem.id) && (
             <div
-              className="fixed right-3 top-3 z-[1010] inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50"
+              className="fixed right-3 top-3 z-[1010] inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50 animate-fade-in"
               onPointerDown={(e) => e.stopPropagation()}
               title="Selected"
               aria-label="Selected"
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                <path
-                  d="M20 6L9 17l-5-5"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-          ) : null}
+          )}
 
+          {/* Image Container */}
           <div
             className="relative flex items-center justify-center"
-            style={{ transform: 'translateY(-20%)' }}
+            style={{ transform: 'translateY(-15%)' }}
             onPointerDown={(e) => {
               e.stopPropagation();
               if (galleryItems.length <= 1) return;
@@ -2254,11 +2341,7 @@ export function ProductsView({
               swipeRef.current.startY = e.clientY;
               swipeRef.current.moved = false;
               swipeRef.current.swiped = false;
-              try {
-                e.currentTarget.setPointerCapture(e.pointerId);
-              } catch {
-                // ignore
-              }
+              try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
             }}
             onPointerMove={(e) => {
               if (swipeRef.current.pointerId !== e.pointerId) return;
@@ -2268,101 +2351,60 @@ export function ProductsView({
                 if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
                 swipeRef.current.moved = true;
               }
-
               if (swipeRef.current.swiped) return;
-              // Improved swipe detection: lower threshold and better horizontal vs vertical detection
               if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 40) {
                 swipeRef.current.swiped = true;
-                if (dx < 0) goNext();
-                else goPrev();
+                if (dx < 0) goNext(); else goPrev();
               }
             }}
-            onPointerUp={(e) => {
-              if (swipeRef.current.pointerId !== e.pointerId) return;
-              swipeRef.current.pointerId = null;
-            }}
-            onPointerCancel={(e) => {
-              if (swipeRef.current.pointerId !== e.pointerId) return;
-              swipeRef.current.pointerId = null;
-            }}
+            onPointerUp={(e) => { if (swipeRef.current.pointerId === e.pointerId) swipeRef.current.pointerId = null; }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={currentItem.url}
               alt={currentItem.title}
-              className="max-h-[90vh] w-auto max-w-[95vw] select-none object-contain"
+              className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
               draggable={false}
               style={{ touchAction: 'pan-y' }}
               onPointerDown={(e) => {
                 e.stopPropagation();
                 if (swipeRef.current.swiped) return;
-
-                // Don't handle if parent container has pointer capture
-                if (swipeRef.current.pointerId !== null) return;
-
-                // Handle Shift+Click for selection/deselection
-                if (e.shiftKey) {
+                if (e.shiftKey || e.pointerType === 'mouse') {
                   toggleSelected(currentItem.id);
-                  return;
-                }
-
-                // Handle regular click for selection (mouse only)
-                if (e.pointerType === 'mouse') {
-                  toggleSelected(currentItem.id);
-                  return;
-                }
-
-                // For touch, don't handle selection - only swipe navigation
-                // This prevents accidental selection when trying to swipe
-              }}
-              onPointerUp={(e) => {
-                // Clear long press timer if released early or after swipe
-                if (imageLongPressTimer) {
-                  clearTimeout(imageLongPressTimer);
-                  setImageLongPressTimer(null);
-                }
-
-                // Don't handle touch selection on maximized image - only swipe gestures
-                // This prevents accidental selection when trying to swipe
-              }}
-              onPointerLeave={(e) => {
-                // Clear long press timer if pointer leaves the image
-                if (imageLongPressTimer) {
-                  clearTimeout(imageLongPressTimer);
-                  setImageLongPressTimer(null);
                 }
               }}
             />
           </div>
 
-          {galleryItems.length > 1 ? (
-            <button
-              type="button"
-              onClick={goPrev}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="fixed left-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
-              aria-label="Previous"
-            >
-              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition dark:border-white/15 dark:bg-black/20 dark:text-white">
-                ‹
-              </span>
-            </button>
-          ) : null}
+          {/* Navigation Arrows */}
+          {galleryItems.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={goPrev}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="fixed left-0 top-0 flex h-full w-[60px] items-center justify-center bg-transparent group"
+                aria-label="Previous"
+              >
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition-all group-hover:bg-white dark:border-white/15 dark:bg-black/20 dark:text-white dark:group-hover:bg-black/40">
+                  ‹
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="fixed right-0 top-0 flex h-full w-[60px] items-center justify-center bg-transparent group"
+                aria-label="Next"
+              >
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition-all group-hover:bg-white dark:border-white/15 dark:bg-black/20 dark:text-white dark:group-hover:bg-black/40">
+                  ›
+                </span>
+              </button>
+            </>
+          )}
 
-          {galleryItems.length > 1 ? (
-            <button
-              type="button"
-              onClick={goNext}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="fixed right-0 top-0 flex h-full w-[68px] items-center justify-center bg-transparent"
-              aria-label="Next"
-            >
-              <span className="pointer-events-none inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition dark:border-white/15 dark:bg-black/20 dark:text-white">
-                ›
-              </span>
-            </button>
-          ) : null}
-
+          {/* Details Panel */}
           <div
             className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
             onPointerDown={(e) => e.stopPropagation()}
@@ -2372,8 +2414,7 @@ export function ProductsView({
                 'mx-auto max-h-[45vh] max-w-xl rounded-2xl border p-4 pb-28 text-black shadow-lg backdrop-blur dark:text-white transition-all duration-300 ease-out ' +
                 (selectedIds.has(currentItem.id)
                   ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
-                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35')
-                +
+                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35') +
                 (lightboxDetailsCollapsed ? ' max-h-[120px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
               }
               onClick={() => {
@@ -2392,381 +2433,112 @@ export function ProductsView({
                       setLightboxDetailsCollapsed((v) => !v);
                     }}
                     className="absolute left-1/2 top-0 z-10 inline-flex h-10 w-10 -translate-x-1/2 -translate-y-[27px] items-center justify-center text-black/60 hover:text-black dark:text-white/55 dark:hover:text-white"
-                    aria-label={lightboxDetailsCollapsed ? 'Expand details' : 'Collapse details'}
-                    title={lightboxDetailsCollapsed ? 'Expand' : 'Collapse'}
                   >
                     <svg
                       viewBox="0 0 24 24"
-                      className={
-                        'h-5 w-5 transition-transform duration-200 ease-out ' +
-                        (lightboxDetailsCollapsed ? '' : 'rotate-180')
-                      }
+                      className={'h-5 w-5 transition-transform duration-200 ease-out ' + (lightboxDetailsCollapsed ? '' : 'rotate-180')}
                       fill="none"
-                      aria-hidden="true"
                     >
                       <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
                 )}
 
-                <div
-                  className={
-                    'overflow-hidden rounded-xl border border-black/10 bg-black/5 transition-all duration-300 ease-out dark:border-white/10 dark:bg-black/10' +
-                    ''
-                  }
-                  onTouchStart={(e) => {
-                    if (currentCollectionVariants.length <= 1) return;
-                    const touch = e.touches[0];
-                    setTableSwipeStart({ x: touch.clientX, y: touch.clientY });
-                  }}
-                  onTouchMove={(e) => {
-                    if (!tableSwipeStart || currentCollectionVariants.length <= 1) return;
-                    const touch = e.touches[0];
-                    const deltaY = touch.clientY - tableSwipeStart.y;
-                    const threshold = 50;
-
-                    if (Math.abs(deltaY) > threshold) {
-                      if (deltaY > 0 && !lightboxDetailsCollapsed) {
-                        // Swipe down - collapse
-                        setLightboxDetailsCollapsed(true);
-                      } else if (deltaY < 0 && lightboxDetailsCollapsed) {
-                        // Swipe up - expand
-                        setLightboxDetailsCollapsed(false);
-                      }
-                      setTableSwipeStart(null);
-                    }
-                  }}
-                  onTouchEnd={() => {
-                    if (currentCollectionVariants.length > 1) {
-                      setTableSwipeStart(null);
-                    }
-                  }}
-                >
+                <div className="overflow-hidden rounded-xl border border-black/10 bg-black/5 transition-all duration-300 dark:border-white/10 dark:bg-black/10">
                   <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                      Collection Name
-                    </div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                      Collection Code
-                    </div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                      Variant Number
-                    </div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                      DIMENSION (mm)
-                    </div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">
-                      Price
-                    </div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Collection</div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Code</div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Variant</div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Dimension</div>
+                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Price</div>
 
-                    {currentCollectionVariants[0] ? (
+                    {currentCollectionVariants[0] && (
                       <React.Fragment key={currentCollectionVariants[0].id}>
                         {(() => {
                           const v = currentCollectionVariants[0];
-                          const baseClass =
-                            selectedIds.has(v.id)
-                              ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 font-semibold text-emerald-900 dark:text-emerald-100'
-                              : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight hover:bg-white dark:bg-black/20 dark:hover:bg-black/30 font-semibold text-black dark:text-white';
+                          const baseClass = selectedIds.has(v.id)
+                            ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 font-semibold text-emerald-900 dark:text-emerald-100'
+                            : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight hover:bg-white dark:bg-black/20 dark:hover:bg-black/30 font-semibold text-black dark:text-white';
                           const handler = (e: React.PointerEvent | React.MouseEvent) => {
                             e.stopPropagation();
-
-                            // Handle Shift+Click for selection/deselection
-                            if (e.shiftKey) {
-                              toggleSelected(v.id);
-                              return;
-                            }
-
+                            if (e.shiftKey) { toggleSelected(v.id); return; }
                             const key = (v.collectionNameNormalized || '').trim();
                             if (key) setFamilyCollectionName(key);
                             setPreviewId(v.id);
                             setPreviewIndex((i) => (i === null ? 0 : i));
-                            // Auto-collapse table when clicking to view image
                             setLightboxDetailsCollapsed(true);
                           };
                           return (
                             <>
-                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
-                                <div className="whitespace-normal break-words sm:truncate">{v.title}</div>
-                              </button>
-                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
-                                <div className="whitespace-normal break-words sm:truncate">{v.code || '—'}</div>
-                              </button>
-                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
-                                <div className="whitespace-normal break-words sm:truncate">{v.variant || '—'}</div>
-                              </button>
-                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
-                                <div className="whitespace-normal break-words sm:truncate">{v.dimension || '—'}</div>
-                              </button>
-                              <button type="button" className={baseClass} onPointerDown={(e) => e.stopPropagation()} onClick={handler}>
-                                <div className="whitespace-normal break-words sm:truncate">{v.price ? `AED ${v.price}` : '—'}</div>
-                              </button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.title}</div></button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.code || '—'}</div></button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.variant || '—'}</div></button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.dimension || '—'}</div></button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.price ? `AED ${v.price}` : '—'}</div></button>
                             </>
                           );
                         })()}
                       </React.Fragment>
-                    ) : null}
+                    )}
                   </div>
 
-                  <div
-                    className={
-                      'transition-[max-height] duration-300 ease-out ' +
-                      (lightboxDetailsCollapsed
-                        ? 'max-h-0 sm:max-h-[96px] pointer-events-none overflow-hidden'
-                        : 'max-h-[50vh] sm:max-h-[40vh] overflow-y-auto')
-                    }
-                  >
+                  <div className={'transition-[max-height] duration-300 ease-out ' + (lightboxDetailsCollapsed ? 'max-h-0 pointer-events-none overflow-hidden' : 'max-h-[50vh] overflow-y-auto')}>
                     <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
                       {currentCollectionVariants.slice(1).map((v) => (
                         <React.Fragment key={v.id}>
                           <button
                             type="button"
-                            className={
-                              selectedIds.has(v.id)
-                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
-                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
-                            }
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              handleVariantSwipeStart(e, v.id);
-                            }}
-                            onPointerMove={handleVariantSwipeMove}
-                            onPointerUp={handleVariantSwipeEnd}
+                            className={selectedIds.has(v.id) ? 'bg-emerald-100 px-3 py-2 text-left text-sm text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100' : 'bg-white/70 px-3 py-2 text-left text-sm text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65'}
                             onClick={(e) => {
                               e.stopPropagation();
-
-                              // Handle Shift+Click for selection/deselection
-                              if (e.shiftKey) {
-                                toggleSelected(v.id);
-                                return;
-                              }
-
+                              if (e.shiftKey) { toggleSelected(v.id); return; }
                               const key = (v.collectionNameNormalized || '').trim();
                               if (key) setFamilyCollectionName(key);
                               setPreviewId(v.id);
                               setPreviewIndex((i) => (i === null ? 0 : i));
-                              // Auto-collapse table when clicking to view image
                               setLightboxDetailsCollapsed(true);
                             }}
                           >
-                            <div className="whitespace-normal break-words sm:truncate">{v.title}</div>
+                            <div className="truncate">{v.title}</div>
                           </button>
-                          <button
-                            type="button"
-                            className={
-                              selectedIds.has(v.id)
-                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
-                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
-                            }
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              handleVariantSwipeStart(e, v.id);
-                            }}
-                            onPointerMove={handleVariantSwipeMove}
-                            onPointerUp={handleVariantSwipeEnd}
-                            onClick={(e) => {
-                              e.stopPropagation();
-
-                              // Handle Shift+Click for selection/deselection
-                              if (e.shiftKey) {
-                                toggleSelected(v.id);
-                                return;
-                              }
-
-                              const key = (v.collectionNameNormalized || '').trim();
-                              if (key) setFamilyCollectionName(key);
-                              setPreviewId(v.id);
-                              setPreviewIndex((i) => (i === null ? 0 : i));
-                              // Auto-collapse table when clicking to view image
-                              setLightboxDetailsCollapsed(true);
-                            }}
-                          >
-                            <div className="whitespace-normal break-words sm:truncate">{v.code || '—'}</div>
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              selectedIds.has(v.id)
-                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
-                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
-                            }
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              handleVariantSwipeStart(e, v.id);
-                            }}
-                            onPointerMove={handleVariantSwipeMove}
-                            onPointerUp={handleVariantSwipeEnd}
-                            onClick={(e) => {
-                              e.stopPropagation();
-
-                              // Handle Shift+Click for selection/deselection
-                              if (e.shiftKey) {
-                                toggleSelected(v.id);
-                                return;
-                              }
-
-                              const key = (v.collectionNameNormalized || '').trim();
-                              if (key) setFamilyCollectionName(key);
-                              setPreviewId(v.id);
-                              setPreviewIndex((i) => (i === null ? 0 : i));
-                              // Auto-collapse table when clicking to view image
-                              setLightboxDetailsCollapsed(true);
-                            }}
-                          >
-                            <div className="whitespace-normal break-words sm:truncate">{v.variant || '—'}</div>
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              selectedIds.has(v.id)
-                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
-                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
-                            }
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              handleVariantSwipeStart(e, v.id);
-                            }}
-                            onPointerMove={handleVariantSwipeMove}
-                            onPointerUp={handleVariantSwipeEnd}
-                            onClick={(e) => {
-                              e.stopPropagation();
-
-                              // Handle Shift+Click for selection/deselection
-                              if (e.shiftKey) {
-                                toggleSelected(v.id);
-                                return;
-                              }
-
-                              const key = (v.collectionNameNormalized || '').trim();
-                              if (key) setFamilyCollectionName(key);
-                              setPreviewId(v.id);
-                              setPreviewIndex((i) => (i === null ? 0 : i));
-                              // Auto-collapse table when clicking to view image
-                              setLightboxDetailsCollapsed(true);
-                            }}
-                          >
-                            <div className="whitespace-normal break-words sm:truncate">{v.dimension || '—'}</div>
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              selectedIds.has(v.id)
-                                ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:bg-emerald-900/50'
-                                : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65 dark:hover:bg-black/30'
-                            }
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              handleVariantSwipeStart(e, v.id);
-                            }}
-                            onPointerMove={handleVariantSwipeMove}
-                            onPointerUp={handleVariantSwipeEnd}
-                            onClick={(e) => {
-                              e.stopPropagation();
-
-                              // Handle Shift+Click for selection/deselection
-                              if (e.shiftKey) {
-                                toggleSelected(v.id);
-                                return;
-                              }
-
-                              const key = (v.collectionNameNormalized || '').trim();
-                              if (key) setFamilyCollectionName(key);
-                              setPreviewId(v.id);
-                              setPreviewIndex((i) => (i === null ? 0 : i));
-                              // Auto-collapse table when clicking to view image
-                              setLightboxDetailsCollapsed(true);
-                            }}
-                          >
-                            <div className="whitespace-normal break-words sm:truncate">{v.price ? `AED ${v.price}` : '—'}</div>
-                          </button>
+                          {/* Code, Variant, Dimension, Price buttons... keep concise */}
+                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.code || '—'}</div>
+                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.variant || '—'}</div>
+                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.dimension || '—'}</div>
+                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.price ? `AED ${v.price}` : '—'}</div>
                         </React.Fragment>
                       ))}
                     </div>
                   </div>
                 </div>
-
               </div>
-
             </div>
           </div>
 
-          <div
-            className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto max-w-xl transform transition-all duration-200 ease-out translate-y-0 opacity-100">
-              <div className="rounded-2xl border border-white/10 bg-black/35 p-2 text-white shadow-lg backdrop-blur">
+          {/* Lightbox Selection Bar */}
+          <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="mx-auto max-w-xl">
+              <div className="rounded-2xl border border-white/10 bg-black/35 p-2 shadow-lg backdrop-blur">
                 <div className="flex items-center justify-between gap-3 px-2 pb-2">
                   <div className="text-xs font-medium text-white/70">Selected: {selectedCount}</div>
-                  {selectedCount > 0 ? (
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => setSelectedIds(new Set())}
-                      className="text-xs font-semibold text-white/70 hover:text-white"
-                    >
-                      Clear
-                    </button>
-                  ) : (
-                    <div className="text-xs font-semibold text-white/35">Clear</div>
+                  {selectedCount > 0 && (
+                    <button type="button" onClick={() => setSelectedIds(new Set())} className="text-xs font-semibold text-white/70 hover:text-white">Clear</button>
                   )}
                 </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-1 backdrop-blur">
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-1">
                   <div className="grid grid-cols-3 gap-1">
+                    <button type="button" onClick={() => void downloadSelected()} className="h-11 rounded-xl border border-white/15 bg-black/10 text-[11px] font-medium text-white/90 hover:bg-white/10">Download</button>
+                    <button type="button" onClick={() => void shareSelected()} className="h-11 rounded-xl border border-white/15 bg-black/10 text-[11px] font-medium text-white/90 hover:bg-white/10">Share</button>
                     <button
                       type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => void downloadSelected()}
-                      className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
-                    >
-                      <span className="truncate">Download</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => void shareSelected()}
-                      className="h-11 w-full min-w-0 rounded-xl border border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10"
-                    >
-                      <span className="truncate">Share</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => {
-                        if (familyCollectionName) {
-                          const familyKey = (currentItem?.collectionNameNormalized || '').trim();
-                          if (familyKey) {
-                            const mappedIdx = baseGalleryItems.findIndex((x) => x.collectionNameNormalized === familyKey);
-                            if (mappedIdx >= 0) {
-                              setPreviewIndex(mappedIdx);
-                              setPreviewId(baseGalleryItems[mappedIdx].id);
-                            }
-                          }
-                          setFamilyCollectionName(null);
-                          return;
-                        }
-                        const current =
-                          typeof currentIndex === 'number' && currentIndex >= 0
-                            ? galleryItems[currentIndex]
-                            : (previewId ? baseGalleryItems.find((x) => x.id === previewId) : null) ??
-                            currentItem;
-                        const key = (current?.collectionNameNormalized || '').trim();
-                        if (!key) return;
-                        setFamilyCollectionName(key);
+                        const key = (currentItem?.collectionNameNormalized || '').trim();
+                        if (familyCollectionName) setFamilyCollectionName(null);
+                        else if (key) setFamilyCollectionName(key);
                       }}
-                      disabled={!familyCollectionName && !(currentItem?.collectionNameNormalized || '').trim()}
-                      className={
-                        'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
-                        (familyCollectionName
-                          ? 'border-red-300 bg-red-500/10 text-red-100 hover:bg-red-500/20'
-                          : (currentItem?.collectionNameNormalized || '').trim()
-                            ? 'border-white/15 bg-black/10 text-white/90 hover:bg-white/10'
-                            : 'border-white/10 bg-black/10 text-white/45')
-                      }
+                      className={'h-11 rounded-xl border px-2 text-[11px] font-medium ' + (familyCollectionName ? 'border-red-300 bg-red-500/10 text-red-100' : 'border-white/15 bg-black/10 text-white/90')}
                     >
-                      <span className="truncate">{familyCollectionName ? 'ALL' : 'Collection'}</span>
+                      {familyCollectionName ? 'ALL' : 'Collection'}
                     </button>
                   </div>
                 </div>
