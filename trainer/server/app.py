@@ -750,6 +750,10 @@ async def public_products_assets(db=Depends(_get_db)):
       for k in f.keys():
         columns_set.add(k)
   columns_set.add("DAM")
+  columns_set.add("Space")
+  columns_set.add("Color")
+  columns_set.add("Material")
+
   columns = sorted(columns_set)
 
   return {"columns": columns, "records": records, "count": len(records)}
@@ -806,6 +810,10 @@ async def products_assets(
       for k in f.keys():
         columns_set.add(k)
 
+  columns_set.add("DAM")
+  columns_set.add("Space")
+  columns_set.add("Color")
+  columns_set.add("Material")
   columns = sorted(columns_set)
   return {"columns": columns, "records": records, "count": len(records)}
 

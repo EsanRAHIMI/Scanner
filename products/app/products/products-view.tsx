@@ -590,6 +590,7 @@ export function ProductsView({
   const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
   const [selectedSpaces, setSelectedSpaces] = React.useState<Set<string>>(new Set());
+  const [selectedMaterials, setSelectedMaterials] = React.useState<Set<string>>(new Set());
   const [activeFilterDropdown, setActiveFilterDropdown] = React.useState<string | null>(null);
 
   const fetchUserSession = React.useCallback(async () => {
@@ -614,6 +615,37 @@ export function ProductsView({
   }, [fetchUserSession]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
+
+  const handleSaveField = async (recordId: string, fieldName: string, newValue: string) => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/products/${recordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: { [fieldName]: newValue }
+        })
+      });
+      if (!res.ok) throw new Error('Failed to save');
+
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map(r => r.id === recordId ? {
+            ...r,
+            fields: { ...r.fields, [fieldName]: newValue }
+          } : r) as any
+        };
+      });
+      setEditingUrl(null);
+    } catch (err) {
+      alert('Error saving: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleSaveUrl = async () => {
     if (!editingUrl || isSaving) return;
@@ -679,6 +711,7 @@ export function ProductsView({
   const categoryFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'category') || 'Category', [columns]);
   const colorFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'color') || 'Color', [columns]);
   const spaceFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'space') || 'Space', [columns]);
+  const materialFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'material') || 'Material', [columns]);
 
   const getUniqueValues = React.useCallback((fieldName: string) => {
     const vals = new Set<string>();
@@ -693,6 +726,7 @@ export function ProductsView({
   const uniqueCategories = React.useMemo(() => getUniqueValues(categoryFieldName), [getUniqueValues, categoryFieldName]);
   const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
   const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
+  const uniqueMaterials = React.useMemo(() => getUniqueValues(materialFieldName), [getUniqueValues, materialFieldName]);
 
   const displayedColumns = React.useMemo(() => {
     const ordered = [
@@ -704,7 +738,9 @@ export function ProductsView({
       'Colecction Code',
       'Variant Number',
       'Category',
-      'Content Calendar',
+      'Space',
+      'Color',
+      'Material',
       'DIMENSION (mm)',
       'Note',
       'CODE NUMBER',
@@ -729,7 +765,7 @@ export function ProductsView({
 
     // Add any unknown columns coming from API as extras
     const extras = columns
-      .filter((c) => !orderedSet.has(c) && c !== 'URL')
+      .filter((c) => !orderedSet.has(c) && c !== 'URL' && c !== 'Content Calendar')
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
@@ -810,9 +846,19 @@ export function ProductsView({
       });
     }
 
+    // Material Filter
+    if (selectedMaterials.size > 0) {
+      base = base.filter(r => {
+        const v = r.fields?.[materialFieldName];
+        if (typeof v === 'string') return selectedMaterials.has(v.trim());
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedMaterials.has(x.trim()));
+        return false;
+      });
+    }
+
     if (!showSelectedOnly) return base;
     return base.filter((r) => selectedIds.has(r.id));
-  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, categoryFieldName, colorFieldName, spaceFieldName]);
+  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName]);
 
   const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
     const k = key.trim().toLowerCase();
@@ -1391,6 +1437,50 @@ export function ProductsView({
               )}
             </div>
           </>
+        );
+      }
+
+      if (col === 'space' || col === 'color' || col === 'material') {
+        const isEditing = editingUrl?.id === recordId && editingUrl?.column === column;
+        if (isEditing) {
+          return (
+            <div className="flex h-full w-full items-center p-1" onClick={(e) => e.stopPropagation()}>
+              <input
+                autoFocus
+                className="h-9 w-full rounded border-2 border-emerald-500 bg-white/90 px-2 py-1 text-[11px] font-medium outline-none dark:bg-black/90"
+                value={editingUrl.value}
+                onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSaveField(recordId, column, editingUrl.value);
+                  } else if (e.key === 'Escape') {
+                    setEditingUrl(null);
+                  }
+                }}
+                onBlur={() => setEditingUrl(null)}
+              />
+            </div>
+          );
+        }
+
+        const displayValue = formatScalar(value);
+        return (
+          <div 
+            className={`group relative flex h-full w-full items-center px-4 py-2 ${canEdit ? 'cursor-pointer hover:bg-emerald-500/5' : ''}`}
+            onClick={(e) => {
+              if (!canEdit) return;
+              e.stopPropagation();
+              setEditingUrl({ id: recordId, value: displayValue, column });
+            }}
+          >
+            <span className="truncate">{displayValue || <span className="text-black/20 dark:text-white/20 italic">Empty</span>}</span>
+            {canEdit && (
+              <svg viewBox="0 0 24 24" className="absolute right-2 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-40" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
         );
       }
 
@@ -1992,14 +2082,24 @@ export function ProductsView({
                 setActiveDropdown={setActiveFilterDropdown}
                 onChange={setSelectedSpaces}
               />
+              <FilterDropdown
+                id="material"
+                title="Material"
+                options={uniqueMaterials}
+                selected={selectedMaterials}
+                activeDropdown={activeFilterDropdown}
+                setActiveDropdown={setActiveFilterDropdown}
+                onChange={setSelectedMaterials}
+              />
             </div>
-            {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0) && (
+            {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0) && (
               <button
                 type="button"
                 onClick={() => {
                   setSelectedCategories(new Set());
                   setSelectedColors(new Set());
                   setSelectedSpaces(new Set());
+                  setSelectedMaterials(new Set());
                 }}
                 className="ml-1 text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400"
               >
