@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
@@ -560,6 +561,11 @@ function formatPrice(value: unknown): string | null {
 }
 
 
+const SPACE_OPTIONS = ['Corner', 'Corridor', 'Entrance', 'Staircase', 'Living Room', 'Dining Room', 'Bedroom', 'Kitchen', 'Commercial', 'Bathroom'];
+const CATEGORY_OPTIONS = ['Chandeliers', 'Pendant', 'Cascade Light', 'Floor Lamps', 'Long Chandeliers', 'Ring Chandeliers', 'Wall Light', 'Table Lamps', 'Accessories', 'Sofa & Seating', 'Table', 'Wall Decoration'];
+const COLOR_OPTIONS = ['Transparent', 'Chrome', 'White', 'Black', 'Bronze', 'Blue', 'Gold', 'Pink'];
+const MATERIAL_OPTIONS = ['Stone', 'Fabric', 'Metal', 'Glass', 'Wood'];
+
 export function ProductsView({
   title = 'Products',
   titleNode,
@@ -585,7 +591,7 @@ export function ProductsView({
   const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
   const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
   const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend' } | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; originalValue?: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend'; rect?: { top: number; left: number; width: number; height: number } } | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
@@ -723,10 +729,10 @@ export function ProductsView({
     return Array.from(vals).sort((a, b) => a.localeCompare(b));
   }, [records]);
 
-  const uniqueCategories = React.useMemo(() => getUniqueValues(categoryFieldName), [getUniqueValues, categoryFieldName]);
-  const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
-  const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
-  const uniqueMaterials = React.useMemo(() => getUniqueValues(materialFieldName), [getUniqueValues, materialFieldName]);
+  const uniqueCategories = React.useMemo(() => CATEGORY_OPTIONS, []);
+  const uniqueColors = React.useMemo(() => COLOR_OPTIONS, []);
+  const uniqueSpaces = React.useMemo(() => SPACE_OPTIONS, []);
+  const uniqueMaterials = React.useMemo(() => MATERIAL_OPTIONS, []);
 
   const displayedColumns = React.useMemo(() => {
     const ordered = [
@@ -1233,8 +1239,9 @@ export function ProductsView({
 
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
       const isDAM = col === 'dam';
+      const isEditable = isUrl || isDAM || col === 'space' || col === 'color' || col === 'material' || col === 'category';
 
-      if ((value === null || value === undefined) && !isUrl && !isDAM) return null;
+      if ((value === null || value === undefined) && !isEditable) return null;
 
       if (isUrl) {
         if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && (editingUrl.index === undefined || editingUrl.index === null)) {
@@ -1440,45 +1447,75 @@ export function ProductsView({
         );
       }
 
-      if (col === 'space' || col === 'color' || col === 'material') {
-        const isEditing = editingUrl?.id === recordId && editingUrl?.column === column;
-        if (isEditing) {
-          return (
-            <div className="flex h-full w-full items-center p-1" onClick={(e) => e.stopPropagation()}>
-              <input
-                autoFocus
-                className="h-9 w-full rounded border-2 border-emerald-500 bg-white/90 px-2 py-1 text-[11px] font-medium outline-none dark:bg-black/90"
-                value={editingUrl.value}
-                onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleSaveField(recordId, column, editingUrl.value);
-                  } else if (e.key === 'Escape') {
-                    setEditingUrl(null);
-                  }
-                }}
-                onBlur={() => setEditingUrl(null)}
-              />
-            </div>
-          );
-        }
-
+      if (col === 'space') {
         const displayValue = formatScalar(value);
+        const activeValues = (displayValue || '').split(',').map(s => s.trim()).filter(Boolean);
+        const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
+
         return (
-          <div 
-            className={`group relative flex h-full w-full items-center px-4 py-2 ${canEdit ? 'cursor-pointer hover:bg-emerald-500/5' : ''}`}
+          <div
+            className={`group relative flex h-full min-h-[44px] w-full flex-wrap items-start gap-1 px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
             onClick={(e) => {
               if (!canEdit) return;
               e.stopPropagation();
-              setEditingUrl({ id: recordId, value: displayValue, column });
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
             }}
           >
-            <span className="truncate">{displayValue || <span className="text-black/20 dark:text-white/20 italic">Empty</span>}</span>
+            {activeValues.length === 0 ? (
+              <span className={`mt-0.5 text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+                {canEdit ? '+ Add space' : '—'}
+              </span>
+            ) : (
+              activeValues.map(v => (
+                <span key={v} className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 flex-none opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {v}
+                </span>
+              ))
+            )}
             {canEdit && (
-              <svg viewBox="0 0 24 24" className="absolute right-2 h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-40" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-black/0 transition-all group-hover:bg-black/5 group-hover:text-black/40 dark:group-hover:bg-white/5 dark:group-hover:text-white/40">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      if (col === 'color' || col === 'material' || col === 'category') {
+        const displayValue = formatScalar(value);
+        const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
+
+        return (
+          <div
+            className={`group relative flex h-full min-h-[44px] w-full items-center px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
+            onClick={(e) => {
+              if (!canEdit) return;
+              e.stopPropagation();
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
+            }}
+          >
+            {displayValue ? (
+              <span className={`inline-flex max-w-full items-center gap-1 truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                col === 'category'
+                  ? 'border border-violet-500/20 bg-violet-50 text-violet-700 dark:border-violet-400/20 dark:bg-violet-900/25 dark:text-violet-300'
+                  : col === 'color'
+                  ? 'border border-sky-500/20 bg-sky-50 text-sky-700 dark:border-sky-400/20 dark:bg-sky-900/25 dark:text-sky-300'
+                  : 'border border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300'
+              }`}>
+                <span className="truncate">{displayValue}</span>
+              </span>
+            ) : (
+              <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+                {canEdit ? `+ Add ${col}` : '—'}
+              </span>
+            )}
+            {canEdit && (
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-black/0 transition-all group-hover:bg-black/5 group-hover:text-black/40 dark:group-hover:bg-white/5 dark:group-hover:text-white/40">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
             )}
           </div>
         );
@@ -1958,6 +1995,108 @@ export function ProductsView({
     </button>
   );
 
+  // Portal dropdown for Space/Color/Material/Category editing
+  const fieldEditPortal = React.useMemo(() => {
+    if (typeof document === 'undefined') return null;
+    if (!editingUrl?.rect) return null;
+
+    const colName = (editingUrl.column || '').trim().toLowerCase();
+    const isSpace = colName === 'space';
+    const isCategory = colName === 'category';
+    const isColor = colName === 'color';
+    const isMaterial = colName === 'material';
+    if (!isSpace && !isCategory && !isColor && !isMaterial) return null;
+
+    const { top, left, width, height } = editingUrl.rect;
+    const isCheckbox = isSpace || isCategory || isColor || isMaterial;
+    const POPUP_W = 260;
+    const POPUP_H = isSpace || isCategory ? 430 : 260;
+    const spaceBelow = window.innerHeight - (top + height);
+    const spaceRight = window.innerWidth - left;
+    const popupLeft = spaceRight >= POPUP_W ? left : Math.max(8, left + width - POPUP_W);
+    const popupTop = spaceBelow >= POPUP_H ? top + height + 4 : Math.max(8, top - POPUP_H - 4);
+
+    const currentSet = new Set((editingUrl.value || '').split(',').map(s => s.trim()).filter(Boolean));
+    const col = colName;
+    const column = editingUrl.column || '';
+    const recordId = editingUrl.id;
+    const originalValue = editingUrl.originalValue ?? '';
+
+    const doSave = () => {
+      if (isSpace) handleSaveField(recordId, column, Array.from(currentSet).join(', '));
+      else handleSaveField(recordId, column, editingUrl.value);
+    };
+    const doCancel = () => setEditingUrl(null);
+
+    const portal = (
+      <>
+        {/* Backdrop — click outside saves */}
+        <div
+          className="fixed inset-0 z-[998]"
+          onClick={doSave}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); doCancel(); } }}
+          tabIndex={-1}
+        />
+        {/* Dropdown */}
+        <div
+          className="fixed z-[999] flex flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900"
+          style={{ top: popupTop, left: popupLeft, width: POPUP_W }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); doCancel(); } }}
+        >
+          {(isSpace || isCategory || isColor || isMaterial) ? (
+            <>
+              <div className="scrollbar-minimal overflow-y-auto p-2" style={{ maxHeight: 320 }}>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {(isSpace ? SPACE_OPTIONS : isColor ? COLOR_OPTIONS : isMaterial ? MATERIAL_OPTIONS : CATEGORY_OPTIONS).map(opt => {
+                    const isSingleSelect = isCategory || isColor || isMaterial;
+                    const sel = isSingleSelect
+                      ? editingUrl.value?.trim() === opt
+                      : currentSet.has(opt);
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => {
+                          if (isSingleSelect) {
+                            const newVal = sel ? '' : opt;
+                            setEditingUrl({ ...editingUrl, value: newVal });
+                          } else {
+                            const next = new Set(currentSet);
+                            if (sel) next.delete(opt); else next.add(opt);
+                            setEditingUrl({ ...editingUrl, value: Array.from(next).join(', ') });
+                          }
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[12px] font-medium transition-all ${
+                          sel
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-black/[0.03] text-black/75 hover:bg-emerald-50 hover:text-emerald-800 dark:bg-white/5 dark:text-white/75 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300'
+                        }`}
+                      >
+                        <span className={`flex h-4 w-4 flex-none items-center justify-center transition-all ${
+                          isSingleSelect ? 'rounded-full' : 'rounded'
+                        } border-2 ${
+                          sel ? 'border-white/60 bg-white/25' : 'border-black/20 dark:border-white/25'
+                        }`}>
+                          {sel && <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </span>
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </>
+    );
+
+    return createPortal(portal, document.body);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingUrl, isSaving]);
+
   return (
     <main
       className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
@@ -2053,11 +2192,10 @@ export function ProductsView({
           
           <span className="mx-2 text-black/25 dark:text-white/20">|</span>
           <div className="inline-flex items-center gap-2">
-            <span className="font-medium text-black/60 dark:text-white/60">Category:</span>{' '}
             <div className="inline-flex items-center gap-2">
               <FilterDropdown
                 id="category"
-                title="Select"
+                title="Category"
                 options={uniqueCategories}
                 selected={selectedCategories}
                 activeDropdown={activeFilterDropdown}
@@ -2647,6 +2785,7 @@ export function ProductsView({
           </div>
         </div>
       ) : null}
+      {fieldEditPortal}
     </main>
   );
 }
