@@ -513,32 +513,30 @@ function extractUrls(v: unknown): string[] {
 }
 
 function getDriveDirectLink(url: string): string {
-  if (!url.includes('drive.google.com') && !url.includes('google.com/file/d/')) return url;
+  if (!url) return '';
+  if (!url.includes('drive.google.com') && !url.includes('google.com/file/d/') && !url.includes('googleusercontent.com')) return url;
 
-  // Extract ID from various formats
-  // Format 1: /file/d/[ID]/view
-  // Format 2: ?id=[ID]
-  // Format 3: /open?id=[ID]
+  // If it's already a direct link we generated, return as is
+  if (url.includes('lh3.googleusercontent.com/d/')) return url;
 
   let id = '';
-  // Try to find the /file/d/ pattern
+  // Pattern 1: /file/d/ID/view or /file/d/ID/edit
   const matchD = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (matchD && matchD[1]) {
     id = matchD[1];
   } else {
-    // Try query parameters
+    // Pattern 2: ?id=ID or &id=ID (common in /open?id= or uc?id=)
     try {
       const u = new URL(url);
-      id = u.searchParams.get('id') || u.searchParams.get('fileId') || '';
+      id = u.searchParams.get('id') || u.searchParams.get('fileId') || u.searchParams.get('docid') || '';
     } catch {
-      // Fallback: search for id= pattern manually if URL parsing fails
-      const manualMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      const manualMatch = url.match(/[?&](?:id|fileId|docid)=([a-zA-Z0-9_-]+)/);
       if (manualMatch) id = manualMatch[1];
     }
   }
 
   if (id) {
-    // High-performance direct link format requested by user
+    // Return high-performance direct link
     return `https://lh3.googleusercontent.com/d/${id}=w1000`;
   }
   return url;
@@ -1228,7 +1226,8 @@ export function ProductsView({
         });
         const damUrls = extractUrls(urlEntry?.[1]);
         const imageUrls = extractUrls(fields.Image);
-        const url = damUrls[0] || imageUrls[0] || '';
+        const rawUrl = damUrls[0] || imageUrls[0] || '';
+        const url = getDriveDirectLink(rawUrl);
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
         const collectionNameNormalized = collectionName.trim();
@@ -1767,7 +1766,7 @@ export function ProductsView({
         const formatted = formatPrice(value);
         if (!formatted) return formatScalar(value);
         return (
-          <span className="inline-flex items-baseline gap-1">
+          <span className="hidden items-baseline gap-1 sm:inline-flex">
             <span className="inline-flex items-baseline">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -1868,7 +1867,7 @@ export function ProductsView({
                 .reverse()
                 .map((u, i) => {
                   const revIdx = visibleUrls.length - 1 - i;
-                  const finalUrl = col === 'dam' ? getDriveDirectLink(u) : u;
+                  const finalUrl = getDriveDirectLink(u);
                   return (
                     <button
                       key={u + i}
@@ -2152,7 +2151,7 @@ export function ProductsView({
       type="button"
       onClick={() => setViewMode((v) => (v === 'list' ? 'gallery' : 'list'))}
       aria-pressed={viewMode === 'list'}
-      title={viewMode === 'list' ? 'List View' : 'Gallery View'}
+      title={viewMode === 'list' ? 'Switch to Gallery View' : 'Switch to List View'}
       className={
         headerToggleBase +
         (viewMode === 'list'
@@ -2160,7 +2159,7 @@ export function ProductsView({
           : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
       }
     >
-      {viewMode === 'list' ? (
+      {viewMode === 'gallery' ? (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <line x1="8" y1="6" x2="21" y2="6" />
           <line x1="8" y1="12" x2="21" y2="12" />
@@ -2187,11 +2186,11 @@ export function ProductsView({
         setFamilyMode((m) => (m === 'main' ? 'collection' : 'main'));
         setFamilyCollectionName(null);
       }}
-      aria-pressed={familyMode !== 'main'}
-      title={familyMode !== 'main' ? 'Collection View' : 'All Products'}
+      aria-pressed={familyMode === 'collection'}
+      title={familyMode === 'collection' ? 'Collection View' : 'All Products'}
       className={
         headerToggleBase +
-        (familyMode !== 'main'
+        (familyMode === 'collection'
           ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
           : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
       }
@@ -2212,26 +2211,24 @@ export function ProductsView({
       title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       className={
         headerToggleBase +
-        (theme === 'dark'
-          ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
-          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
+        ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white'
       }
     >
       {theme === 'dark' ? (
         <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          <circle cx="12" cy="12" r="5" fill="white" stroke="white" />
+          <line x1="12" y1="1" x2="12" y2="3" stroke="white" />
+          <line x1="12" y1="21" x2="12" y2="23" stroke="white" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="white" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="white" />
+          <line x1="1" y1="12" x2="3" y2="12" stroke="white" />
+          <line x1="21" y1="12" x2="23" y2="12" stroke="white" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="5" />
-          <line x1="12" y1="1" x2="12" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" />
-          <line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="black" />
         </svg>
       )}
     </button>
@@ -2385,8 +2382,8 @@ export function ProductsView({
             onChange={(e) => setSearch(e.target.value)}
           />
           <div className="flex flex-none items-center gap-2">
-            {viewToggleNode}
             {familyToggleNode}
+            {viewToggleNode}
             {themeToggleNode}
             <AccountMenu onAuthChange={fetchUserSession} />
           </div>
@@ -2406,8 +2403,8 @@ export function ProductsView({
               onChange={(e) => setSearch(e.target.value)}
             />
             <div className="flex items-center gap-2">
-              {viewToggleNode}
               {familyToggleNode}
+              {viewToggleNode}
               {themeToggleNode}
               <AccountMenu onAuthChange={fetchUserSession} />
             </div>
@@ -2417,14 +2414,14 @@ export function ProductsView({
 
       <div className="-mx-5 px-5">
         <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
-          <span className="font-medium text-black/60 dark:text-white/60">Records:</span>{' '}
+          <span className="font-medium text-black/60 dark:text-white/60">Variant:</span>{' '}
           {data ? (
             <span className="animate-fade-in">{data.count}</span>
           ) : (
             <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
           )}
           <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-          <span className="font-medium text-black/60 dark:text-white/60">Matched:</span>{' '}
+          <span className="font-medium text-black/60 dark:text-white/60">List:</span>{' '}
           {data ? (
             <span className="animate-fade-in">{visibleRecords.length}</span>
           ) : (
@@ -2652,7 +2649,8 @@ export function ProductsView({
                 return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
               });
               const urlValue = urlEntry?.[1];
-              const img = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
+              const rawImg = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
+              const img = getDriveDirectLink(rawImg);
               const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
               const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
               const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
@@ -2724,7 +2722,16 @@ export function ProductsView({
                   >
                     <div className="flex items-start justify-between gap-2 leading-snug">
                       <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{name || '—'}</div>
-                      <div className="flex-none text-sm font-semibold text-black dark:text-white">{price ? `AED ${price}` : ''}</div>
+                      <div className="flex-none text-sm font-semibold text-black dark:text-white">
+                        {price ? (
+                          <>
+                            <span className="hidden sm:inline">AED </span>
+                            {price}
+                          </>
+                        ) : (
+                          ''
+                        )}
+                      </div>
                     </div>
                     <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? `Code: ${code}` : ' '}</div>
                     <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
@@ -2881,7 +2888,7 @@ export function ProductsView({
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={currentItem.url}
+              src={getDriveDirectLink(currentItem.url)}
               alt={currentItem.title}
               className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
               draggable={false}
@@ -2994,7 +3001,7 @@ export function ProductsView({
                               <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.code || '—'}</div></button>
                               <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.variant || '—'}</div></button>
                               <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.dimension || '—'}</div></button>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.price ? `AED ${v.price}` : '—'}</div></button>
+                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.price ? <><span className="hidden sm:inline">AED </span>{v.price}</> : '—'}</div></button>
                             </>
                           );
                         })()}
@@ -3025,7 +3032,7 @@ export function ProductsView({
                           <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.code || '—'}</div>
                           <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.variant || '—'}</div>
                           <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.dimension || '—'}</div>
-                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.price ? `AED ${v.price}` : '—'}</div>
+                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.price ? <><span className="hidden sm:inline">AED </span>{v.price}</> : '—'}</div>
                         </React.Fragment>
                       ))}
                     </div>

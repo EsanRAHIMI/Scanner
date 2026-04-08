@@ -5,6 +5,7 @@
 html,
 body {
   height: 100%;
+  touch-action: manipulation;
 }
 
 html {
@@ -18,4 +19,14 @@ html {
   textarea {
     font-size: 16px;
   }
+}
+
+/* Professional Synchronized Theme Transitions */
+*, *::before, *::after {
+  transition: background-color 250ms cubic-bezier(0.19, 1, 0.22, 1),
+              border-color 250ms cubic-bezier(0.19, 1, 0.22, 1),
+              color 250ms cubic-bezier(0.19, 1, 0.22, 1),
+              fill 250ms cubic-bezier(0.19, 1, 0.22, 1),
+              stroke 250ms cubic-bezier(0.19, 1, 0.22, 1);
+  transition-delay: 0ms !important;
 }
