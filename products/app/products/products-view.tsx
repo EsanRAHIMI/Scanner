@@ -590,6 +590,24 @@ const getTagColorStyles = (color: string) => {
   }
 };
 
+const getTagMaterialStyles = (material: string) => {
+  const m = material.toLowerCase().trim();
+  switch (m) {
+    case 'stone':
+      return 'border-stone-200 bg-stone-100 text-stone-700 dark:border-stone-700 dark:bg-stone-800/50 dark:text-stone-300';
+    case 'fabric':
+      return 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800/20 dark:bg-indigo-900/30 dark:text-indigo-300';
+    case 'metal':
+      return 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300';
+    case 'glass':
+      return 'border-cyan-200/50 bg-cyan-50/50 text-cyan-700 dark:border-cyan-800/20 dark:bg-cyan-900/30 dark:text-cyan-300';
+    case 'wood':
+      return 'border-orange-200 bg-orange-50 text-orange-900/80 dark:border-orange-800/20 dark:bg-orange-900/30 dark:text-orange-300';
+    default:
+      return 'border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300';
+  }
+};
+
 export function ProductsView({
   title = 'Products',
   titleNode,
@@ -644,12 +662,55 @@ export function ProductsView({
     void fetchUserSession();
   }, [fetchUserSession]);
 
+  const hasInitializedMain = React.useRef(false);
+  React.useEffect(() => {
+    if (!loading && data?.records && data.records.length > 0 && !hasInitializedMain.current) {
+      const recordsWithMain = data.records.filter(r => r.fields?.Main !== undefined);
+      if (recordsWithMain.length === 0) {
+        // Auto-initialize: mark the first record of each group as Main.
+        const seenGroups = new Set<string>();
+        const getCollectionKey = (fields: any) => {
+          return (formatScalar(fields?.['Colecction Name']) || 
+                  formatScalar(fields?.Name) || 
+                  formatScalar(fields?.['Collection Name']) || 
+                  '').trim();
+        };
+
+        const nextRecords = data.records.map(r => {
+          const key = getCollectionKey(r.fields);
+          if (!key) return r;
+          if (seenGroups.has(key)) return { ...r, fields: { ...r.fields, Main: false } };
+          seenGroups.add(key);
+          return { ...r, fields: { ...r.fields, Main: true } };
+        });
+
+        setData({ ...data, records: nextRecords as any });
+        hasInitializedMain.current = true;
+      } else {
+        hasInitializedMain.current = true;
+      }
+    }
+  }, [data, loading, setData]);
+
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
 
   const handleSaveField = async (recordId: string, fieldName: string, newValue: string) => {
     if (isSaving) return;
     setIsSaving(true);
     try {
+      const getCollectionKey = (f: any) => {
+        return (formatScalar(f?.['Colecction Name']) || 
+                formatScalar(f?.Name) || 
+                formatScalar(f?.['Collection Name']) || 
+                '').trim();
+      };
+
+      const targetRecord = data?.records?.find(r => r.id === recordId);
+      const isMainProduct = targetRecord?.fields?.Main === true;
+      const colLower = fieldName.trim().toLowerCase();
+      const isPropagatableField = colLower === 'category' || colLower === 'space' || colLower === 'color' || colLower === 'material';
+
+      // 1. Save the primary record
       const res = await fetch(`/api/products/${recordId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -657,16 +718,49 @@ export function ProductsView({
           fields: { [fieldName]: newValue }
         })
       });
-      if (!res.ok) throw new Error('Failed to save');
+      if (!res.ok) throw new Error('Failed to save primary record');
 
+      // 2. Identify variants for propagation if needed
+      let propagatedIds: string[] = [];
+      if (isMainProduct && isPropagatableField && data?.records) {
+        const groupKey = getCollectionKey(targetRecord?.fields);
+        const variantsToUpdate = data.records.filter(r => {
+          if (r.id === recordId) return false;
+          if (getCollectionKey(r.fields) !== groupKey) return false;
+          const currentVal = formatScalar(r.fields?.[fieldName]) || '';
+          return !currentVal.trim(); // Only propagate if empty
+        });
+
+        propagatedIds = variantsToUpdate.map(v => v.id);
+
+        // Sync variants with server
+        for (const variantId of propagatedIds) {
+          try {
+            await fetch(`/api/products/${variantId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields: { [fieldName]: newValue } })
+            });
+          } catch (e) {
+            console.error(`Failed to propagate to variant ${variantId}`, e);
+          }
+        }
+      }
+
+      // 3. Update local state for all modified records
       setData(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          records: prev.records.map(r => r.id === recordId ? {
-            ...r,
-            fields: { ...r.fields, [fieldName]: newValue }
-          } : r) as any
+          records: prev.records.map(r => {
+            if (r.id === recordId || propagatedIds.includes(r.id)) {
+              return {
+                ...r,
+                fields: { ...r.fields, [fieldName]: newValue }
+              };
+            }
+            return r;
+          }) as any
         };
       });
       setEditingUrl(null);
@@ -734,6 +828,59 @@ export function ProductsView({
     }
   };
 
+  const handleToggleMain = async (recordId: string) => {
+    if (isSaving || !data?.records) return;
+    setIsSaving(true);
+    try {
+      const targetRecord = data.records.find(r => r.id === recordId);
+      if (!targetRecord) return;
+
+      const getCollectionKey = (rFields: any) => {
+        return (formatScalar(rFields?.['Colecction Name']) || 
+                formatScalar(rFields?.Name) || 
+                formatScalar(rFields?.['Collection Name']) || 
+                '').trim();
+      };
+
+      const groupKey = getCollectionKey(targetRecord.fields);
+      const otherMainIds = data.records
+        .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
+        .map(r => r.id);
+
+      // Mutate local state immediately for responsiveness
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map(r => {
+            const rFields = r.fields || {};
+            const rKey = getCollectionKey(rFields);
+            if (r.id === recordId) return { ...r, fields: { ...rFields, Main: true } };
+            if (rKey === groupKey) return { ...r, fields: { ...rFields, Main: false } };
+            return r;
+          }) as any
+        };
+      });
+
+      // Perform updates (Target becomes true, others become false)
+      const updates = [
+        { id: recordId, fields: { Main: true } },
+        ...otherMainIds.map(id => ({ id, fields: { Main: false } }))
+      ];
+
+      for (const update of updates) {
+        await fetch(`/api/products/${update.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: update.fields })
+        });
+      }
+    } catch (err) {
+      alert('Error toggling Main: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
@@ -800,7 +947,10 @@ export function ProductsView({
     out.push(...extras);
 
     if (columns.includes('URL')) {
+      out.push('Main');
       out.push('URL');
+    } else {
+      out.push('Main');
     }
 
     return out;
@@ -958,7 +1108,7 @@ export function ProductsView({
   const visibleRecords = React.useMemo(() => {
     if (familyMode !== 'main') return sortedRecords;
 
-    const seen = new Set<string>();
+    const groupMap = new Map<string, ProductsRecord>();
     const out: ProductsRecord[] = [];
 
     for (const r of sortedRecords) {
@@ -973,9 +1123,31 @@ export function ProductsView({
         out.push(r);
         continue;
       }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(r);
+
+      const isMain = r.fields?.Main === true;
+      const existing = groupMap.get(key);
+
+      // Prioritize the record marked as Main.
+      // If we don't have one for this group yet, or if this one is Main and the existing one isn't.
+      if (!existing || (isMain && existing.fields?.Main !== true)) {
+        groupMap.set(key, r);
+      }
+    }
+
+    // Now convert the map back to the output list, maintaining sorted order of the groups
+    const seenGroups = new Set<string>();
+    for (const r of sortedRecords) {
+      const raw =
+        formatScalar(r.fields?.['Colecction Name']) ||
+        formatScalar(r.fields?.Name) ||
+        formatScalar(r.fields?.['Collection Name']) ||
+        '';
+      const key = raw.trim();
+      if (!key) continue;
+      if (seenGroups.has(key)) continue;
+      seenGroups.add(key);
+      const chosen = groupMap.get(key);
+      if (chosen) out.push(chosen);
     }
 
     return out;
@@ -1263,9 +1435,38 @@ export function ProductsView({
 
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
       const isDAM = col === 'dam';
-      const isEditable = isUrl || isDAM || col === 'space' || col === 'color' || col === 'material' || col === 'category';
+      const isMain = col === 'main';
+      const isEditable = isUrl || isDAM || isMain || col === 'space' || col === 'color' || col === 'material' || col === 'category';
 
       if ((value === null || value === undefined) && !isEditable) return null;
+
+      if (isMain) {
+        const record = records.find(r => r.id === recordId);
+        const checked = record?.fields?.Main === true;
+        
+        return (
+          <div className="flex h-full w-full items-center justify-center">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canEdit) handleToggleMain(recordId);
+              }}
+              className={`flex h-6 w-6 items-center justify-center rounded-lg border-2 transition-all ${
+                checked 
+                  ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm' 
+                  : 'border-black/10 bg-black/5 hover:border-emerald-500/30 dark:border-white/10 dark:bg-white/5 dark:hover:border-emerald-500/30'
+              } ${!canEdit ? 'cursor-default opacity-50' : ''}`}
+            >
+              {checked && (
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3.5">
+                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </button>
+          </div>
+        );
+      }
 
       if (isUrl) {
         if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && (editingUrl.index === undefined || editingUrl.index === null)) {
@@ -1478,7 +1679,7 @@ export function ProductsView({
 
         return (
           <div
-            className={`group relative flex h-full min-h-[44px] w-full flex-wrap items-start gap-1 px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
+            className={`group relative flex flex-col h-full min-h-[44px] w-full items-stretch overflow-hidden ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
             onClick={(e) => {
               if (!canEdit) return;
               e.stopPropagation();
@@ -1487,20 +1688,29 @@ export function ProductsView({
             }}
           >
             {activeValues.length === 0 ? (
-              <span className={`mt-0.5 text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
-                {canEdit ? '+ Add space' : '—'}
-              </span>
-            ) : (
-              activeValues.map(v => (
-                <span key={v} className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-900/30 dark:text-emerald-300">
-                  <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 flex-none opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  {v}
+              <div className="flex flex-1 items-center justify-center">
+                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+                  {canEdit ? '+ Add space' : '—'}
                 </span>
+              </div>
+            ) : (
+              activeValues.map((v, i) => (
+                <div 
+                  key={v} 
+                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80 ${
+                    i !== activeValues.length - 1 ? 'border-b border-black/5 dark:border-white/5' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 leading-tight">
+                    <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 flex-none opacity-20" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    <span className="truncate">{v}</span>
+                  </div>
+                </div>
               ))
             )}
             {canEdit && (
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-black/0 transition-all group-hover:bg-black/5 group-hover:text-black/40 dark:group-hover:bg-white/5 dark:group-hover:text-white/40">
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <div className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 text-emerald-600/40 dark:text-emerald-400/40" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
             )}
           </div>
@@ -1514,7 +1724,7 @@ export function ProductsView({
 
         return (
           <div
-            className={`group relative flex h-full min-h-[44px] w-full flex-wrap items-start gap-1 px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
+            className={`group relative flex flex-col h-full min-h-[44px] w-full items-stretch overflow-hidden ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
             onClick={(e) => {
               if (!canEdit) return;
               e.stopPropagation();
@@ -1523,25 +1733,30 @@ export function ProductsView({
             }}
           >
             {activeValues.length === 0 ? (
-              <span className={`mt-0.5 text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
-                {canEdit ? `+ Add ${col}` : '—'}
-              </span>
-            ) : (
-              activeValues.map(v => (
-                <span key={v} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
-                  col === 'category'
-                    ? 'border-violet-500/20 bg-violet-50 text-violet-700 dark:border-violet-400/20 dark:bg-violet-900/25 dark:text-violet-300'
-                    : col === 'color'
-                    ? getTagColorStyles(v)
-                    : 'border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300'
-                }`}>
-                  <span className="truncate">{v}</span>
+              <div className="flex flex-1 items-center justify-center">
+                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+                  {canEdit ? `+ Add ${col}` : '—'}
                 </span>
+              </div>
+            ) : (
+              activeValues.map((v, i) => (
+                <div 
+                  key={v} 
+                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors border-b last:border-b-0 ${
+                    col === 'category'
+                      ? 'border-black/5 bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80'
+                      : col === 'color'
+                      ? `${getTagColorStyles(v)} border-black/5 dark:border-white/5`
+                      : `${getTagMaterialStyles(v)} border-black/5 dark:border-white/5`
+                  }`}
+                >
+                  <span className="truncate">{v}</span>
+                </div>
               ))
             )}
             {canEdit && (
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-black/0 transition-all group-hover:bg-black/5 group-hover:text-black/40 dark:group-hover:bg-white/5 dark:group-hover:text-white/40">
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <div className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 text-black/40 dark:text-white/40" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
             )}
           </div>
@@ -2060,7 +2275,10 @@ export function ProductsView({
         <div
           className="fixed inset-0 z-[998]"
           onClick={doSave}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); doCancel(); } }}
+          onKeyDown={(e) => { 
+            if (e.key === 'Escape') { e.preventDefault(); doCancel(); }
+            else if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+          }}
           tabIndex={-1}
         />
         {/* Dropdown */}
@@ -2069,7 +2287,10 @@ export function ProductsView({
           style={{ top: popupTop, left: popupLeft, width: POPUP_W }}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); doCancel(); } }}
+          onKeyDown={(e) => { 
+            if (e.key === 'Escape') { e.preventDefault(); doCancel(); }
+            else if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+          }}
         >
           {(isSpace || isCategory || isColor || isMaterial) ? (
             <>
@@ -2090,7 +2311,9 @@ export function ProductsView({
                           sel
                             ? isColor 
                               ? `${getTagColorStyles(opt)} shadow-sm border` 
-                              : 'bg-emerald-600 text-white shadow-sm'
+                              : isMaterial
+                                ? `${getTagMaterialStyles(opt)} shadow-sm border`
+                                : 'bg-emerald-600 text-white shadow-sm'
                             : 'bg-black/[0.03] text-black/75 hover:bg-emerald-50 hover:text-emerald-800 dark:bg-white/5 dark:text-white/75 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300'
                         }`}
                       >
@@ -2321,6 +2544,7 @@ export function ProductsView({
                     const normalizedCol = c.trim().toLowerCase();
                     const isDAM = normalizedCol === 'dam';
                     const isURL = normalizedCol === 'url';
+                    const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
                     let cellValue = r.fields?.[c];
                     if (isDAM) {
                       const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
@@ -2345,9 +2569,11 @@ export function ProductsView({
                           (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : '') +
                           (idx === 0
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                            : (isDAM
-                              ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                              : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80')) +
+                            : (isEditableTag 
+                                ? 'p-0 h-px' 
+                                : (isDAM
+                                  ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                                  : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))) +
                           (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
                         }
                         onClick={() => {
