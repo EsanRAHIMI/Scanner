@@ -566,6 +566,30 @@ const CATEGORY_OPTIONS = ['Chandeliers', 'Pendant', 'Cascade Light', 'Floor Lamp
 const COLOR_OPTIONS = ['Transparent', 'Chrome', 'White', 'Black', 'Bronze', 'Blue', 'Gold', 'Pink'];
 const MATERIAL_OPTIONS = ['Stone', 'Fabric', 'Metal', 'Glass', 'Wood'];
 
+const getTagColorStyles = (color: string) => {
+  const c = color.toLowerCase().trim();
+  switch (c) {
+    case 'transparent':
+      return 'border-zinc-200 bg-zinc-50/50 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/60';
+    case 'chrome':
+      return 'border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300';
+    case 'white':
+      return 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-300 dark:bg-zinc-100 dark:text-zinc-900';
+    case 'black':
+      return 'border-zinc-800 bg-zinc-900 text-white dark:border-zinc-700 dark:bg-black dark:text-zinc-400';
+    case 'bronze':
+      return 'border-[#964B00]/20 bg-[#964B00]/10 text-[#964B00] dark:border-[#CD7F32]/20 dark:bg-[#CD7F32]/10 dark:text-[#CD7F32]';
+    case 'blue':
+      return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/20 dark:bg-blue-900/30 dark:text-blue-300';
+    case 'gold':
+      return 'border-amber-300/50 bg-amber-50 text-amber-700 dark:border-amber-800/20 dark:bg-amber-900/30 dark:text-amber-300';
+    case 'pink':
+      return 'border-pink-200 bg-pink-50 text-pink-700 dark:border-pink-800/20 dark:bg-pink-900/30 dark:text-pink-300';
+    default:
+      return 'border-sky-500/20 bg-sky-50 text-sky-700 dark:border-sky-400/20 dark:bg-sky-900/25 dark:text-sky-300';
+  }
+};
+
 export function ProductsView({
   title = 'Products',
   titleNode,
@@ -1485,11 +1509,12 @@ export function ProductsView({
 
       if (col === 'color' || col === 'material' || col === 'category') {
         const displayValue = formatScalar(value);
+        const activeValues = (displayValue || '').split(',').map(s => s.trim()).filter(Boolean);
         const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
 
         return (
           <div
-            className={`group relative flex h-full min-h-[44px] w-full items-center px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
+            className={`group relative flex h-full min-h-[44px] w-full flex-wrap items-start gap-1 px-3 py-2 ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
             onClick={(e) => {
               if (!canEdit) return;
               e.stopPropagation();
@@ -1497,20 +1522,22 @@ export function ProductsView({
               setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
             }}
           >
-            {displayValue ? (
-              <span className={`inline-flex max-w-full items-center gap-1 truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                col === 'category'
-                  ? 'border border-violet-500/20 bg-violet-50 text-violet-700 dark:border-violet-400/20 dark:bg-violet-900/25 dark:text-violet-300'
-                  : col === 'color'
-                  ? 'border border-sky-500/20 bg-sky-50 text-sky-700 dark:border-sky-400/20 dark:bg-sky-900/25 dark:text-sky-300'
-                  : 'border border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300'
-              }`}>
-                <span className="truncate">{displayValue}</span>
-              </span>
-            ) : (
-              <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+            {activeValues.length === 0 ? (
+              <span className={`mt-0.5 text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
                 {canEdit ? `+ Add ${col}` : '—'}
               </span>
+            ) : (
+              activeValues.map(v => (
+                <span key={v} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
+                  col === 'category'
+                    ? 'border-violet-500/20 bg-violet-50 text-violet-700 dark:border-violet-400/20 dark:bg-violet-900/25 dark:text-violet-300'
+                    : col === 'color'
+                    ? getTagColorStyles(v)
+                    : 'border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300'
+                }`}>
+                  <span className="truncate">{v}</span>
+                </span>
+              ))
             )}
             {canEdit && (
               <div className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-black/0 transition-all group-hover:bg-black/5 group-hover:text-black/40 dark:group-hover:bg-white/5 dark:group-hover:text-white/40">
@@ -2023,8 +2050,7 @@ export function ProductsView({
     const originalValue = editingUrl.originalValue ?? '';
 
     const doSave = () => {
-      if (isSpace) handleSaveField(recordId, column, Array.from(currentSet).join(', '));
-      else handleSaveField(recordId, column, editingUrl.value);
+      handleSaveField(recordId, column, editingUrl.value);
     };
     const doCancel = () => setEditingUrl(null);
 
@@ -2050,33 +2076,25 @@ export function ProductsView({
               <div className="scrollbar-minimal overflow-y-auto p-2" style={{ maxHeight: 320 }}>
                 <div className="grid grid-cols-1 gap-1.5">
                   {(isSpace ? SPACE_OPTIONS : isColor ? COLOR_OPTIONS : isMaterial ? MATERIAL_OPTIONS : CATEGORY_OPTIONS).map(opt => {
-                    const isSingleSelect = isCategory || isColor || isMaterial;
-                    const sel = isSingleSelect
-                      ? editingUrl.value?.trim() === opt
-                      : currentSet.has(opt);
+                    const sel = currentSet.has(opt);
                     return (
                       <button
                         key={opt}
                         type="button"
                         onClick={() => {
-                          if (isSingleSelect) {
-                            const newVal = sel ? '' : opt;
-                            setEditingUrl({ ...editingUrl, value: newVal });
-                          } else {
-                            const next = new Set(currentSet);
-                            if (sel) next.delete(opt); else next.add(opt);
-                            setEditingUrl({ ...editingUrl, value: Array.from(next).join(', ') });
-                          }
+                          const next = new Set(currentSet);
+                          if (sel) next.delete(opt); else next.add(opt);
+                          setEditingUrl({ ...editingUrl, value: Array.from(next).join(', ') });
                         }}
                         className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[12px] font-medium transition-all ${
                           sel
-                            ? 'bg-emerald-600 text-white shadow-sm'
+                            ? isColor 
+                              ? `${getTagColorStyles(opt)} shadow-sm border` 
+                              : 'bg-emerald-600 text-white shadow-sm'
                             : 'bg-black/[0.03] text-black/75 hover:bg-emerald-50 hover:text-emerald-800 dark:bg-white/5 dark:text-white/75 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300'
                         }`}
                       >
-                        <span className={`flex h-4 w-4 flex-none items-center justify-center transition-all ${
-                          isSingleSelect ? 'rounded-full' : 'rounded'
-                        } border-2 ${
+                        <span className={`flex h-4 w-4 flex-none items-center justify-center transition-all rounded border-2 ${
                           sel ? 'border-white/60 bg-white/25' : 'border-black/20 dark:border-white/25'
                         }`}>
                           {sel && <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
