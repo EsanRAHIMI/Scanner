@@ -942,15 +942,15 @@ export function ProductsView({
 
     // Add any unknown columns coming from API as extras
     const extras = columns
-      .filter((c) => !orderedSet.has(c) && c !== 'URL' && c !== 'Content Calendar')
+      .filter((c) => !orderedSet.has(c) && c !== 'URL' && c !== 'Main' && c !== 'Content Calendar')
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
     if (columns.includes('URL')) {
-      out.push('Main');
+      if (!out.includes('Main')) out.push('Main');
       out.push('URL');
     } else {
-      out.push('Main');
+      if (!out.includes('Main')) out.push('Main');
     }
 
     return out;
@@ -1510,7 +1510,7 @@ export function ProductsView({
                   e.stopPropagation();
                   setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
                 }}
-                className="absolute left-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-br-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
+                className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-bl-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
                 title="Add URL to top"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
@@ -1849,8 +1849,8 @@ export function ProductsView({
           }
 
           return (
-            <div className="flex h-20 w-20 items-center justify-center rounded-md border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
-              <span className="text-[10px] items-center justify-center font-medium italic text-black/40 dark:text-white/40">
+            <div className="flex h-12 w-full items-center justify-center bg-black/5 dark:bg-white/5 rounded-md">
+              <span className="text-[10px] font-medium italic text-black/40 dark:text-white/40 uppercase tracking-tight">
                 No image
               </span>
             </div>
@@ -2532,67 +2532,105 @@ export function ProductsView({
             <tbody>
               {loading && records.length === 0 ? (
                 <ProductsSkeleton viewMode="list" rowsOnly />
-              ) : visibleRecords.map((r) => (
-                <tr
-                  key={r.id}
-                  className={
-                    'border-t border-black/10 align-middle dark:border-white/10 ' +
-                    (selectedIds.has(r.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
-                  }
-                >
-                  {displayedColumns.map((c, idx) => {
-                    const normalizedCol = c.trim().toLowerCase();
-                    const isDAM = normalizedCol === 'dam';
-                    const isURL = normalizedCol === 'url';
-                    const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
-                    let cellValue = r.fields?.[c];
-                    if (isDAM) {
-                      const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
-                        const kl = k.trim().toLowerCase();
-                        return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
-                      });
-                      cellValue = urlEntry?.[1];
-                    }
-                    const isEmpty = extractUrls(cellValue).length === 0;
-                    const isDebugType = (isDAM || isURL) && isEmpty;
-                    return (
-                      <td
-                        key={c}
-                        className={
-                          'relative ' +
-                          (idx === 0
-                            ? 'sticky left-0 z-10 ' +
-                            (selectedIds.has(r.id)
-                              ? 'bg-emerald-50 dark:bg-emerald-900/20 '
-                              : 'bg-white dark:bg-black/10 ')
-                            : '') +
-                          (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : '') +
-                          (idx === 0
-                            ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                            : (isEditableTag 
-                                ? 'p-0 h-px' 
-                                : (isDAM
-                                  ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                                  : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))) +
-                          (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
+              ) : (
+                visibleRecords.map((r, i) => {
+                  const getCollectionKey = (rec: any) => {
+                    return (formatScalar(rec.fields?.['Colecction Name']) || 
+                            formatScalar(rec.fields?.Name) || 
+                            formatScalar(rec.fields?.['Collection Name']) || 
+                            '').trim();
+                  };
+                  const currentKey = getCollectionKey(r);
+                  const prevKey = i > 0 ? getCollectionKey(visibleRecords[i-1]) : null;
+                  const nextKey = i < visibleRecords.length - 1 ? getCollectionKey(visibleRecords[i+1]) : null;
+
+                  const isGroupStart = currentKey !== '' && currentKey !== prevKey && currentKey === nextKey;
+                  const isGroupEnd = currentKey !== '' && currentKey !== nextKey && currentKey === prevKey;
+                  const isMiddleInGroup = currentKey !== '' && currentKey === prevKey && currentKey === nextKey;
+                  const isInGroup = currentKey !== '' && (currentKey === prevKey || currentKey === nextKey);
+
+                  const groupBorderClass = 'border-emerald-500/30 dark:border-emerald-400/25';
+                  
+                  return (
+                    <tr
+                      key={r.id}
+                      className={
+                        'align-middle transition-colors ' +
+                        (isGroupStart ? `border-t-2 ${groupBorderClass} ` : 
+                         isInGroup ? 'border-t-0 ' : 
+                         'border-t border-black/10 dark:border-white/10 ') +
+                        (isGroupEnd ? `border-b-2 ${groupBorderClass} ` : '') +
+                        (selectedIds.has(r.id) 
+                          ? 'bg-emerald-50/80 dark:bg-emerald-900/30' 
+                          : isInGroup 
+                            ? 'bg-emerald-500/[0.02] dark:bg-emerald-400/[0.02]' 
+                            : 'bg-white dark:bg-black/10')
+                      }
+                    >
+                      {displayedColumns.map((c, idx) => {
+                        const normalizedCol = c.trim().toLowerCase();
+                        const isDAM = normalizedCol === 'dam';
+                        const isURL = normalizedCol === 'url';
+                        const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
+                        let cellValue = r.fields?.[c];
+                        if (isDAM) {
+                          const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
+                            const kl = k.trim().toLowerCase();
+                            return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+                          });
+                          cellValue = urlEntry?.[1];
                         }
-                        onClick={() => {
-                          const colLower = c.trim().toLowerCase();
-                          if (colLower === 'image' || isDAM) {
-                            const u = extractUrls(cellValue)[0] ?? '';
-                            const finalUrl = isDAM ? getDriveDirectLink(u) : u;
-                            if (finalUrl) openPreviewByUrl(finalUrl);
-                            return;
-                          }
-                          toggleSelected(r.id);
-                        }}
-                      >
-                        {renderCell(c, cellValue, r.id)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                        const isEmpty = extractUrls(cellValue).length === 0;
+                        const isDebugType = (isDAM || isURL) && isEmpty;
+                        
+                        const isFirstCol = idx === 0;
+                        const isLastCol = idx === displayedColumns.length - 1;
+
+                        return (
+                          <td
+                            key={c}
+                            className={
+                              'relative ' +
+                              (isFirstCol
+                                ? 'sticky left-0 z-10 ' +
+                                  (isGroupStart ? `border-t-0 ` : '') +
+                                  (selectedIds.has(r.id)
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/30 '
+                                    : isInGroup
+                                      ? 'bg-emerald-50/40 dark:bg-emerald-900/10 '
+                                      : 'bg-white dark:bg-black/10 ')
+                                : '') +
+                              (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
+                              (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
+                              (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : '') +
+                              (isFirstCol
+                                ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                                : (isEditableTag 
+                                    ? 'p-0 h-px' 
+                                    : (isDAM
+                                      ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                                      : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))) +
+                              (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
+                            }
+                            onClick={() => {
+                              const colLower = c.trim().toLowerCase();
+                              if (colLower === 'image' || isDAM) {
+                                const u = extractUrls(cellValue)[0] ?? '';
+                                const finalUrl = isDAM ? getDriveDirectLink(u) : u;
+                                if (finalUrl) openPreviewByUrl(finalUrl);
+                                return;
+                              }
+                              toggleSelected(r.id);
+                            }}
+                          >
+                            {renderCell(c, cellValue, r.id)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })
+              )}
               {records.length === 0 && !loading ? (
                 <tr>
                   <td className="px-4 py-5 text-sm text-black/50 dark:text-white/50" colSpan={displayedColumns.length}>
