@@ -7,6 +7,162 @@ import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 
+async function logFrontendEvent(action: string, details: string = '', resourceId?: string) {
+  try {
+    await apiFetch('/admin/log-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, details, resource_id: resourceId }),
+    });
+  } catch (e) {
+    console.error('[Logging] Failed:', e);
+  }
+}
+
+function ActivityLogModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [logs, setLogs] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [total, setTotal] = React.useState(0);
+  const [skip, setSkip] = React.useState(0);
+  const [search, setSearch] = React.useState('');
+  const [actionFilter, setActionFilter] = React.useState('');
+
+  const limit = 50;
+
+  const fetchLogs = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        skip: String(skip),
+        ...(search && { search }),
+        ...(actionFilter && { action: actionFilter }),
+      });
+      const res = await apiFetch(`/admin/activity-logs?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs);
+        setTotal(data.total);
+      }
+    } catch (e) {
+      console.error('Failed to fetch logs', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [skip, search, actionFilter]);
+
+  React.useEffect(() => {
+    if (isOpen) fetchLogs();
+  }, [isOpen, fetchLogs]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="relative flex h-full max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900">
+        <div className="flex items-center justify-between border-b border-black/10 p-4 dark:border-white/10">
+          <h2 className="text-xl font-bold text-black dark:text-white">Activity Logs</h2>
+          <button onClick={onClose} className="rounded-full p-2 hover:bg-black/5 dark:hover:bg-white/5">
+            <svg className="h-6 w-6 text-black/60 dark:text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-b border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
+          <input
+            type="text"
+            placeholder="Search users, IPs, details..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setSkip(0); }}
+            className="h-10 flex-1 min-w-[200px] rounded-lg border border-black/10 bg-white px-3 text-sm dark:border-white/10 dark:bg-zinc-800"
+          />
+          <select
+            value={actionFilter}
+            onChange={(e) => { setActionFilter(e.target.value); setSkip(0); }}
+            className="h-10 rounded-lg border border-black/10 bg-white px-3 text-sm dark:border-white/10 dark:bg-zinc-800"
+          >
+            <option value="">All Actions</option>
+            <option value="LOGIN">Login</option>
+            <option value="LOGOUT">Logout</option>
+            <option value="PRODUCT_EDIT">Product Edit</option>
+            <option value="PRODUCT_DOWNLOAD">Download</option>
+            <option value="PRODUCT_SHARE">Share</option>
+            <option value="USER_UPDATE">Admin: User Update</option>
+          </select>
+          <div className="text-sm font-medium text-black/40 dark:text-white/40">Total: {total}</div>
+        </div>
+
+        <div className="scrollbar-minimal flex-1 overflow-auto">
+          {loading ? (
+            <div className="flex h-40 items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+            </div>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-black/[0.03] text-black/60 dark:bg-white/[0.03] dark:text-white/60">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Time</th>
+                  <th className="px-4 py-3 font-semibold">User</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
+                  <th className="px-4 py-3 font-semibold">Details</th>
+                  <th className="px-4 py-3 font-semibold">IP / Device</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black/5 dark:divide-white/5">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
+                    <td className="whitespace-nowrap px-4 py-3 text-black/50 dark:text-white/50">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-black dark:text-white">{log.username}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        log.action === 'LOGIN' ? 'bg-emerald-500/10 text-emerald-600' :
+                        log.action === 'LOGOUT' ? 'bg-orange-500/10 text-orange-600' :
+                        log.action === 'PRODUCT_EDIT' ? 'bg-blue-500/10 text-blue-600' :
+                        'bg-zinc-500/10 text-zinc-600'
+                      }`}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-black/80 dark:text-white/80">{log.details}</td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs font-mono text-black/40 dark:text-white/40">{log.ip_address}</div>
+                      <div className="mt-0.5 text-[10px] text-black/30 dark:text-white/30">{log.device}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-black/10 p-4 dark:border-white/10">
+          <button
+            disabled={skip === 0}
+            onClick={() => setSkip(Math.max(0, skip - limit))}
+            className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium hover:bg-black/5 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+          >
+            Previous
+          </button>
+          <div className="text-xs text-black/40 dark:text-white/40">
+            Showing {skip + 1} to {Math.min(skip + limit, total)} of {total}
+          </div>
+          <button
+            disabled={skip + limit >= total}
+            onClick={() => setSkip(skip + limit)}
+            className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium hover:bg-black/5 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function TopProgressBar({ loading }: { loading: boolean }) {
   const [visible, setVisible] = React.useState(false);
 
@@ -238,6 +394,28 @@ function AccountMenu({ onAuthChange }: { onAuthChange?: () => void }) {
               </div>
 
               {error ? <div className="text-sm text-red-700 dark:text-red-200">{error}</div> : null}
+
+              {me.is_admin && (
+                <>
+                  <a
+                    href={typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
+                      ? "http://localhost:3010/admin/users" 
+                      : "/trainer/admin/users"
+                    }
+                    className="block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                    role="menuitem"
+                  >
+                    Manage users
+                  </a>
+                  <button
+                    onClick={() => { (window as any)._toggleActivityLogs?.(); setOpen(false); }}
+                    className="mt-2 block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
+                    role="menuitem"
+                  >
+                    Activity Logs
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -514,32 +692,33 @@ function extractUrls(v: unknown): string[] {
 
 function getDriveDirectLink(url: string): string {
   if (!url) return '';
-  if (!url.includes('drive.google.com') && !url.includes('google.com/file/d/') && !url.includes('googleusercontent.com')) return url;
+  const u = url.trim();
+  if (!u.includes('drive.google.com') && !u.includes('google.com/file/d/') && !u.includes('googleusercontent.com')) return u;
 
-  // If it's already a direct link we generated, return as is
-  if (url.includes('lh3.googleusercontent.com/d/')) return url;
+  // If it's already a direct link we generated, return as is (but allow updating width)
+  const lh3Match = u.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
+  if (lh3Match && lh3Match[1]) {
+    return `https://lh3.googleusercontent.com/d/${lh3Match[1]}=w1200`;
+  }
 
   let id = '';
-  // Pattern 1: /file/d/ID/view or /file/d/ID/edit
-  const matchD = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  // Pattern 1: /file/d/ID or /d/ID
+  const matchD = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{25,})/);
   if (matchD && matchD[1]) {
     id = matchD[1];
   } else {
-    // Pattern 2: ?id=ID or &id=ID (common in /open?id= or uc?id=)
-    try {
-      const u = new URL(url);
-      id = u.searchParams.get('id') || u.searchParams.get('fileId') || u.searchParams.get('docid') || '';
-    } catch {
-      const manualMatch = url.match(/[?&](?:id|fileId|docid)=([a-zA-Z0-9_-]+)/);
-      if (manualMatch) id = manualMatch[1];
+    // Pattern 2: ?id=ID or &id=ID or ?docid=ID
+    const matchId = u.match(/[?&](?:id|fileId|docid|fileid)=([a-zA-Z0-9_-]{25,})/);
+    if (matchId && matchId[1]) {
+      id = matchId[1];
     }
   }
 
   if (id) {
-    // Return high-performance direct link
-    return `https://lh3.googleusercontent.com/d/${id}=w1000`;
+    // Return high-performance direct link (w1200 for better preview quality)
+    return `https://lh3.googleusercontent.com/d/${id}=w1200`;
   }
-  return url;
+  return u;
 }
 
 function formatPrice(value: unknown): string | null {
@@ -615,6 +794,11 @@ export function ProductsView({
   titleNode?: React.ReactNode;
   mobileTitleNode?: React.ReactNode;
 }) {
+  const [showActivityLogs, setShowActivityLogs] = React.useState(false);
+  React.useEffect(() => {
+    (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
+  }, []);
+
   const { data, loading, error, setData } = useProductsCache();
   const [search, setSearch] = React.useState<string>('');
   const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
@@ -1103,6 +1287,22 @@ export function ProductsView({
     return base;
   }, [filteredRecords, getSortValue, sortDir, sortKey]);
 
+  const variantCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    sortedRecords.forEach(r => {
+      const raw =
+        formatScalar(r.fields?.['Colecction Name']) ||
+        formatScalar(r.fields?.Name) ||
+        formatScalar(r.fields?.['Collection Name']) ||
+        '';
+      const key = raw.trim();
+      if (key) {
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [sortedRecords]);
+
   const visibleRecords = React.useMemo(() => {
     if (familyMode !== 'main') return sortedRecords;
 
@@ -1155,13 +1355,20 @@ export function ProductsView({
     return visibleRecords
       .map((r) => {
         const fields = r.fields ?? {};
-        const urlEntry = Object.entries(fields).find(([k]) => {
-          const kl = k.trim().toLowerCase();
-          return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+        const fieldKeys = Object.keys(fields);
+        
+        // Find URL column once
+        const urlKey = fieldKeys.find(k => {
+          const l = k.trim().toLowerCase();
+          return l === 'url' || l.endsWith(' url') || l.endsWith('_url') || l.endsWith('-url');
         });
-        const damUrls = extractUrls(urlEntry?.[1]);
+        
+        const damUrls = extractUrls(urlKey ? fields[urlKey] : undefined);
         const imageUrls = extractUrls(fields.Image);
-        const url = damUrls[0] || imageUrls[0] || '';
+        const rawUrl = damUrls[0] || imageUrls[0] || '';
+        const url = getDriveDirectLink(rawUrl);
+        const driveId = url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
         const collectionNameNormalized = collectionName.trim();
@@ -1170,39 +1377,34 @@ export function ProductsView({
         const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
         const price = formatPrice(r.fields?.Price) ?? null;
 
-        const dimensionKey = (() => {
-          const keys = Object.keys(fields);
-          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-          const mm = normalized.find((x) => x.n.includes('dimension') && x.n.includes('mm'))?.k;
-          if (mm) return mm;
-          const dim = normalized.find((x) => x.n.startsWith('dimension'))?.k;
-          if (dim) return dim;
-          return null;
-        })();
+        // Find dimension and note keys once
+        const normalizedKeys = fieldKeys.map(k => ({ k, n: k.trim().toLowerCase() }));
+        
+        const dimKeyObj = normalizedKeys.find(x => x.n.includes('dimension') && x.n.includes('mm')) || 
+                        normalizedKeys.find(x => x.n.startsWith('dimension'));
+        const dimKey = dimKeyObj?.k;
 
         const dimension =
           formatScalar(fields['DIMENSION (mm)']) ||
           formatScalar(fields['Dimension (mm)']) ||
-          (dimensionKey ? formatScalar(fields[dimensionKey]) : '') ||
+          (dimKey ? formatScalar(fields[dimKey]) : '') ||
           formatScalar(fields['DIMENSION']) ||
           formatScalar(fields['DIMENSIONS']) ||
           formatScalar(fields['Dimension']) ||
           formatScalar(fields['Dimensions']);
 
-        const noteKey = (() => {
-          const keys = Object.keys(fields);
-          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k ?? null;
-        })();
+        const ntKey = normalizedKeys.find(x => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k;
 
         const note =
           formatScalar(fields['Note']) ||
           formatScalar(fields['NOTE']) ||
-          (noteKey ? formatScalar(fields[noteKey]) : '');
+          (ntKey ? formatScalar(fields[ntKey]) : '');
 
         return {
           id: r.id,
           url,
+          originalUrl: rawUrl,
+          driveId,
           title,
           collectionName,
           collectionNameNormalized,
@@ -1213,8 +1415,8 @@ export function ProductsView({
           price,
         };
       })
-      .filter((x) => Boolean(x.url));
-  }, [visibleRecords]);
+      .filter((x): x is GalleryItem => x !== null);
+  }, [visibleRecords, variantCounts, familyMode]);
 
   const allGalleryItems = React.useMemo(() => {
     return sortedRecords
@@ -1276,11 +1478,23 @@ export function ProductsView({
   const openPreviewByUrl = React.useCallback(
     (url: string) => {
       if (!url) return;
-      const idx = galleryItems.findIndex((x) => x.url === url);
-      const resolvedIndex = idx >= 0 ? idx : 0;
-      const resolved = galleryItems[resolvedIndex];
-      setPreviewIndex(resolvedIndex);
-      setPreviewId(resolved?.id ?? null);
+      // Try exact match first (O(N) with fast string comparison)
+      let idx = galleryItems.findIndex((x) => x.url === url || x.originalUrl === url);
+      
+      // If no match, try by matching Drive IDs if applicable
+      if (idx === -1 && (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com'))) {
+        const inputId = getDriveDirectLink(url).match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+        if (inputId) {
+          // pre-calculated driveId makes this very fast O(N) simple comparison
+          idx = galleryItems.findIndex(x => x.driveId === inputId);
+        }
+      }
+
+      if (idx >= 0) {
+        const resolved = galleryItems[idx];
+        setPreviewIndex(idx);
+        setPreviewId(resolved?.id ?? null);
+      }
     },
     [galleryItems]
   );
@@ -1357,6 +1571,8 @@ export function ProductsView({
   const downloadSelected = React.useCallback(async () => {
     const items = getSelectedItems(previewIndex);
     if (items.length === 0) return;
+
+    logFrontendEvent('PRODUCT_DOWNLOAD', `Downloaded ${items.length} items: ${items.map(x => x.code || x.title).join(', ')}`);
 
     for (const item of items) {
       try {
@@ -1935,7 +2151,27 @@ export function ProductsView({
       }
 
       const scalar = formatScalar(value);
-      if (scalar) return scalar;
+      if (scalar) {
+        const colLower = column.trim().toLowerCase();
+        if (familyMode === 'main' && (colLower === 'num' || colLower === 'variant number')) {
+          const rec = records.find(r => r.id === recordId);
+          const key = (formatScalar(rec?.fields?.['Colecction Name']) || formatScalar(rec?.fields?.Name) || 
+                      formatScalar(rec?.fields?.['Collection Name']) || '').trim();
+          const count = variantCounts[key] || 0;
+          const extra = count - 1;
+          if (extra > 0) {
+            return (
+              <>
+                <span className="truncate">{scalar}</span>
+                <span className="absolute right-1 top-1 z-10 rounded bg-black/10 px-1 py-0.5 text-[8px] font-bold text-black/40 dark:bg-white/15 dark:text-white/40">
+                  +{extra}
+                </span>
+              </>
+            );
+          }
+        }
+        return scalar;
+      }
 
       if (typeof value === 'object') {
         const maybe = value as Record<string, unknown>;
@@ -1946,7 +2182,7 @@ export function ProductsView({
 
       return String(value);
     },
-    [editingUrl, isSaving, handleSaveUrl, canEdit, openPreviewByUrl]
+    [editingUrl, isSaving, handleSaveUrl, canEdit, openPreviewByUrl, familyMode, variantCounts, records]
   );
 
 
@@ -2046,6 +2282,7 @@ export function ProductsView({
     const urls = items.map((x) => x.url);
 
     try {
+      logFrontendEvent('PRODUCT_SHARE', `Shared ${items.length} items: ${items.map(x => x.code || x.title).join(', ')}`);
       const canNativeShare =
         typeof navigator !== 'undefined' &&
         typeof (navigator as Navigator & { share?: unknown }).share === 'function' &&
@@ -2114,12 +2351,24 @@ export function ProductsView({
   React.useEffect(() => {
     if (previewIndex === null) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      // Keys that should be blocked from affecting the background
+      const blockedKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
+      if (blockedKeys.includes(e.key)) {
+        e.preventDefault();
+      }
+
       if (e.key === 'Escape') closePreview();
-      if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goPrev();
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goNext();
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
   }, [closePreview, goNext, goPrev, previewIndex]);
 
   React.useEffect(() => {
@@ -2138,6 +2387,18 @@ export function ProductsView({
     if (theme === 'dark') el.classList.add('dark');
     else el.classList.remove('dark');
   }, [theme]);
+
+  // Lock body scroll when preview is open
+  React.useEffect(() => {
+    if (previewIndex !== null) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [previewIndex]);
 
   React.useEffect(() => {
     window.localStorage.setItem('products_view_mode', viewMode);
@@ -2639,7 +2900,7 @@ export function ProductsView({
           </table>
         </div>
       ) : (
-        <div className="w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {loading && records.length === 0 ? (
               <ProductsSkeleton viewMode="gallery" />
@@ -2682,7 +2943,7 @@ export function ProductsView({
               return (
                 <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
                   <div className="block w-full">
-                    <div className="aspect-square w-full bg-black/5 dark:bg-white/5">
+                    <div className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
                       {img ? (
                         <button
                           type="button"
@@ -2735,7 +2996,14 @@ export function ProductsView({
                     </div>
                     <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? `Code: ${code}` : ' '}</div>
                     <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
-                      <span className="truncate">{variant ? `Variant: ${variant}` : ''}</span>
+                      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                        <span className="truncate">{variant ? `Variant: ${variant}` : ''}</span>
+                        {familyMode === 'main' && (name?.trim() ? (variantCounts[name.trim()] || 0) : 0) > 1 && (
+                          <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
+                            +{(variantCounts[name?.trim() || ''] || 0) - 1}
+                          </span>
+                        )}
+                      </div>
                       <span className={selectedIds.has(r.id) ? 'text-emerald-700 dark:text-emerald-300' : 'text-black/35 dark:text-white/30'}>
                         {selectedIds.has(r.id) ? 'Selected' : ''}
                       </span>
@@ -3075,6 +3343,7 @@ export function ProductsView({
         </div>
       ) : null}
       {fieldEditPortal}
+      <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
     </main>
   );
 }

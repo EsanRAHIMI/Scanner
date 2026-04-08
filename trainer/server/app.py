@@ -203,6 +203,73 @@ def _safe_write_json(path: Path, data: Any) -> None:
   tmp.replace(path)
 
 
+def _parse_user_agent(ua: str | None) -> str:
+  if not ua:
+    return "Unknown"
+  ua_lower = ua.lower()
+  os_name = "Unknown OS"
+  if "windows" in ua_lower:
+    os_name = "Windows"
+  elif "android" in ua_lower:
+    os_name = "Android"
+  elif "iphone" in ua_lower or "ipad" in ua_lower:
+    os_name = "iOS"
+  elif "macintosh" in ua_lower or "mac os x" in ua_lower:
+    os_name = "macOS"
+  elif "linux" in ua_lower:
+    os_name = "Linux"
+
+  browser = "Unknown Browser"
+  if "edg/" in ua_lower:
+    browser = "Edge"
+  elif "chrome/" in ua_lower:
+    browser = "Chrome"
+  elif "safari/" in ua_lower:
+    browser = "Safari"
+  elif "firefox/" in ua_lower:
+    browser = "Firefox"
+  elif "opr/" in ua_lower or "opera" in ua_lower:
+    browser = "Opera"
+
+  return f"{browser} on {os_name}"
+
+
+async def log_activity(
+  req: FastAPIRequest,
+  action: str,
+  details: str = "",
+  resource_id: str | None = None,
+  user: dict[str, Any] | None = None,
+  db: Any = None,
+):
+  if db is None:
+    return
+
+  now = _utc_now_iso()
+  ip = req.client.host if req.client else "Unknown"
+  ua = req.headers.get("user-agent", "")
+  device = _parse_user_agent(ua)
+
+  doc = {
+    "timestamp": now,
+    "user_id": user.get("_id") if user else "anonymous",
+    "username": user.get("username") if user else "anonymous",
+    "action": action,
+    "resource_id": resource_id,
+    "details": details,
+    "ip_address": ip,
+    "user_agent": ua,
+    "device": device,
+  }
+
+  try:
+    print(f"[Logging] Attempting to log: {action} by {user.get('email') if user else 'anonymous'}", flush=True)
+    await db["activity_logs"].insert_one(doc)
+    print(f"[Logging] ✓ Success", flush=True)
+  except Exception as e:
+    print(f"[Logging] ✗ Error: {e}", flush=True)
+
+
 def _read_json(path: Path, default: Any) -> Any:
   if not path.exists():
     return default
@@ -262,6 +329,7 @@ async def _get_current_user(req: FastAPIRequest, db=Depends(_get_db)) -> dict[st
     raise HTTPException(status_code=403, detail="USER_NOT_APPROVED")
 
   user["permissions"] = _normalize_permissions(user.get("permissions"))
+  print(f"[Auth] Request from: {user.get('email')} (ID: {user_id})", flush=True)
   return user
 
 
@@ -502,11 +570,24 @@ async def auth_login(payload: dict[str, Any], response: Response, req: FastAPIRe
     domain=cookie_domain,
   )
 
+  await log_activity(req, "LOGIN", details=f"User logged in: {user.get('username')}", user=user, db=db)
+
   return {"ok": True}
 
 
 @api.post("/auth/logout")
-async def auth_logout(response: Response):
+async def auth_logout(response: Response, req: FastAPIRequest, db=Depends(_get_db)):
+  # Best effort logging before clearing cookies
+  # We might not have the user context here if token is gone, 
+  # but _get_current_user might still work if called.
+  # For logout, we'll try to get the user context if possible.
+  try:
+    user = await _get_current_user(req, db)
+    if user:
+      await log_activity(req, "LOGOUT", details=f"User logged out: {user.get('username')}", user=user, db=db)
+  except Exception:
+    pass
+
   cookie_domain = _cookie_domain()
   response.delete_cookie(key=_auth_cookie_name(), path="/", domain=cookie_domain)
   response.delete_cookie(key="trainer_logged_in", path="/", domain=cookie_domain)
@@ -560,6 +641,7 @@ async def content_calendar_list(
 
 @api.post("/content-calendar")
 async def content_calendar_create(
+  req: FastAPIRequest,
   payload: dict[str, Any],
   user: dict[str, Any] = Depends(_get_current_user),
   db=Depends(_get_db),
@@ -583,6 +665,7 @@ async def content_calendar_create(
   }
 
   await db["content_calendar"].insert_one(doc)
+  await log_activity(req, "CONTENT_CALENDAR_CREATE", details=f"Created calendar item: {fields.get('Topic') or doc_id}", resource_id=doc_id, user=user, db=db)
   return {
     "id": doc_id,
     "fields": fields,
@@ -595,6 +678,7 @@ async def content_calendar_create(
 @api.patch("/content-calendar/{item_id}")
 async def content_calendar_update(
   item_id: str,
+  req: FastAPIRequest,
   payload: dict[str, Any],
   user: dict[str, Any] = Depends(_get_current_user),
   db=Depends(_get_db),
@@ -616,6 +700,8 @@ async def content_calendar_update(
   if res.matched_count == 0:
     raise HTTPException(status_code=404, detail="NOT_FOUND")
 
+  await log_activity(req, "CONTENT_CALENDAR_EDIT", details=f"Updated calendar item: {item_id}. Fields: {', '.join(patch_fields.keys())}", resource_id=item_id, user=user, db=db)
+
   doc = await db["content_calendar"].find_one(
     {"_id": item_id},
     {"_id": 1, "fields": 1, "publish_date": 1, "created_at": 1, "updated_at": 1},
@@ -635,12 +721,15 @@ async def content_calendar_update(
 @api.delete("/content-calendar/{item_id}")
 async def content_calendar_delete(
   item_id: str,
-  _: dict[str, Any] = Depends(_get_current_user),
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_get_current_user),
   db=Depends(_get_db),
 ):
   res = await db["content_calendar"].delete_one({"_id": item_id})
   if res.deleted_count == 0:
     raise HTTPException(status_code=404, detail="NOT_FOUND")
+  
+  await log_activity(req, "CONTENT_CALENDAR_DELETE", details=f"Deleted calendar item: {item_id}", resource_id=item_id, user=user, db=db)
   return {"ok": True}
 
 
@@ -668,8 +757,9 @@ async def admin_users(_: dict[str, Any] = Depends(_require_admin), db=Depends(_g
 async def admin_update_user(
   user_id: str,
   payload: dict[str, Any],
-  _: dict[str, Any] = Depends(_require_admin),
-  db=Depends(_get_db),
+  req: FastAPIRequest,
+  admin_user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
 ):
   patch: dict[str, Any] = {}
 
@@ -699,6 +789,69 @@ async def admin_update_user(
   if res.matched_count == 0:
     raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
 
+  # Log the update
+  updated_user = await db["users"].find_one({"_id": user_id})
+  if updated_user:
+    await log_activity(
+      req=req,
+      action="USER_UPDATE", 
+      details=f"Updated user: {updated_user.get('username')} ({user_id})",
+      resource_id=user_id,
+      user=admin_user,
+      db=db
+    )
+
+  return {"ok": True}
+
+  return {"ok": True}
+
+
+@api.get("/admin/activity-logs")
+async def admin_activity_logs(
+  limit: int = 100,
+  skip: int = 0,
+  search: str | None = None,
+  action: str | None = None,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db)
+):
+  query: dict[str, Any] = {}
+  if action:
+    query["action"] = action
+  if search:
+    query["$or"] = [
+      {"username": {"$regex": search, "$options": "i"}},
+      {"details": {"$regex": search, "$options": "i"}},
+      {"resource_id": {"$regex": search, "$options": "i"}},
+      {"ip_address": {"$regex": search, "$options": "i"}},
+      {"device": {"$regex": search, "$options": "i"}},
+    ]
+
+  cursor = db["activity_logs"].find(query).sort("timestamp", -1).skip(skip).limit(limit)
+  logs = []
+  async for doc in cursor:
+    doc["id"] = str(doc.pop("_id"))
+    logs.append(doc)
+
+  total = await db["activity_logs"].count_documents(query)
+  return {"logs": logs, "total": total}
+
+
+@api.post("/admin/log-event")
+async def admin_log_event(
+  payload: dict[str, Any],
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_get_current_user),
+  db: Any = Depends(_get_db)
+):
+  action = payload.get("action")
+  details = payload.get("details", "")
+  resource_id = payload.get("resource_id")
+  
+  if not action:
+    raise HTTPException(status_code=400, detail="ACTION_REQUIRED")
+    
+  await log_activity(req, action, details=details, resource_id=resource_id, user=user, db=db)
   return {"ok": True}
 
 
@@ -766,8 +919,9 @@ async def public_products_assets(db=Depends(_get_db)):
 async def patch_product_asset(
   record_id: str,
   payload: dict[str, Any],
+  req: FastAPIRequest,
   user: dict[str, Any] = Depends(_get_current_user),
-  db=Depends(_get_db),
+  db: Any = Depends(_get_db),
 ):
   if _normalize_role(user.get("role")) not in ["admin", "sales"]:
     raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
@@ -785,6 +939,19 @@ async def patch_product_asset(
     raise HTTPException(status_code=404, detail="PRODUCT_NOT_FOUND")
 
   doc = await db["products"].find_one({"_id": record_id})
+  
+  # Log activity
+  fields = doc.get("fields") or {}
+  item_label = fields.get("Colecction Name") or fields.get("Name") or record_id
+  await log_activity(
+    req=req,
+    action="PRODUCT_EDIT",
+    details=f"Edited product: {item_label}. Fields: {', '.join(fields_to_update.keys())}",
+    resource_id=record_id,
+    user=user,
+    db=db
+  )
+
   return {"id": doc["_id"], "fields": doc["fields"]}
 
 
@@ -882,7 +1049,7 @@ class _CreateClassBody(TypedDict):
 
 
 @api.post("/classes")
-def create_class(body: _CreateClassBody):
+async def create_class(req: FastAPIRequest, body: _CreateClassBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   cid = body.get("id")
   name = body.get("name")
   if not isinstance(cid, str) or not isinstance(name, str):
@@ -895,6 +1062,7 @@ def create_class(body: _CreateClassBody):
 
   items.append({"id": cid, "name": name})
   _save_classes(items)
+  await log_activity(req, "CLASS_CREATE", details=f"Created class: {name} ({cid})", resource_id=cid, user=user, db=db)
   return {"created": True}
 
 
@@ -903,7 +1071,7 @@ class _RenameClassBody(TypedDict):
 
 
 @api.put("/classes/{class_id}")
-def rename_class(class_id: str, body: _RenameClassBody):
+async def rename_class(class_id: str, req: FastAPIRequest, body: _RenameClassBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   name = body.get("name")
   if not isinstance(name, str) or not name:
     raise HTTPException(status_code=400, detail="INVALID_BODY")
@@ -920,16 +1088,18 @@ def rename_class(class_id: str, body: _RenameClassBody):
     raise HTTPException(status_code=404, detail="CLASS_NOT_FOUND")
 
   _save_classes(items)
+  await log_activity(req, "CLASS_RENAME", details=f"Renamed class {class_id} to: {name}", resource_id=class_id, user=user, db=db)
   return {"updated": True}
 
 
 @api.delete("/classes/{class_id}")
-def delete_class(class_id: str):
+async def delete_class(class_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   items = _load_classes()
   new_items = [c for c in items if c["id"] != class_id]
   if len(new_items) == len(items):
     raise HTTPException(status_code=404, detail="CLASS_NOT_FOUND")
   _save_classes(new_items)
+  await log_activity(req, "CLASS_DELETE", details=f"Deleted class: {class_id}", resource_id=class_id, user=user, db=db)
   return {"deleted": True}
 
 
@@ -978,7 +1148,7 @@ def _unlink_if_exists(p: Path) -> None:
 
 
 @api.post("/uploads")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(req: FastAPIRequest, file: UploadFile = File(...), user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   if not file.content_type or not file.content_type.startswith("image/"):
     raise HTTPException(status_code=400, detail="INVALID_IMAGE")
 
@@ -1005,6 +1175,8 @@ async def upload_image(file: UploadFile = File(...)):
   )
   _save_queue(queue)
 
+  await log_activity(req, "IMAGE_UPLOAD", details=f"Uploaded image: {filename}", resource_id=item_id, user=user, db=db)
+
   return {
     "item_id": item_id,
     "image_url": f"/files/uploads/{filename}",
@@ -1030,7 +1202,7 @@ def get_queue_item(item_id: str):
 
 
 @api.delete("/queue/{item_id}")
-def delete_queue_item(item_id: str):
+async def delete_queue_item(item_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   items = _load_queue()
   target: QueueItem | None = None
   new_items: list[QueueItem] = []
@@ -1055,12 +1227,14 @@ def delete_queue_item(item_id: str):
       _unlink_if_exists(ds_dir / "images" / split / filename)
       _unlink_if_exists(ds_dir / "labels" / split / f"{stem}.txt")
 
+  await log_activity(req, "IMAGE_DELETE", details=f"Deleted image: {filename}", resource_id=item_id, user=user, db=db)
+
   return {"deleted": True}
 
 
 @api.post("/queue/{item_id}/delete")
-def delete_queue_item_post(item_id: str):
-  return delete_queue_item(item_id)
+async def delete_queue_item_post(item_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  return await delete_queue_item(item_id, req, user, db)
 
 
 class _SaveAnnotationBody(TypedDict):
@@ -1080,7 +1254,7 @@ def _validate_bbox(b: NormalizedBBox) -> None:
 
 
 @api.post("/queue/{item_id}/annotation")
-def save_annotation(item_id: str, body: _SaveAnnotationBody):
+async def save_annotation(item_id: str, req: FastAPIRequest, body: _SaveAnnotationBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   class_id = body.get("class_id")
   bbox = body.get("bbox")
   if not isinstance(class_id, str) or not isinstance(bbox, dict):
@@ -1094,10 +1268,10 @@ def save_annotation(item_id: str, body: _SaveAnnotationBody):
 
   items = _load_queue()
   found = False
-  for item in items:
-    if item["item_id"] == item_id:
-      item["annotation"] = {"class_id": class_id, "bbox": bbox}  # type: ignore[assignment]
-      item["status"] = "labeled"
+  for it in items:
+    if it["item_id"] == item_id:
+      it["annotation"] = {"class_id": class_id, "bbox": bbox}
+      it["status"] = "labeled"
       found = True
       break
 
@@ -1113,7 +1287,7 @@ def _dataset_dir() -> Path:
 
 
 @api.post("/export")
-def export_dataset():
+async def export_dataset(req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   ds_dir = _dataset_dir()
   images_train = ds_dir / "images" / "train"
   images_val = ds_dir / "images" / "val"
@@ -1188,6 +1362,7 @@ def export_dataset():
 
   (ds_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
 
+  await log_activity(req, "DATASET_EXPORT", details=f"Exported dataset. Items: {len(labeled)}", user=user, db=db)
   return {
     "exported": True,
     "dataset": "lorenzo_v1",
@@ -1251,7 +1426,7 @@ class _TrainBody(TypedDict, total=False):
 
 
 @api.post("/train")
-def start_train(body: _TrainBody):
+async def start_train(req: FastAPIRequest, body: _TrainBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   ds_dir = _dataset_dir()
   data_yaml = ds_dir / "data.yaml"
   if not data_yaml.exists():
@@ -1309,7 +1484,8 @@ def start_train(body: _TrainBody):
   t = threading.Thread(target=_monitor_job, args=(job_id, proc, log_path, run_dir), daemon=True)
   t.start()
 
-  return {"job_id": job_id, "status": "running"}
+  await log_activity(req, "TRAIN_START", details=f"Started training. Epochs: {epochs}, Batch: {batch}", user=user, db=db)
+  return {"job_id": job_id}
 
 
 def _read_metrics(run_dir: Path) -> dict[str, Any] | None:
@@ -1367,7 +1543,7 @@ def get_train_status(job_id: str, lines: int = 120):
 
 
 @api.post("/train/{job_id}/publish")
-def publish(job_id: str):
+async def publish(job_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
   meta = _read_job_meta(job_id)
   if meta is None:
     raise HTTPException(status_code=404, detail="JOB_NOT_FOUND")
@@ -1385,4 +1561,5 @@ def publish(job_id: str):
   dst.parent.mkdir(parents=True, exist_ok=True)
   shutil.copyfile(src, dst)
 
+  await log_activity(req, "TRAIN_PUBLISH", details=f"Published model weights for job: {job_id}", resource_id=job_id, user=user, db=db)
   return {"published": True, "path": str(dst)}
