@@ -847,30 +847,55 @@ export function ProductsView({
   const hasInitializedMain = React.useRef(false);
   React.useEffect(() => {
     if (!loading && data?.records && data.records.length > 0 && !hasInitializedMain.current) {
-      const recordsWithMain = data.records.filter(r => r.fields?.Main !== undefined);
-      if (recordsWithMain.length === 0) {
-        // Auto-initialize: mark the first record of each group as Main.
-        const seenGroups = new Set<string>();
-        const getCollectionKey = (fields: any) => {
-          return (formatScalar(fields?.['Colecction Name']) || 
-                  formatScalar(fields?.Name) || 
-                  formatScalar(fields?.['Collection Name']) || 
-                  '').trim();
-        };
+      // Auto-initialize: mark the first record of each group as Main if the group doesn't have one.
+      const groupHasMain = new Set<string>();
+      const seenGroups = new Set<string>();
 
-        const nextRecords = data.records.map(r => {
-          const key = getCollectionKey(r.fields);
-          if (!key) return r;
-          if (seenGroups.has(key)) return { ...r, fields: { ...r.fields, Main: false } };
-          seenGroups.add(key);
-          return { ...r, fields: { ...r.fields, Main: true } };
-        });
+      const getCollectionKey = (fields: any) => {
+        return (formatScalar(fields?.['Colecction Name']) || 
+                formatScalar(fields?.Name) || 
+                formatScalar(fields?.['Collection Name']) || 
+                '').trim();
+      };
 
-        setData({ ...data, records: nextRecords as any });
-        hasInitializedMain.current = true;
-      } else {
-        hasInitializedMain.current = true;
+      // Pass 1: find which groups already have a main variant
+      for (const r of data.records) {
+        const key = getCollectionKey(r.fields);
+        if (key && r.fields?.Main === true) {
+          groupHasMain.add(key);
+        }
       }
+
+      let changed = false;
+      const nextRecords = data.records.map(r => {
+        const key = getCollectionKey(r.fields);
+        if (!key) return r;
+
+        // If this group already has a true Main somewhere, do not auto-initialize any to true.
+        // We ensure siblings that are undefined become false for consistent state.
+        if (groupHasMain.has(key)) {
+          if (r.fields?.Main === undefined) {
+             changed = true;
+             return { ...r, fields: { ...r.fields, Main: false } };
+          }
+          return r;
+        }
+
+        // Group has NO Main. Mark first one as true, others as false.
+        if (seenGroups.has(key)) {
+          changed = true;
+          return { ...r, fields: { ...r.fields, Main: false } };
+        }
+
+        seenGroups.add(key);
+        changed = true;
+        return { ...r, fields: { ...r.fields, Main: true } };
+      });
+
+      if (changed) {
+        setData({ ...data, records: nextRecords as any });
+      }
+      hasInitializedMain.current = true;
     }
   }, [data, loading, setData]);
 
@@ -1282,6 +1307,16 @@ export function ProductsView({
       } else {
         cmp = String(av).localeCompare(String(bv));
       }
+
+      // If primary sort values are identical (e.g. variants of the same collection),
+      // we elevate the 'Main' variant to the top of its block.
+      if (cmp === 0) {
+        const aMain = a.fields?.Main === true;
+        const bMain = b.fields?.Main === true;
+        if (aMain && !bMain) return -1;
+        if (!aMain && bMain) return 1;
+      }
+
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return base;
