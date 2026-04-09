@@ -651,6 +651,28 @@ function FilterDropdown({
   );
 }
 
+function isVideoUrl(url: string): boolean {
+  if (!url) return false;
+  const l = url.toLowerCase();
+  const videoExts = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkw', '.flv', '.wmv', '.m4v'];
+  return (
+    videoExts.some(ext => l.includes(ext)) || 
+    l.includes('youtube.com') || 
+    l.includes('youtu.be') || 
+    l.includes('vimeo.com') || 
+    l.includes('#video') ||
+    (l.includes('drive.google.com') && l.includes('video'))
+  );
+}
+
+function isImageUrl(url: string): boolean {
+  if (!url) return false;
+  const l = url.toLowerCase();
+  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.heic'];
+  if (l.includes('lh3.googleusercontent.com/d/')) return true;
+  return imageExts.some(ext => l.includes(ext));
+}
+
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -802,6 +824,7 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckPr
         .reverse()
         .map((u, i) => {
           const revIdx = visibleUrls.length - 1 - i;
+          const isVideo = isVideoUrl(u);
           const finalUrl = getDriveDirectLink(u);
           
           return (
@@ -813,8 +836,8 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckPr
                 e.stopPropagation();
                 onOpenPreview?.(finalUrl);
               }}
-              title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
-              aria-label={`View image ${revIdx + 1} of ${urls.length}`}
+              title={finalUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}
+              aria-label={`View ${isVideo ? 'video' : 'image'} ${revIdx + 1} of ${urls.length}`}
               style={{
                 '--idx': revIdx,
                 zIndex: 10 - revIdx,
@@ -826,7 +849,7 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckPr
               `}
               tabIndex={0}
             >
-              <div className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
+              <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={finalUrl}
@@ -840,6 +863,15 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckPr
                   }}
                   className="block h-full w-full object-cover"
                 />
+                {isVideo && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">
+                      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
+                  </div>
+                )}
               </div>
             </button>
           );
@@ -1055,6 +1087,12 @@ export function ProductsView({
       const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
 
       let finalValueToSave = editingUrl.value;
+      
+      // Auto-tag with #video if added via Video column and not already detected as video
+      if (editingUrl.column?.trim().toLowerCase() === 'video' && finalValueToSave && !isVideoUrl(finalValueToSave)) {
+        finalValueToSave = finalValueToSave.trim() + '#video';
+      }
+
       if (typeof editingUrl.index === 'number' && data?.records) {
         const record = data.records.find(r => r.id === editingUrl.id);
         if (record) {
@@ -1065,10 +1103,17 @@ export function ProductsView({
             finalValueToSave = urls.join('\n');
           }
         }
-      } else if (editingUrl.mode === 'prepend' && data?.records) {
+      } else if (data?.records) {
+        // Default to append/prepend if no index specified
         const record = data.records.find(r => r.id === editingUrl.id);
         const currentFieldValue = String(record?.fields[urlFieldName] || '').trim();
-        finalValueToSave = currentFieldValue ? (editingUrl.value + '\n' + currentFieldValue) : editingUrl.value;
+        
+        if (editingUrl.mode === 'prepend') {
+          finalValueToSave = currentFieldValue ? (finalValueToSave + '\n' + currentFieldValue) : finalValueToSave;
+        } else {
+          // Default: Append to existing list
+          finalValueToSave = currentFieldValue ? (currentFieldValue + '\n' + finalValueToSave) : finalValueToSave;
+        }
       }
 
       const res = await fetch(`/api/products/${editingUrl.id}`, {
@@ -1187,6 +1232,7 @@ export function ProductsView({
     const ordered = [
       'Image',
       'DAM',
+      'Video',
       'Price',
       'URL',
       'Colecction Name',
@@ -1204,16 +1250,16 @@ export function ProductsView({
     ] as const;
 
     if (columns.length === 0 && loading) {
-      return ['Image', 'DAM', 'Price', 'Colecction Name', 'Variant Number', 'Category'];
+      return ['Image', 'DAM', 'Video', 'Price', 'Colecction Name', 'Variant Number', 'Category'];
     }
 
     const orderedSet = new Set<string>(ordered as readonly string[]);
     const out: string[] = [];
 
-    // Push ordered headers that exist in API columns (or ones we want always like DAM)
+    // Push ordered headers that exist in API columns (or ones we want always like DAM, Video)
     for (const key of ordered) {
       if (key === 'URL') continue;
-      if (columns.includes(key) || key === 'DAM') {
+      if (columns.includes(key) || key === 'DAM' || key === 'Video') {
         out.push(key);
         // For admins, append URL right after DAM
         if (key === 'DAM' && isAdmin && columns.includes('URL')) {
@@ -1764,8 +1810,9 @@ export function ProductsView({
 
       const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
       const isDAM = col === 'dam';
+      const isVideo = col === 'video';
       const isMain = col === 'main';
-      const isEditable = isUrl || isDAM || isMain || col === 'space' || col === 'color' || col === 'material' || col === 'category';
+      const isEditable = isUrl || isDAM || isVideo || isMain || col === 'space' || col === 'color' || col === 'material' || col === 'category';
 
       if ((value === null || value === undefined) && !isEditable) return null;
 
@@ -2120,12 +2167,17 @@ export function ProductsView({
           </span>
         );
       }
-      if (col === 'image' || col === 'dam') {
-        const urls = extractUrls(value);
+      if (col === 'image' || col === 'dam' || col === 'video') {
+        const allUrls = extractUrls(value);
+        const urls = col === 'video' 
+          ? allUrls.filter(isVideoUrl) 
+          : col === 'image' || col === 'dam' 
+            ? allUrls.filter(u => !isVideoUrl(u)) // Anything not video is image for DAM
+            : allUrls;
 
-        // For image and dam: only show the image stack, or 'No image' if empty
+        // For image, video, and dam: only show the image stack, or 'No image' if empty
         if (urls.length === 0) {
-          if (col === 'dam' && canEdit) {
+          if ((col === 'dam' || col === 'video') && canEdit) {
             if (editingUrl?.id === recordId && editingUrl.column === column) {
               return (
                 <div
@@ -2138,7 +2190,7 @@ export function ProductsView({
                     value={editingUrl.value}
                     onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
                     autoFocus
-                    placeholder="URL for Image..."
+                    placeholder={`URL for ${col === 'video' ? 'Video' : 'Image'}...`}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -2167,7 +2219,7 @@ export function ProductsView({
                     setEditingUrl({ id: recordId, value: '', column });
                   }}
                   className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
-                  title="Add URL for Image"
+                  title={`Add URL for ${col === 'video' ? 'Video' : 'Image'}`}
                 >
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
@@ -2890,10 +2942,11 @@ export function ProductsView({
                       {displayedColumns.map((c, idx) => {
                         const normalizedCol = c.trim().toLowerCase();
                         const isDAM = normalizedCol === 'dam';
+                        const isVideoCol = normalizedCol === 'video';
                         const isURL = normalizedCol === 'url';
                         const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
                         let cellValue = r.fields?.[c];
-                        if (isDAM) {
+                        if (isDAM || isVideoCol) {
                           const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
                             const kl = k.trim().toLowerCase();
                             return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
@@ -3186,11 +3239,14 @@ export function ProductsView({
             </div>
           )}
 
-          {/* Image Container */}
+          {/* Media Container */}
           <div
-            className="relative flex items-center justify-center"
+            className="relative flex items-center justify-center overflow-hidden"
             style={{ transform: 'translateY(-15%)' }}
             onPointerDown={(e) => {
+              const isIframe = (e.target as HTMLElement).tagName === 'IFRAME';
+              if (isIframe) return; // Don't intercept pointer on iframe
+              
               e.stopPropagation();
               if (galleryItems.length <= 1) return;
               swipeRef.current.pointerId = e.pointerId;
@@ -3216,21 +3272,47 @@ export function ProductsView({
             }}
             onPointerUp={(e) => { if (swipeRef.current.pointerId === e.pointerId) swipeRef.current.pointerId = null; }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getDriveDirectLink(currentItem.url)}
-              alt={currentItem.title}
-              className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
-              draggable={false}
-              style={{ touchAction: 'pan-y' }}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                if (swipeRef.current.swiped) return;
-                if (e.shiftKey || e.pointerType === 'mouse') {
-                  toggleSelected(currentItem.id);
-                }
-              }}
-            />
+            {isVideoUrl(currentItem.originalUrl) ? (
+              currentItem.driveId ? (
+                <div className="relative h-[80vh] w-[90vw] max-w-4xl overflow-hidden rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 shadow-2xl transition-all">
+                  <iframe
+                    src={`https://drive.google.com/file/d/${currentItem.driveId}/preview`}
+                    className="absolute inset-0 h-full w-full border-0"
+                    allow="autoplay"
+                    allowFullScreen
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  {/* Invisible swipe bumper to allow gallery nav even if iframe is focused */}
+                  <div className="absolute inset-y-0 left-0 w-8 z-10 pointer-events-none" />
+                  <div className="absolute inset-y-0 right-0 w-8 z-10 pointer-events-none" />
+                </div>
+              ) : (
+                <video
+                  src={currentItem.originalUrl}
+                  controls
+                  autoPlay
+                  className="max-h-[85vh] w-auto max-w-[95vw] rounded-xl shadow-2xl"
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              )
+            ) : (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={getDriveDirectLink(currentItem.url)}
+                alt={currentItem.title}
+                className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
+                draggable={false}
+                style={{ touchAction: 'pan-y' }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  if (swipeRef.current.swiped) return;
+                  if (e.shiftKey || e.pointerType === 'mouse') {
+                    toggleSelected(currentItem.id);
+                  }
+                }}
+              />
+            )}
           </div>
 
           {/* Navigation Arrows */}
