@@ -785,6 +785,75 @@ const getTagMaterialStyles = (material: string) => {
   }
 };
 
+interface PhotoDeckProps {
+  urls: string[];
+  maxItems?: number;
+  onOpenPreview?: (url: string) => void;
+}
+
+const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckProps) => {
+  const visibleUrls = urls.slice(0, maxItems);
+  if (visibleUrls.length === 0) return null;
+
+  return (
+    <div className="group relative h-24 w-24 flex items-center justify-center pointer-events-auto">
+      {visibleUrls
+        .slice()
+        .reverse()
+        .map((u, i) => {
+          const revIdx = visibleUrls.length - 1 - i;
+          const finalUrl = getDriveDirectLink(u);
+          
+          return (
+            <button
+              key={u + i}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenPreview?.(finalUrl);
+              }}
+              title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
+              aria-label={`View image ${revIdx + 1} of ${urls.length}`}
+              style={{
+                '--idx': revIdx,
+                zIndex: 10 - revIdx,
+              } as React.CSSProperties}
+              className={`absolute transition-all duration-300 ease-out origin-bottom
+                [transform:rotate(calc(var(--idx)*3.2deg))_translate(calc(var(--idx)*4px),calc(var(--idx)*-2px))]
+                group-hover:[transform:rotate(calc(var(--idx)*8deg))_translate(calc(var(--idx)*16px),calc(var(--idx)*-5px))]
+                hover:!scale-110 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-md
+              `}
+              tabIndex={0}
+            >
+              <div className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={finalUrl}
+                  alt={`Product view ${revIdx + 1}`}
+                  loading="lazy"
+                  decoding="async"
+                  fetchPriority={revIdx === 0 ? "high" : "low"}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                  className="block h-full w-full object-cover"
+                />
+              </div>
+            </button>
+          );
+        })}
+      {urls.length > 1 && (
+        <div className="absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%] pointer-events-none group-hover:scale-110 transition-transform">
+          +{urls.length - 1}
+        </div>
+      )}
+    </div>
+  );
+});
+PhotoDeck.displayName = 'PhotoDeck';
+
 export function ProductsView({
   title = 'Products',
   titleNode,
@@ -2117,59 +2186,7 @@ export function ProductsView({
           );
         }
 
-        const maxItems = 4;
-        const visibleUrls = urls.slice(0, maxItems);
-
-        return (
-          <>
-            <div className="relative h-24 w-24 flex items-center justify-center">
-              {visibleUrls
-                .slice()
-                .reverse()
-                .map((u, i) => {
-                  const revIdx = visibleUrls.length - 1 - i;
-                  const finalUrl = getDriveDirectLink(u);
-                  return (
-                    <button
-                      key={u + i}
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPreviewByUrl?.(finalUrl);
-                      }}
-                      title={finalUrl ? `Image ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No image'}
-                      style={{
-                        transformOrigin: 'bottom center',
-                        transform: `rotate(${revIdx * 3.2}deg) translate(${revIdx * 4}px, ${-revIdx * 2}px)`,
-                        zIndex: visibleUrls.length - revIdx,
-                      }}
-                      className="absolute pointer-events-auto"
-                    >
-                      <span className="block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px] transition-transform hover:scale-110 active:scale-95">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={finalUrl}
-                          alt="product"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                          className="block h-full w-full object-cover"
-                        />
-                      </span>
-                    </button>
-                  );
-                })}
-              {urls.length > 1 && (
-                <div className="absolute bottom-1 right-1 z-[10] flex h-6 min-w-6 items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%]">
-                  +{urls.length - 1}
-                </div>
-              )}
-            </div>
-          </>
-        );
+        return <PhotoDeck urls={urls} maxItems={4} onOpenPreview={openPreviewByUrl} />;
       }
 
       if (Array.isArray(value)) {
