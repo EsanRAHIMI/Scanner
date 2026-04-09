@@ -1113,6 +1113,8 @@ export function ProductsView({
   const uniqueMaterials = React.useMemo(() => MATERIAL_OPTIONS, []);
 
   const displayedColumns = React.useMemo(() => {
+    const isAdmin = user?.is_admin === true || user?.role === 'admin';
+
     const ordered = [
       'Image',
       'DAM',
@@ -1144,6 +1146,10 @@ export function ProductsView({
       if (key === 'URL') continue;
       if (columns.includes(key) || key === 'DAM') {
         out.push(key);
+        // For admins, append URL right after DAM
+        if (key === 'DAM' && isAdmin && columns.includes('URL')) {
+          out.push('URL');
+        }
       }
     }
 
@@ -1153,7 +1159,7 @@ export function ProductsView({
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
-    if (columns.includes('URL')) {
+    if (columns.includes('URL') && !isAdmin) {
       if (!out.includes('Main')) out.push('Main');
       out.push('URL');
     } else {
@@ -1161,7 +1167,7 @@ export function ProductsView({
     }
 
     return out;
-  }, [columns, loading]);
+  }, [columns, loading, user?.is_admin, user?.role]);
 
   const getSearchText = React.useCallback((r: ProductsRecord, usedColumns: string[]) => {
     const parts: string[] = [];
@@ -1450,7 +1456,7 @@ export function ProductsView({
           price,
         };
       })
-      .filter((x): x is GalleryItem => x !== null);
+      .filter((x): x is NonNullable<typeof x> => x !== null);
   }, [visibleRecords, variantCounts, familyMode]);
 
   const allGalleryItems = React.useMemo(() => {
