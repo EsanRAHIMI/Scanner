@@ -1471,7 +1471,7 @@ export function ProductsView({
         const imageUrls = extractUrls(fields.Image);
         const rawUrl = damUrls[0] || imageUrls[0] || '';
         const url = getDriveDirectLink(rawUrl);
-        const driveId = url.match(/\\/d\\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+        const driveId = url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null;
 
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
