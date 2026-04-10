@@ -811,9 +811,11 @@ interface PhotoDeckProps {
   urls: string[];
   maxItems?: number;
   onOpenPreview?: (url: string) => void;
+  onDragStart?: (url: string) => void;
+  onDragEnd?: () => void;
 }
 
-const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckProps) => {
+const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview, onDragStart, onDragEnd }: PhotoDeckProps) => {
   const visibleUrls = urls.slice(0, maxItems);
   if (visibleUrls.length === 0) return null;
 
@@ -847,6 +849,13 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview }: PhotoDeckPr
                 group-hover:[transform:rotate(calc(var(--idx)*8deg))_translate(calc(var(--idx)*16px),calc(var(--idx)*-5px))]
                 hover:!scale-110 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-md
               `}
+              draggable
+              onDragStart={(e) => {
+                if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
+                e.dataTransfer.setData('text/plain', u);
+                onDragStart?.(u);
+              }}
+              onDragEnd={() => onDragEnd?.()}
               tabIndex={0}
             >
               <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
@@ -923,6 +932,103 @@ export function ProductsView({
   const [selectedSpaces, setSelectedSpaces] = React.useState<Set<string>>(new Set());
   const [selectedMaterials, setSelectedMaterials] = React.useState<Set<string>>(new Set());
   const [activeFilterDropdown, setActiveFilterDropdown] = React.useState<string | null>(null);
+
+  const columns: string[] = data?.columns ?? [];
+  const records: ProductsRecord[] = data?.records ?? [];
+
+  const [linkHoverState, setLinkHoverState] = React.useState<{ url: string; x: number; y: number; title: string; code: string; variant: string } | null>(null);
+  const linkHoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const handleLinkMouseEnter = React.useCallback((url: string, recordId: string, e: React.MouseEvent) => {
+    const { clientX: x, clientY: y } = e;
+    if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
+    linkHoverTimerRef.current = setTimeout(() => {
+      const record = data?.records?.find(r => r.id === recordId);
+      const fields = record?.fields || {};
+      const title = formatScalar(fields['Colecction Name']) || formatScalar(fields['Name']) || formatScalar(fields['Collection Name']) || '—';
+      const code = formatScalar(fields['Colecction Code']) || formatScalar(fields['Code']) || '—';
+      const variant = formatScalar(fields['Variant Number']) || formatScalar(fields['Num']) || '—';
+      
+      setLinkHoverState({ url, x, y, title, code, variant });
+    }, 1000);
+  }, [data?.records]);
+
+  const handleLinkMouseLeave = React.useCallback(() => {
+    if (linkHoverTimerRef.current) {
+      clearTimeout(linkHoverTimerRef.current);
+      linkHoverTimerRef.current = null;
+    }
+    setLinkHoverState(null);
+  }, []);
+
+  const [draggedUrlInfo, setDraggedUrlInfo] = React.useState<{ url: string; sourceId: string; sourceColumn: string } | null>(null);
+  const activeDropTargetRef = React.useRef<HTMLElement | null>(null);
+  const dropTargetId = null; // Removed React state for better performance during drag
+
+  const handleMoveUrl = React.useCallback(async (url: string, fromId: string, toId: string, targetCol?: string) => {
+    if (fromId === toId) return;
+
+    // Optimistic Update
+    const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
+    let finalUrlToMove = url;
+    
+    // Auto-tag with #video if dropped into Video column
+    if (targetCol?.trim().toLowerCase() === 'video' && !isVideoUrl(finalUrlToMove)) {
+      finalUrlToMove = finalUrlToMove.trim() + '#video';
+    }
+
+    const prevData = data;
+    setData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        records: prev.records.map(r => {
+          if (r.id === fromId) {
+            const currentUrls = extractUrls(r.fields[urlFieldName]);
+            const filtered = currentUrls.filter(u => u !== url);
+            return { ...r, fields: { ...r.fields, [urlFieldName]: filtered.join('\n') } };
+          }
+          if (r.id === toId) {
+            const currentFieldValue = String(r.fields[urlFieldName] || '').trim();
+            const newVal = currentFieldValue ? (currentFieldValue + '\n' + finalUrlToMove) : finalUrlToMove;
+            return { ...r, fields: { ...r.fields, [urlFieldName]: newVal } };
+          }
+          return r;
+        })
+      };
+    });
+
+    try {
+      // 1. Remove from source
+      const sourceRecord = data?.records?.find(r => r.id === fromId);
+      const sourceUrls = extractUrls(sourceRecord?.fields[urlFieldName]);
+      const newSourceVal = sourceUrls.filter(u => u !== url).join('\n');
+      
+      const res1 = await fetch(`/api/products/${fromId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { [urlFieldName]: newSourceVal } })
+      });
+      if (!res1.ok) throw new Error('Failed to update source record');
+
+      // 2. Add to target
+      const targetRecord = data?.records?.find(r => r.id === toId);
+      const targetCurrentVal = String(targetRecord?.fields[urlFieldName] || '').trim();
+      const newTargetVal = targetCurrentVal ? (targetCurrentVal + '\n' + finalUrlToMove) : finalUrlToMove;
+      
+      const res2 = await fetch(`/api/products/${toId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { [urlFieldName]: newTargetVal } })
+      });
+      if (!res2.ok) throw new Error('Failed to update target record');
+
+    } catch (err) {
+      console.error('Drag and Drop error:', err);
+      setData(prevData); // Revert
+      alert('Error moving link: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    }
+  }, [columns, data, setData]);
 
   const fetchUserSession = React.useCallback(async () => {
     try {
@@ -1203,8 +1309,6 @@ export function ProductsView({
     }
   };
 
-  const columns: string[] = data?.columns ?? [];
-  const records: ProductsRecord[] = data?.records ?? [];
 
   const categoryFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'category') || 'Category', [columns]);
   const colorFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'color') || 'Color', [columns]);
@@ -1917,7 +2021,7 @@ export function ProductsView({
                   )}
                 </div>
               ) : (
-                <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5">
+                <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5 rounded-lg transition-all">
 
                   {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
                     <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
@@ -2011,8 +2115,16 @@ export function ProductsView({
                           rel="noreferrer"
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => e.stopPropagation()}
-                          className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
-                          title={u}
+                          onMouseEnter={(e) => handleLinkMouseEnter(u, recordId, e)}
+                          onMouseLeave={handleLinkMouseLeave}
+                          draggable
+                          onDragStart={(e) => {
+                            if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
+                            e.dataTransfer.setData('text/plain', u);
+                            setDraggedUrlInfo({ url: u, sourceId: recordId, sourceColumn: column });
+                          }}
+                          onDragEnd={() => setDraggedUrlInfo(null)}
+                          className={`flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20`}
                         >
                           <div className="flex items-center gap-2 overflow-hidden">
                             {isVideoUrl(u) ? (
@@ -2248,13 +2360,25 @@ export function ProductsView({
           return (
             <div className="flex h-12 w-full items-center justify-center bg-black/5 dark:bg-white/5 rounded-md">
               <span className="text-[10px] font-medium italic text-black/40 dark:text-white/40 uppercase tracking-tight">
-                No image
+                No {col === 'video' ? 'video' : 'image'}
               </span>
             </div>
           );
         }
 
-        return <PhotoDeck urls={urls} maxItems={4} onOpenPreview={openPreviewByUrl} />;
+        return (
+          <div className="relative min-h-[48px] w-full flex items-center justify-center transition-all rounded-lg">
+            <PhotoDeck 
+              urls={urls} 
+              maxItems={4} 
+              onOpenPreview={openPreviewByUrl}
+              recordId={recordId}
+              column={column}
+              onDragStart={(url) => setDraggedUrlInfo({ url, sourceId: recordId, sourceColumn: column })}
+              onDragEnd={() => setDraggedUrlInfo(null)}
+            />
+          </div>
+        );
       }
 
       if (Array.isArray(value)) {
@@ -2763,7 +2887,7 @@ export function ProductsView({
         }
       `}</style>
       <TopProgressBar loading={loading} />
-      <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-black/35">
+      <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-black/80">
         <div className="flex w-full items-center gap-2 sm:hidden">
           {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
           <input
@@ -2895,7 +3019,7 @@ export function ProductsView({
                     <th
                       key={c}
                       className={
-                        'sticky top-0 bg-white/70 shadow-sm backdrop-blur-md dark:bg-black/45 ' +
+                        'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
                         (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
                         (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : '') +
                         'px-4 py-3 text-left'
@@ -2979,7 +3103,7 @@ export function ProductsView({
                           <td
                             key={c}
                             className={
-                              'relative ' +
+                              'relative transition-all ' +
                               (isFirstCol
                                 ? 'sticky left-0 z-10 ' +
                                   (isGroupStart ? `border-t-0 ` : '') +
@@ -3001,6 +3125,33 @@ export function ProductsView({
                                       : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))) +
                               (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
                             }
+                            onDragOver={(e) => {
+                              if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
+                                e.preventDefault();
+                                const target = e.currentTarget;
+                                if (activeDropTargetRef.current !== target) {
+                                  activeDropTargetRef.current?.classList.remove('dnd-active');
+                                  target.classList.add('dnd-active');
+                                  activeDropTargetRef.current = target;
+                                }
+                              }
+                            }}
+                            onDragLeave={(e) => {
+                              const target = e.currentTarget;
+                              if (activeDropTargetRef.current === target) {
+                                target.classList.remove('dnd-active');
+                                activeDropTargetRef.current = null;
+                              }
+                            }}
+                            onDrop={(e) => {
+                              if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
+                                e.preventDefault();
+                                e.currentTarget.classList.remove('dnd-active');
+                                activeDropTargetRef.current = null;
+                                handleMoveUrl(draggedUrlInfo.url, draggedUrlInfo.sourceId, r.id, c);
+                                setDraggedUrlInfo(null);
+                              }
+                            }}
                             onClick={() => {
                               const colLower = c.trim().toLowerCase();
                               if (colLower === 'image' || isDAM) {
@@ -3502,8 +3653,67 @@ export function ProductsView({
           </div>
         </div>
       ) : null}
+      {linkHoverState && (
+        <div 
+          className="fixed z-[2000] pointer-events-none animate-fade-in"
+          style={{ 
+            left: Math.min(linkHoverState.x + 20, window.innerWidth - 225), 
+            top: Math.min(linkHoverState.y + 20, window.innerHeight - 245) 
+          }}
+        >
+          <div className="overflow-hidden rounded-xl border border-black/10 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/20 dark:bg-black/85">
+            <div className="relative h-[200px] w-[200px] overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
+              {isVideoUrl(linkHoverState.url) ? (
+                <div className="flex h-full w-full items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={getDriveDirectLink(linkHoverState.url)} alt="Video Preview" className="h-full w-full object-cover opacity-50" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/30 backdrop-blur-md border border-white/50">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img 
+                  src={getDriveDirectLink(linkHoverState.url)} 
+                  alt="Preview" 
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = linkHoverState.url;
+                  }}
+                />
+              )}
+            </div>
+            <div className="mt-1.5 px-1.5 pb-1">
+              <div className="truncate text-[11px] font-bold text-black/80 dark:text-white/90">
+                {linkHoverState.title}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-black/50 dark:text-white/50 uppercase tracking-tighter">
+                  Code: {linkHoverState.code}
+                </span>
+                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter">
+                  Var: {linkHoverState.variant}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {fieldEditPortal}
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
+      <style dangerouslySetInnerHTML={{ __html: `
+        .dnd-active {
+          background-color: rgb(16 185 129 / 0.2) !important;
+          box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.1) !important;
+          outline: 2px solid rgb(16 185 129) !important;
+          outline-offset: -2px;
+          z-index: 50 !important;
+        }
+      `}} />
     </main>
   );
 }
