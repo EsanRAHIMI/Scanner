@@ -3021,7 +3021,8 @@ export function ProductsView({
                       className={
                         'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
                         (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
-                        (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : '') +
+                        (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : 
+                         normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' : '') +
                         'px-4 py-3 text-left'
                       }
                     >
@@ -3085,6 +3086,7 @@ export function ProductsView({
                         const isVideoCol = normalizedCol === 'video';
                         const isURL = normalizedCol === 'url';
                         const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
+                        const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name';
                         let cellValue = r.fields?.[c];
                         if (isDAM || isVideoCol) {
                           const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
@@ -3115,14 +3117,15 @@ export function ProductsView({
                                 : '') +
                               (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
                               (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
-                              (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : '') +
+                              (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : 
+                               normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' : '') +
                               (isFirstCol
-                                ? 'px-4 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
+                                ? 'px-4 py-1 whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
                                 : (isEditableTag 
                                     ? 'p-0 h-px' 
                                     : (isDAM
                                       ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                                      : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'))) +
+                                      : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')))) +
                               (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
                             }
                             onDragOver={(e) => {
