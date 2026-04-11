@@ -2108,7 +2108,7 @@ export function ProductsView({
                     }
 
                     return (
-                      <div key={u + i} className="group/link flex min-w-0 items-center gap-1.5 pl-4 pr-1">
+                      <div key={u + i} className="group/link relative flex min-w-0 items-center pl-4 pr-8">
                         <a
                           href={u}
                           target="_blank"
@@ -2124,7 +2124,7 @@ export function ProductsView({
                             setDraggedUrlInfo({ url: u, sourceId: recordId, sourceColumn: column });
                           }}
                           onDragEnd={() => setDraggedUrlInfo(null)}
-                          className={`flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20`}
+                          className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
                         >
                           <div className="flex items-center gap-2 overflow-hidden">
                             {isVideoUrl(u) ? (
@@ -2146,7 +2146,7 @@ export function ProductsView({
                               e.stopPropagation();
                               setEditingUrl({ id: recordId, value: u, column, index: i });
                             }}
-                            className="hidden h-7 w-7 items-center justify-center rounded-md bg-black/5 text-black/40 hover:bg-black/10 group-hover/link:flex dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
                             title="Edit this link"
                           >
                             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
