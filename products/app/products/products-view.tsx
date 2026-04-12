@@ -1902,7 +1902,7 @@ export function ProductsView({
     }
 
     // 2. Map items with counts
-    const mapped = allGalleryItems.map((item: FeedVariant) => ({
+    const mapped = allGalleryItems.map((item: any) => ({
       ...item,
       siblingCount: counts[item.collectionNameNormalized] || 1
     }));
