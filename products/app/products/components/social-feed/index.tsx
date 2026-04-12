@@ -148,11 +148,6 @@ export function SocialFeed({
         behavior: 'smooth'
       });
       setActiveIndex(foundIdx);
-      // Close search after finding
-      setTimeout(() => {
-        setShowSearch(false);
-        setSearchQuery('');
-      }, 800);
     }
   };
 
@@ -249,43 +244,71 @@ export function SocialFeed({
         <button 
           type="button"
           onClick={onClose}
+          title="Back to gallery"
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 transition-colors pointer-events-auto active:scale-95"
         >
           <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
-        <div className="w-10" />
+        
+        <button 
+          type="button"
+          onClick={() => setShowSearch(true)}
+          title="Search"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 transition-colors pointer-events-auto active:scale-95"
+        >
+          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </button>
       </div>
 
       {/* Quick Search Overlay */}
       {showSearch && (
-        <div className="absolute inset-x-0 top-20 z-[2000] flex justify-center px-4 animate-fade-in">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/20 bg-zinc-950/40 p-1 backdrop-blur-3xl shadow-2xl">
-            <div className="relative flex items-center">
-              <div className="absolute left-4 text-white/40">
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
+        <>
+          {/* Backdrop for click-outside to close - transparent to see live results */}
+          <div 
+            className="absolute inset-0 z-[1999] animate-fade-in" 
+            onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+          />
+          <div className="absolute inset-x-0 top-24 z-[2000] flex justify-center px-4 animate-fade-in">
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/20 bg-zinc-950/60 p-1 backdrop-blur-3xl shadow-2xl ring-1 ring-white/10">
+              <div className="relative flex items-center">
+                <div className="absolute left-4 text-white/40">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </div>
+                <input 
+                  autoFocus
+                  type="text"
+                  placeholder="Type product code or name..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setShowSearch(false);
+                      setSearchQuery('');
+                    } else if (e.key === 'Escape') {
+                      setShowSearch(false);
+                      setSearchQuery('');
+                    }
+                  }}
+                  className="h-14 w-full bg-transparent pl-12 pr-4 text-sm font-black text-white outline-none placeholder:text-white/20"
+                />
+                <button 
+                  onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+                  className="mr-3 flex h-8 items-center rounded-lg bg-white/10 px-3 text-[11px] font-black uppercase text-white/50 hover:bg-white/20 hover:text-white transition-all ring-1 ring-white/10"
+                >
+                  Esc
+                </button>
               </div>
-              <input 
-                autoFocus
-                type="text"
-                placeholder="Product Code or Name..."
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="h-12 w-full bg-transparent pl-12 pr-4 text-sm font-bold text-white outline-none placeholder:text-white/20"
-              />
-              <button 
-                onClick={() => { setShowSearch(false); setSearchQuery(''); }}
-                className="mr-2 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-black uppercase text-white/60 hover:bg-white/20"
-              >
-                Esc
-              </button>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Vertical Snap Container */}

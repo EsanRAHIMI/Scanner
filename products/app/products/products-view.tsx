@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
@@ -19,6 +20,15 @@ async function logFrontendEvent(action: string, details: string = '', resourceId
   } catch (e) {
     console.error('[Logging] Failed:', e);
   }
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
+  React.useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
 }
 
 function ActivityLogModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -924,7 +934,28 @@ export function ProductsView({
   }, []);
 
   const { data, loading, error, setData } = useProductsCache();
-  const [search, setSearch] = React.useState<string>('');
+  
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const initialSearch = React.useMemo(() => searchParams?.get('q') || '', [searchParams]);
+  const [search, setSearch] = React.useState<string>(initialSearch);
+  const debouncedSearch = useDebounce(search, 300);
+
+  const [showCommandPalette, setShowCommandPalette] = React.useState(false);
+
+  // Sync debounced search to URL
+  React.useEffect(() => {
+    const currentQ = searchParams?.get('q') || '';
+    if (debouncedSearch !== currentQ) {
+      const params = new URLSearchParams(searchParams?.toString());
+      if (debouncedSearch) params.set('q', debouncedSearch);
+      else params.delete('q');
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  }, [debouncedSearch, pathname, router, searchParams]);
+
   const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
   const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
   const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
@@ -951,8 +982,51 @@ export function ProductsView({
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
 
+  const [paletteIndex, setPaletteIndex] = React.useState(0);
+  React.useEffect(() => {
+    setPaletteIndex(0);
+  }, [search]);
+
   const [linkHoverState, setLinkHoverState] = React.useState<{ url: string; x: number; y: number; title: string; code: string; variant: string } | null>(null);
   const linkHoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const [recentSearches, setRecentSearches] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    const saved = localStorage.getItem('recent_searches');
+    if (saved) {
+      try {
+        setRecentSearches(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to load recent searches', e);
+      }
+    }
+  }, []);
+
+  const addToRecent = React.useCallback((q: string) => {
+    const val = q.trim();
+    if (!val) return;
+    setRecentSearches(prev => {
+      const next = [val, ...prev.filter(x => x !== val)].slice(0, 5);
+      localStorage.setItem('recent_searches', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  // Global Shortcuts
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable;
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowCommandPalette(v => !v);
+      } else if (e.key === '/' && !isInput) {
+        e.preventDefault();
+        setShowCommandPalette(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const handleLinkMouseEnter = React.useCallback((url: string, recordId: string, e: React.MouseEvent) => {
     const { clientX: x, clientY: y } = e;
@@ -1418,6 +1492,16 @@ export function ProductsView({
     }
   }, [setData]);
 
+  const highlightMatches = React.useCallback((text: string, query: string) => {
+    if (!query.trim()) return text;
+    const parts = text.split(new RegExp(`(${query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    return parts.map((part, i) => 
+      part.toLowerCase() === query.trim().toLowerCase() 
+        ? <mark key={i} className="bg-emerald-500/40 text-emerald-950 dark:text-emerald-100 rounded-px px-0.5 no-underline ring-1 ring-emerald-500/20">{part}</mark> 
+        : part
+    );
+  }, []);
+
   const displayedColumns = React.useMemo(() => {
     const isAdmin = user?.is_admin === true || user?.role === 'admin';
 
@@ -1513,8 +1597,14 @@ export function ProductsView({
   }, []);
 
   const filteredRecords = React.useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let base = !q ? records : records.filter((r) => getSearchText(r, displayedColumns).includes(q));
+    const q = debouncedSearch.trim().toLowerCase();
+    let base = !q ? records : records.filter((r) => {
+      const text = getSearchText(r, displayedColumns);
+      // Principled Search: match starts of words or exact substring
+      if (text.includes(q)) return true;
+      const words = q.split(/\s+/);
+      return words.every(word => text.includes(word));
+    });
 
     // Category Filter
     if (selectedCategories.size > 0) {
@@ -1573,7 +1663,7 @@ export function ProductsView({
       return base;
     }
     return base.filter((r) => selectedIds.has(r.id));
-  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName, familyCollectionName]);
+  }, [displayedColumns, getSearchText, records, debouncedSearch, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName, familyCollectionName]);
 
   const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
     const k = key.trim().toLowerCase();
@@ -2574,7 +2664,7 @@ export function ProductsView({
                   className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] dark:border-white/10 dark:bg-white/5"
                   title={label}
                 >
-                  <span className="max-w-[240px] truncate">{label}</span>
+                  <span className="max-w-[240px] truncate">{highlightMatches(label, search)}</span>
                 </span>
               ))}
             </div>
@@ -2596,7 +2686,7 @@ export function ProductsView({
           if (extra > 0) {
             return (
               <>
-                <span className="truncate">{scalar}</span>
+                <span className="truncate">{highlightMatches(scalar, search)}</span>
                 <span className="absolute right-1 top-1 z-10 rounded bg-black/10 px-1 py-0.5 text-[8px] font-bold text-black/40 dark:bg-white/15 dark:text-white/40">
                   +{extra}
                 </span>
@@ -2604,7 +2694,7 @@ export function ProductsView({
             );
           }
         }
-        return scalar;
+        return highlightMatches(scalar, search);
       }
 
       if (typeof value === 'object') {
@@ -2840,6 +2930,51 @@ export function ProductsView({
 
   const headerToggleBase =
     'inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm backdrop-blur-md transition-all active:scale-95';
+
+  const hasActiveFilters = search.trim().length > 0 || selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0 || !!familyCollectionName;
+
+  const searchGroupNode = (
+    <div className="flex items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all duration-500 ease-in-out dark:border-white/10 dark:bg-black/40">
+      <div 
+        className={`overflow-hidden transition-all duration-500 ease-in-out flex items-center ${
+          hasActiveFilters ? 'w-10 opacity-100' : 'w-0 opacity-0 pointer-events-none'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setSearch('');
+            setSelectedCategories(new Set());
+            setSelectedColors(new Set());
+            setSelectedSpaces(new Set());
+            setSelectedMaterials(new Set());
+            setFamilyCollectionName(null);
+          }}
+          title="Clear all filters & search"
+          className="flex h-10 w-10 items-center justify-center text-red-600 transition-all hover:scale-110 active:scale-95 dark:text-red-400"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="3">
+            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={() => setShowCommandPalette(true)}
+        title="Search (Cmd+K or /)"
+        className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${
+          showCommandPalette 
+            ? 'text-emerald-600 dark:text-emerald-400' 
+            : 'text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white'
+        }`}
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      </button>
+    </div>
+  );
 
   const viewToggleNode = (
     <button
@@ -3097,15 +3232,10 @@ export function ProductsView({
       `}</style>
       <TopProgressBar loading={loading} />
       <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-black/80">
-        <div className="flex w-full items-center gap-2 sm:hidden">
+        <div className="flex w-full items-center justify-between gap-2 sm:hidden">
           {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
-          <input
-            className="h-10 w-full min-w-0 flex-1 rounded-md border border-black/15 bg-white px-3 text-base dark:border-white/15 dark:bg-black/25 dark:text-white"
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
           <div className="flex flex-none items-center gap-2">
+            {searchGroupNode}
             {familyToggleNode}
             {viewToggleNode}
             {maxModeToggleNode}
@@ -3121,13 +3251,8 @@ export function ProductsView({
           </div>
 
           <div className="flex items-center gap-2">
-            <input
-              className="h-[64px] w-[260px] flex-none rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
             <div className="flex items-center gap-2">
+              {searchGroupNode}
               {familyToggleNode}
               {viewToggleNode}
               {maxModeToggleNode}
@@ -3385,10 +3510,22 @@ export function ProductsView({
                   );
                 })
               )}
-              {records.length === 0 && !loading ? (
+              {visibleRecords.length === 0 && !loading ? (
                 <tr>
-                  <td className="px-4 py-5 text-sm text-black/50 dark:text-white/50" colSpan={displayedColumns.length}>
-                    No records.
+                  <td className="px-4 py-32 text-center" colSpan={displayedColumns.length}>
+                    <div className="flex flex-col items-center justify-center animate-fade-in">
+                       <div className="h-16 w-16 items-center justify-center rounded-full bg-black/5 dark:bg-white/5 flex mb-4 text-black/20 dark:text-white/20">
+                          <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                       </div>
+                       <h3 className="text-lg font-bold text-black dark:text-white">No products match your search</h3>
+                       <p className="mt-1 text-sm text-black/40 dark:text-white/40">Try adjusting your filters or search terms.</p>
+                       <button 
+                         onClick={() => { setSearch(''); setSelectedCategories(new Set()); setSelectedColors(new Set()); setSelectedSpaces(new Set()); setSelectedMaterials(new Set()); }}
+                         className="mt-6 rounded-full bg-emerald-600 px-6 py-2 text-sm font-bold text-white hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
+                       >
+                         Clear all filters
+                       </button>
+                    </div>
                   </td>
                 </tr>
               ) : null}
@@ -3478,7 +3615,7 @@ export function ProductsView({
                     aria-pressed={selectedIds.has(r.id)}
                   >
                     <div className="flex items-start justify-between gap-2 leading-snug">
-                      <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{name || '—'}</div>
+                    <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{highlightMatches(name || '—', search)}</div>
                       <div className="flex-none text-sm font-semibold text-black dark:text-white">
                         {price ? (
                           <>
@@ -3490,10 +3627,10 @@ export function ProductsView({
                         )}
                       </div>
                     </div>
-                    <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? `Code: ${code}` : ' '}</div>
+                    <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? <span>Code: {highlightMatches(code, search)}</span> : ' '}</div>
                     <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
                       <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                        <span className="truncate">{variant ? `Variant: ${variant}` : ''}</span>
+                        <span className="truncate">{variant ? <span>Variant: {highlightMatches(variant, search)}</span> : ''}</span>
                         {familyMode === 'main' && (name?.trim() ? (variantCounts[name.trim()] || 0) : 0) > 1 && (
                           <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
                             +{(variantCounts[name?.trim() || ''] || 0) - 1}
@@ -3511,9 +3648,21 @@ export function ProductsView({
             })}
           </div>
 
-          {records.length === 0 && visibleRecords.length === 0 && !loading ? (
-            <div className="px-2 py-6 text-sm text-black/50 dark:text-white/50">No records.</div>
-          ) : null}
+          {!loading && visibleRecords.length === 0 && (
+            <div className="col-span-full py-40 flex flex-col items-center justify-center animate-fade-in text-center px-6">
+               <div className="h-24 w-24 items-center justify-center rounded-full bg-zinc-100 dark:bg-white/5 flex mb-8 text-black/10 dark:text-white/10 ring-8 ring-zinc-50 dark:ring-white/5">
+                  <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+               </div>
+               <h3 className="text-2xl font-black text-black dark:text-white tracking-tight">Product Not Found</h3>
+               <p className="mt-2 text-zinc-500 max-w-[280px]">We couldn't find any items matching your specific search or filters.</p>
+               <button 
+                 onClick={() => { setSearch(''); setSelectedCategories(new Set()); setSelectedColors(new Set()); setSelectedSpaces(new Set()); setSelectedMaterials(new Set()); }}
+                 className="mt-10 rounded-full bg-zinc-950 px-10 py-3.5 text-sm font-black text-white hover:bg-black shadow-2xl dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 transition-all active:scale-95 uppercase tracking-widest"
+               >
+                 Reset All
+               </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -3937,6 +4086,151 @@ export function ProductsView({
         </div>
       )}
       {fieldEditPortal}
+      
+      {/* Command Palette Search */}
+      {showCommandPalette && createPortal(
+        <div className="fixed inset-0 z-[5000] flex items-start justify-center p-4 sm:p-20 overflow-hidden isolate">
+          <div 
+            className="absolute inset-0 bg-zinc-900/60 backdrop-blur-md animate-fade-in" 
+            onClick={() => setShowCommandPalette(false)} 
+          />
+          <div className="relative w-full max-w-2xl transform overflow-hidden rounded-2xl border border-white/20 bg-zinc-900/80 p-0 shadow-2xl ring-1 ring-white/10 transition-all animate-fade-in scale-100 dark:bg-zinc-950/90 [box-shadow:0_0_80px_rgba(0,0,0,0.5)]">
+            <div className="flex items-center border-b border-white/10 px-4 py-3">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Search products, codes, collections..."
+                className="flex-1 bg-transparent px-4 py-2 text-lg font-medium text-white placeholder:text-zinc-500 outline-none"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setShowCommandPalette(false);
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setPaletteIndex(prev => Math.min(prev + 1, Math.min(filteredRecords.length, 10) - 1));
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setPaletteIndex(prev => Math.max(prev - 1, 0));
+                  } else if (e.key === 'Enter') {
+                    const selected = filteredRecords.slice(0, 10)[paletteIndex];
+                    if (selected) {
+                      addToRecent(search);
+                      const idx = sortedRecords.findIndex(sr => sr.id === selected.id);
+                      if (idx >= 0) {
+                        setPreviewId(selected.id);
+                        setPreviewIndex(idx);
+                      }
+                      setShowCommandPalette(false);
+                    } else if (search.trim()) {
+                      addToRecent(search);
+                      setShowCommandPalette(false);
+                    }
+                  }
+                }}
+              />
+              <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2 py-1 text-[10px] font-black text-zinc-500 ring-1 ring-white/10 uppercase">
+                Esc
+              </div>
+            </div>
+            
+            <div className="scrollbar-minimal max-h-[60vh] overflow-y-auto p-2">
+              {recentSearches.length > 0 && !search && (
+                <div className="mb-4">
+                  <h3 className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Recent Searches</h3>
+                  <div className="space-y-1">
+                    {recentSearches.map((rs, i) => (
+                      <button
+                        key={i}
+                        onClick={() => { setSearch(rs); addToRecent(rs); }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 active:bg-white/10 transition-colors"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4 opacity-30" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20v-8m0 0V4m0 8h8m-8 0H4" strokeLinecap="round" /></svg>
+                        {rs}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {search && (
+                <div>
+                  <h3 className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-500">Results</h3>
+                  <div className="space-y-2">
+                    {filteredRecords.slice(0, 10).map((r, idx) => {
+                      const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || 'Unknown Product';
+                      const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code) || 'No Code';
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => {
+                            addToRecent(search);
+                            const idx = sortedRecords.findIndex(sr => sr.id === r.id);
+                            if (idx >= 0) {
+                                setPreviewId(r.id);
+                                setPreviewIndex(idx);
+                            }
+                            setShowCommandPalette(false);
+                          }}
+                          className={`flex w-full items-center gap-4 rounded-xl border p-3 transition-all text-left group ${
+                            idx === paletteIndex 
+                              ? 'border-emerald-500/50 bg-emerald-500/10 dark:bg-emerald-500/20' 
+                              : 'border-white/5 bg-white/5 hover:bg-white/10'
+                          }`}
+                        >
+                          <div className="h-12 w-12 flex-none overflow-hidden rounded-lg bg-black/20 ring-1 ring-white/10">
+                             {(() => {
+                               const raw = extractUrls(r.fields?.URL)[0] || extractUrls(r.fields?.Image)[0];
+                               if (!raw) return <div className="flex h-full w-full items-center justify-center bg-zinc-800 text-[8px] font-bold text-zinc-600 uppercase tracking-tighter text-center px-1">No Image</div>;
+                               return (
+                                 /* eslint-disable-next-line @next/next/no-img-element */
+                                 <img 
+                                   src={getDriveDirectLink(raw)} 
+                                   alt="" 
+                                   className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                                 />
+                               );
+                             })()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-white truncate">{highlightMatches(name, search)}</div>
+                            <div className="text-[10px] font-semibold text-zinc-500 mt-0.5 tracking-tight uppercase">{highlightMatches(code, search)}</div>
+                          </div>
+                          <svg viewBox="0 0 24 24" className="h-5 w-5 text-zinc-600 group-hover:text-emerald-500 transition-colors" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      );
+                    })}
+                    {filteredRecords.length === 0 && (
+                      <div className="py-12 text-center">
+                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 text-zinc-600 mb-3">
+                          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+                        </div>
+                        <p className="text-sm font-medium text-zinc-400">No products found for "{search}"</p>
+                        <button onClick={() => setSearch('')} className="mt-2 text-[10px] font-bold uppercase tracking-widest text-emerald-500 hover:text-emerald-400">Clear Search</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center justify-between border-t border-white/10 bg-black/20 px-4 py-2 text-[10px] font-semibold text-zinc-500 tracking-wider">
+               <div className="flex items-center gap-4">
+                  <span className="flex items-center gap-1"><kbd className="px-1 rounded bg-white/10 ring-1 ring-white/10 text-[9px]">↵</kbd> SELECT</span>
+                  <span className="flex items-center gap-1"><kbd className="px-1 rounded bg-white/10 ring-1 ring-white/10 text-[9px]">↑↓</kbd> NAVIGATE</span>
+               </div>
+               <span>{filteredRecords.length} Results</span>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
       <style dangerouslySetInnerHTML={{ __html: `
         .dnd-active {
