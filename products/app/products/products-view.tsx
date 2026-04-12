@@ -814,9 +814,21 @@ interface PhotoDeckProps {
   onOpenPreview?: (url: string) => void;
   onDragStart?: (url: string) => void;
   onDragEnd?: () => void;
+  linkHoverTimerRef?: React.RefObject<NodeJS.Timeout | null>;
+  recordId?: string;
+  column?: string;
 }
 
-const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview, onDragStart, onDragEnd }: PhotoDeckProps) => {
+const PhotoDeck = React.memo(({ 
+  urls, 
+  maxItems = 4, 
+  onOpenPreview, 
+  onDragStart, 
+  onDragEnd,
+  linkHoverTimerRef,
+  recordId,
+  column 
+}: PhotoDeckProps) => {
   const visibleUrls = urls.slice(0, maxItems);
   if (visibleUrls.length === 0) return null;
 
@@ -852,7 +864,7 @@ const PhotoDeck = React.memo(({ urls, maxItems = 4, onOpenPreview, onDragStart, 
               `}
               draggable
               onDragStart={(e) => {
-                if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
+                if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
                 e.dataTransfer.setData('text/plain', u);
                 onDragStart?.(u);
               }}
@@ -2434,6 +2446,7 @@ export function ProductsView({
               column={column}
               onDragStart={(url) => setDraggedUrlInfo({ url, sourceId: recordId, sourceColumn: column })}
               onDragEnd={() => setDraggedUrlInfo(null)}
+              linkHoverTimerRef={linkHoverTimerRef}
             />
           </div>
         );
