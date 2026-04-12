@@ -1910,7 +1910,7 @@ export function ProductsView({
     // 3. Filter if needed
     if (!familyCollectionName) {
       // Return base gallery items but enriched with siblingCounts
-      const baseIds = new Set(baseGalleryItems.map((x: FeedVariant) => x.id));
+      const baseIds = new Set(baseGalleryItems.map((x: any) => x.id));
       return mapped.filter((x: any) => baseIds.has(x.id)) as any;
     }
 
@@ -1922,14 +1922,14 @@ export function ProductsView({
     (url: string) => {
       if (!url) return;
       // Try exact match first (O(N) with fast string comparison)
-      let idx = galleryItems.findIndex((x: FeedVariant) => x.url === url || x.originalUrl === url);
+      let idx = galleryItems.findIndex((x: any) => x.url === url || x.originalUrl === url);
       
       // If no match, try by matching Drive IDs if applicable
       if (idx === -1 && (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com'))) {
         const inputId = getDriveDirectLink(url).match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
         if (inputId) {
           // pre-calculated driveId makes this very fast O(N) simple comparison
-          idx = galleryItems.findIndex((x: FeedVariant) => x.driveId === inputId);
+          idx = galleryItems.findIndex((x: any) => x.driveId === inputId);
         }
       }
 
