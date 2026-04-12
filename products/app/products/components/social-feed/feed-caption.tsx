@@ -69,10 +69,6 @@ export function FeedCaption({ variant }: FeedCaptionProps) {
               <span className="text-[10px] font-black text-white/50 tracking-widest uppercase">
                 {variant.codeNumber || variant.code || 'NO-CODE'}
               </span>
-              <span className="h-2.5 w-px bg-white/20" />
-              <span className="text-[10px] font-bold text-emerald-400/90 uppercase">
-                Variant {variant.variant || '01'}
-              </span>
             </div>
           </div>
         </div>

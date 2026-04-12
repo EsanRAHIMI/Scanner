@@ -112,6 +112,8 @@ export function SocialFeed({
       }
     };
 
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeIndex, variants.length, onClose, activeCollectionName, showFilterHint]);
 
   // Touch/Wheel overscroll detection
