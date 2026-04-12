@@ -36,7 +36,16 @@ export function SocialFeed({
   }, [variants, initialVariantId]);
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [showFilterHint, setShowFilterHint] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerHint = () => {
+    if (!activeCollectionName || showFilterHint) return;
+    setShowFilterHint(true);
+    if (hintTimeoutRef.current) clearTimeout(hintTimeoutRef.current);
+    hintTimeoutRef.current = setTimeout(() => setShowFilterHint(false), 1500);
+  };
 
   // Set initial scroll position logic on mount
   useEffect(() => {
@@ -84,6 +93,8 @@ export function SocialFeed({
             behavior: 'smooth'
           });
           setActiveIndex(nextIndex);
+        } else if (activeCollectionName) {
+          triggerHint();
         }
       } else if (e.key === 'ArrowUp') {
         if (activeIndex > 0) {
@@ -101,9 +112,43 @@ export function SocialFeed({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, variants.length, onClose]);
+  }, [activeIndex, variants.length, onClose, activeCollectionName, showFilterHint]);
+
+  // Touch/Wheel overscroll detection
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    let touchStartY = 0;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY > 0 && activeIndex === variants.length - 1) {
+        triggerHint();
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const touchY = e.touches[0].clientY;
+      const deltaY = touchStartY - touchY;
+      if (deltaY > 20 && activeIndex === variants.length - 1) {
+        triggerHint();
+      }
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: true });
+    el.addEventListener('touchstart', handleTouchStart, { passive: true });
+    el.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [activeIndex, variants.length, activeCollectionName, showFilterHint]);
 
   const handleDownloadMedia = async (url: string) => {
     try {
@@ -211,6 +256,7 @@ export function SocialFeed({
               selectedCount={selectedCount}
               canEdit={canEdit}
               onAddMedia={onAddMedia}
+              triggerFilterHint={idx === activeIndex ? showFilterHint : false}
             />
           </div>
         ))}

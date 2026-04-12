@@ -13,6 +13,7 @@ interface FeedActionsProps {
   selectedCount: number;
   canEdit?: boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
+  triggerFilterHint?: boolean;
 }
 
 export function FeedActions({ 
@@ -26,7 +27,8 @@ export function FeedActions({
   activeCollectionFilter,
   selectedCount,
   canEdit,
-  onAddMedia
+  onAddMedia,
+  triggerFilterHint
 }: FeedActionsProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -105,7 +107,9 @@ export function FeedActions({
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); onShowCollection(); }}
-        className="group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95"
+        className={`group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95 ${
+          triggerFilterHint ? 'animate-attention-bounce' : ''
+        }`}
       >
         <div className={`flex h-[40px] w-[40px] items-center justify-center transition-all duration-300 ${
           activeCollectionFilter 

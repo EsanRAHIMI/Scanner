@@ -17,6 +17,7 @@ interface FeedItemProps {
   selectedCount: number;
   canEdit?: boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
+  triggerFilterHint?: boolean;
 }
 
 export function FeedItem({
@@ -31,7 +32,8 @@ export function FeedItem({
   activeCollectionFilter,
   selectedCount,
   canEdit,
-  onAddMedia
+  onAddMedia,
+  triggerFilterHint
 }: FeedItemProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
@@ -166,6 +168,7 @@ export function FeedItem({
         selectedCount={selectedCount}
         canEdit={canEdit}
         onAddMedia={onAddMedia}
+        triggerFilterHint={triggerFilterHint}
       />
 
       {/* Caption (Bottom) */}
