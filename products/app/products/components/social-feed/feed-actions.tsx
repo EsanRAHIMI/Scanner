@@ -51,7 +51,7 @@ export function FeedActions({
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </div>
-        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">
+        <span className={`text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top ${selectedCount > 0 ? 'block' : 'hidden md:block'}`}>
           {selectedCount > 0 ? `${selectedCount} Selected` : 'Select'}
         </span>
       </button>
@@ -113,7 +113,7 @@ export function FeedActions({
             <path d="M21 13v2a4 4 0 0 1-4 4H3" />
           </svg>
         </div>
-        <div className="hidden md:flex w-full justify-center px-1">
+        <div className={`w-full flex justify-center px-1 ${activeCollectionFilter ? 'block' : 'hidden md:flex'}`}>
           <span className={`text-[10px] font-bold drop-shadow-lg truncate text-center transition-colors uppercase tracking-wider w-full scale-95 origin-top ${activeCollectionFilter ? 'text-emerald-400 font-extrabold' : 'text-white'}`}>
             {activeCollectionFilter || 'Collection'}
           </span>
