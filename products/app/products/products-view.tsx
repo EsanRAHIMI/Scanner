@@ -1269,6 +1269,53 @@ export function ProductsView({
     }
   };
 
+  const handleAddMediaToVariant = async (variantId: string, newUrl: string) => {
+    if (!newUrl || isSaving) return;
+    setIsSaving(true);
+    try {
+      const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
+      const record = records.find((r) => r.id === variantId);
+      if (!record) throw new Error('Record not found');
+
+      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
+      const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
+
+      const res = await fetch(`/api/products/${variantId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fields: {
+            [urlFieldName]: finalValueToSave,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+
+      // Update local state without reload
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map((r) =>
+            r.id === variantId
+              ? {
+                  ...r,
+                  fields: {
+                    ...r.fields,
+                    [urlFieldName]: finalValueToSave,
+                  },
+                }
+              : r
+          ),
+        };
+      });
+    } catch (err) {
+      alert('Error adding media: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleToggleMain = async (recordId: string) => {
     if (isSaving || !data?.records) return;
     setIsSaving(true);
@@ -3495,6 +3542,8 @@ export function ProductsView({
           }}
           activeCollectionName={familyCollectionName}
           selectedCount={selectedIds.size}
+          canEdit={canEdit}
+          onAddMedia={handleAddMediaToVariant}
         />
       )}
 

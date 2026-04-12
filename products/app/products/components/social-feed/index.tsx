@@ -7,10 +7,11 @@ export interface SocialFeedProps {
   initialVariantId: string | null;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
-  onClose: () => void;
   onFilterCollection: (collectionName: string | null) => void;
   activeCollectionName?: string | null;
   selectedCount: number;
+  canEdit?: boolean;
+  onAddMedia?: (variantId: string, url: string) => Promise<void>;
 }
 
 export function SocialFeed({
@@ -21,7 +22,9 @@ export function SocialFeed({
   onClose,
   onFilterCollection,
   activeCollectionName,
-  selectedCount
+  selectedCount,
+  canEdit,
+  onAddMedia
 }: SocialFeedProps) {
 
   // Resolve initial index
@@ -185,6 +188,8 @@ export function SocialFeed({
               }}
               activeCollectionFilter={activeCollectionName}
               selectedCount={selectedCount}
+              canEdit={canEdit}
+              onAddMedia={onAddMedia}
             />
           </div>
         ))}

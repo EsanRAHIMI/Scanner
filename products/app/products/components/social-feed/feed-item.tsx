@@ -15,6 +15,8 @@ interface FeedItemProps {
   onDeleteMedia?: (mediaUrl: string) => void;
   activeCollectionFilter?: string | null;
   selectedCount: number;
+  canEdit?: boolean;
+  onAddMedia?: (variantId: string, url: string) => Promise<void>;
 }
 
 export function FeedItem({
@@ -27,7 +29,9 @@ export function FeedItem({
   onShowCollection,
   onDeleteMedia,
   activeCollectionFilter,
-  selectedCount
+  selectedCount,
+  canEdit,
+  onAddMedia
 }: FeedItemProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
@@ -160,6 +164,8 @@ export function FeedItem({
         onDelete={onDeleteMedia ? () => onDeleteMedia(currentMediaUrl) : undefined}
         activeCollectionFilter={activeCollectionFilter}
         selectedCount={selectedCount}
+        canEdit={canEdit}
+        onAddMedia={onAddMedia}
       />
 
       {/* Caption (Bottom) */}

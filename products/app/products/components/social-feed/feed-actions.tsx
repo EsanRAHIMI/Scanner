@@ -11,6 +11,8 @@ interface FeedActionsProps {
   onDelete?: () => void;
   activeCollectionFilter?: string | null;
   selectedCount: number;
+  canEdit?: boolean;
+  onAddMedia?: (variantId: string, url: string) => Promise<void>;
 }
 
 export function FeedActions({ 
@@ -22,7 +24,9 @@ export function FeedActions({
   onShowCollection, 
   onDelete,
   activeCollectionFilter,
-  selectedCount
+  selectedCount,
+  canEdit,
+  onAddMedia
 }: FeedActionsProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -47,7 +51,7 @@ export function FeedActions({
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </div>
-        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">
+        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">
           {selectedCount > 0 ? `${selectedCount} Selected` : 'Select'}
         </span>
       </button>
@@ -73,7 +77,7 @@ export function FeedActions({
             </svg>
           )}
         </div>
-        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Download</span>
+        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Download</span>
       </button>
 
       {/* SHARE */}
@@ -88,7 +92,7 @@ export function FeedActions({
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </div>
-        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Share</span>
+        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Share</span>
       </button>
 
       {/* REPOST / COLLECTION */}
@@ -109,7 +113,7 @@ export function FeedActions({
             <path d="M21 13v2a4 4 0 0 1-4 4H3" />
           </svg>
         </div>
-        <div className="w-full flex justify-center px-1">
+        <div className="hidden md:flex w-full justify-center px-1">
           <span className={`text-[10px] font-bold drop-shadow-lg truncate text-center transition-colors uppercase tracking-wider w-full scale-95 origin-top ${activeCollectionFilter ? 'text-emerald-400 font-extrabold' : 'text-white'}`}>
             {activeCollectionFilter || 'Collection'}
           </span>
@@ -134,6 +138,22 @@ export function FeedActions({
 
         {showOptions && (
           <div className="absolute right-[50px] bottom-0 w-40 rounded-xl bg-white/95 py-2 shadow-xl backdrop-blur-xl dark:bg-zinc-900/95 border border-black/10 dark:border-white/10 overflow-hidden transform-origin-bottom-right animate-fade-in">
+            {canEdit && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOptions(false);
+                  const url = window.prompt('Enter Media URL (Image or Video):');
+                  if (url && onAddMedia) {
+                    onAddMedia(variant.id, url);
+                  }
+                }}
+                className="flex w-full items-center px-4 py-2 text-sm text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 font-bold"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round"></path></svg>
+                Add Media
+              </button>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); setShowOptions(false); onDelete?.(); }}
               className="flex w-full items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
