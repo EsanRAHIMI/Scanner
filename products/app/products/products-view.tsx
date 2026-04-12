@@ -1967,16 +1967,16 @@ export function ProductsView({
     if (previewIndex === null) return;
     if (!previewId) return;
 
-    const idx = galleryItems.findIndex((x) => x.id === previewId);
+    const idx = galleryItems.findIndex((x: any) => x.id === previewId);
     if (idx >= 0) {
       if (idx !== previewIndex) setPreviewIndex(idx);
       return;
     }
 
-    const prev = allGalleryItems.find((x) => x.id === previewId) ?? null;
+    const prev = allGalleryItems.find((x: any) => x.id === previewId) ?? null;
     const familyKey = (prev?.collectionNameNormalized || '').trim();
     if (familyKey) {
-      const mappedIdx = galleryItems.findIndex((x) => x.collectionNameNormalized === familyKey);
+      const mappedIdx = galleryItems.findIndex((x: any) => x.collectionNameNormalized === familyKey);
       if (mappedIdx >= 0) {
         setPreviewIndex(mappedIdx);
         setPreviewId(galleryItems[mappedIdx].id);
@@ -1988,7 +1988,7 @@ export function ProductsView({
       setPreviewIndex(0);
       setPreviewId(galleryItems[0].id);
     }
-  }, [previewId, previewIndex, allGalleryItems.map((x) => x.id).join('|'), galleryItems.map((x) => x.id).join('|')]);
+  }, [previewId, previewIndex, allGalleryItems.map((x: any) => x.id).join('|'), galleryItems.map((x: any) => x.id).join('|')]);
 
   const toggleSelected = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
