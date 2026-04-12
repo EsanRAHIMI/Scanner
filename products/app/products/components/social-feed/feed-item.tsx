@@ -131,27 +131,30 @@ export function FeedItem({
 
       {/* OVERLAYS */}
       
+      {/* OVERLAYS */}
+      
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/60" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/0 via-black/0 to-black/20 h-32" />
 
-      {/* Top Media Counter */}
+      {/* Top Media Info (Counter & Pagination Dots) */}
       {allMedia.length > 1 && (
-        <div className="absolute top-[env(safe-area-inset-top)] left-1/2 -translate-x-1/2 mt-4 px-3 py-1 rounded-full bg-black/30 backdrop-blur-md text-white/90 text-[11px] font-bold tracking-widest pointer-events-none border border-white/10 z-50">
-          {activeMediaIndex + 1} / {allMedia.length}
-        </div>
-      )}
-
-      {/* Horizontal pagination dots */}
-      {allMedia.length > 1 && (
-        <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+10px)] left-0 right-0 z-[60] flex justify-center gap-1.5 pointer-events-none mb-1">
-          {allMedia.map((_, i) => (
-            <div 
-              key={i} 
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                activeMediaIndex === i ? 'w-4 bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'w-1.5 bg-white/40'
-              }`} 
-            />
-          ))}
+        <div className="absolute top-[env(safe-area-inset-top)] left-1/2 -translate-x-1/2 z-50 mt-4 flex flex-col items-center gap-2 pointer-events-none">
+          {/* Counter Pill */}
+          <div className="px-3 py-1 rounded-full bg-black/30 backdrop-blur-md text-white/90 text-[11px] font-bold tracking-widest border border-white/10 shadow-sm">
+            {activeMediaIndex + 1} / {allMedia.length}
+          </div>
+          
+          {/* Dots Indicator */}
+          <div className="flex justify-center gap-1.5">
+            {allMedia.map((_, i) => (
+              <div 
+                key={i} 
+                className={`h-1 rounded-full transition-all duration-300 ${
+                  activeMediaIndex === i ? 'w-4 bg-white shadow-[0_0_6px_rgba(255,255,255,0.6)]' : 'w-1 bg-white/40'
+                }`} 
+              />
+            ))}
+          </div>
         </div>
       )}
 
