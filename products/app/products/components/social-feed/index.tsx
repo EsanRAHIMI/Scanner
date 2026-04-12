@@ -121,12 +121,32 @@ export function SocialFeed({
     } catch {}
   };
 
-  const handleShareMedia = async (url: string) => {
+  const handleShareMedia = async (variant: FeedVariant, mediaUrl: string) => {
+    const message = `📦 مشخصات محصول
+------------------
+🏷️ نام: ${variant.title || '---'}
+🔢 کد: ${variant.codeNumber || variant.code || '---'}
+🆔 ورینت: ${variant.variant || '---'}
+📏 سایز: ${variant.dimension || '---'}
+💰 قیمت: ${variant.price || '---'}
+
+🔗 لینک: ${mediaUrl}`;
+
     try {
-      await navigator.clipboard.writeText(url);
-      alert('Link copied to clipboard!');
-    } catch {
-      alert('Failed to copy link');
+      if (navigator.share) {
+        await navigator.share({
+          title: variant.title,
+          text: message,
+          url: mediaUrl,
+        });
+      } else {
+        await navigator.clipboard.writeText(message);
+        alert('مشخصات محصول در حافظه کپی شد!');
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        alert('خطا در اشتراک‌گذاری');
+      }
     }
   };
 
@@ -174,7 +194,7 @@ export function SocialFeed({
               isSelected={selectedIds.has(variant.id)}
               onToggleSelect={() => onToggleSelect(variant.id)}
               onDownloadMedia={handleDownloadMedia}
-              onShareMedia={handleShareMedia}
+              onShareMedia={(v, url) => handleShareMedia(v, url)}
               onShowCollection={() => {
                 const key = variant.collectionNameNormalized;
                 if (key) {

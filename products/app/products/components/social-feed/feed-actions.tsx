@@ -51,9 +51,11 @@ export function FeedActions({
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </div>
-        <span className={`text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top ${selectedCount > 0 ? 'block' : 'hidden md:block'}`}>
-          {selectedCount > 0 ? `${selectedCount} Selected` : 'Select'}
-        </span>
+        <div className="flex h-4 items-center justify-center">
+          <span className={`text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top ${selectedCount > 0 ? 'block' : 'hidden md:block'}`}>
+            {selectedCount > 0 ? selectedCount : 'Select'}
+          </span>
+        </div>
       </button>
 
       {/* COMMENT / DOWNLOAD */}
@@ -77,7 +79,9 @@ export function FeedActions({
             </svg>
           )}
         </div>
-        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Download</span>
+        <div className="flex h-4 items-center justify-center">
+          <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Download</span>
+        </div>
       </button>
 
       {/* SHARE */}
@@ -92,7 +96,9 @@ export function FeedActions({
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </div>
-        <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Share</span>
+        <div className="flex h-4 items-center justify-center">
+          <span className="hidden md:block text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Share</span>
+        </div>
       </button>
 
       {/* REPOST / COLLECTION */}
@@ -113,8 +119,8 @@ export function FeedActions({
             <path d="M21 13v2a4 4 0 0 1-4 4H3" />
           </svg>
         </div>
-        <div className={`w-full flex justify-center px-1 ${activeCollectionFilter ? 'block' : 'hidden md:flex'}`}>
-          <span className={`text-[10px] font-bold drop-shadow-lg truncate text-center transition-colors uppercase tracking-wider w-full scale-95 origin-top ${activeCollectionFilter ? 'text-emerald-400 font-extrabold' : 'text-white'}`}>
+        <div className="flex h-4 w-full items-center justify-center px-1">
+          <span className={`text-[10px] font-bold drop-shadow-lg truncate text-center transition-colors uppercase tracking-wider w-full scale-95 origin-top ${activeCollectionFilter ? 'text-emerald-400 font-extrabold' : 'text-white'} ${activeCollectionFilter ? 'block' : 'hidden md:block'}`}>
             {activeCollectionFilter || 'Collection'}
           </span>
         </div>

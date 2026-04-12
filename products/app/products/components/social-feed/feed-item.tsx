@@ -10,7 +10,7 @@ interface FeedItemProps {
   isSelected: boolean;
   onToggleSelect: () => void;
   onDownloadMedia: (mediaUrl: string) => Promise<void>;
-  onShareMedia: (mediaUrl: string) => Promise<void>;
+  onShareMedia: (variant: FeedVariant, mediaUrl: string) => Promise<void>;
   onShowCollection: () => void;
   onDeleteMedia?: (mediaUrl: string) => void;
   activeCollectionFilter?: string | null;
@@ -159,7 +159,7 @@ export function FeedItem({
         isSelected={isSelected} 
         onToggleSelect={onToggleSelect} 
         onDownload={() => onDownloadMedia(currentMediaUrl)} 
-        onShare={() => onShareMedia(currentMediaUrl)} 
+        onShare={() => onShareMedia(variant, currentMediaUrl)} 
         onShowCollection={onShowCollection} 
         onDelete={onDeleteMedia ? () => onDeleteMedia(currentMediaUrl) : undefined}
         activeCollectionFilter={activeCollectionFilter}
