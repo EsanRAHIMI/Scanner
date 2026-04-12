@@ -7,6 +7,7 @@ export interface SocialFeedProps {
   initialVariantId: string | null;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  onClose: () => void;
   onFilterCollection: (collectionName: string | null) => void;
   activeCollectionName?: string | null;
   selectedCount: number;
