@@ -2001,8 +2001,8 @@ export function ProductsView({
 
   const getSelectedItems = React.useCallback(
     (fallbackIndex: number | null) => {
-      const byId = new Map(baseGalleryItems.map((x) => [x.id, x] as const));
-      const picked = [...selectedIds].map((id) => byId.get(id)).filter((x): x is (typeof galleryItems)[number] => !!x);
+      const byId = new Map(baseGalleryItems.map((x: any) => [x.id, x] as const));
+      const picked = [...selectedIds].map((id) => byId.get(id)).filter((x: any): x is any => !!x);
       if (picked.length > 0) return picked;
       if (fallbackIndex === null) return [];
       const current = galleryItems[fallbackIndex];
@@ -2015,7 +2015,7 @@ export function ProductsView({
     const items = getSelectedItems(previewIndex);
     if (items.length === 0) return;
 
-    logFrontendEvent('PRODUCT_DOWNLOAD', `Downloaded ${items.length} items: ${items.map(x => x.code || x.title).join(', ')}`);
+    logFrontendEvent('PRODUCT_DOWNLOAD', `Downloaded ${items.length} items: ${items.map((x: any) => x.code || x.title).join(', ')}`);
 
     for (const item of items) {
       try {
@@ -2044,7 +2044,7 @@ export function ProductsView({
 
   const currentIndex = React.useMemo(() => {
     if (previewId) {
-      const idx = galleryItems.findIndex((x) => x.id === previewId);
+      const idx = galleryItems.findIndex((x: any) => x.id === previewId);
       return idx >= 0 ? idx : null;
     }
     if (previewIndex === null) return null;
@@ -2053,7 +2053,7 @@ export function ProductsView({
 
   const currentItem = React.useMemo(() => {
     if (previewId) {
-      const found = galleryItems.find((x) => x.id === previewId);
+      const found = galleryItems.find((x: any) => x.id === previewId);
       if (found) return found;
     }
     if (previewIndex === null) return null;
@@ -2064,15 +2064,15 @@ export function ProductsView({
     const key = (currentItem?.collectionNameNormalized || '').trim();
     if (!key) return [] as (typeof allGalleryItems)[number][];
 
-    const variants = allGalleryItems.filter((x) => x.collectionNameNormalized === key);
+    const variants = allGalleryItems.filter((x: any) => x.collectionNameNormalized === key);
 
     const currentId = currentItem?.id ?? null;
     if (!currentId) return variants;
 
-    const current = variants.find((x) => x.id === currentId) ?? null;
-    const rest = variants.filter((x) => x.id !== currentId);
+    const current = variants.find((x: any) => x.id === currentId) ?? null;
+    const rest = variants.filter((x: any) => x.id !== currentId);
 
-    rest.sort((a, b) => {
+    rest.sort((a: any, b: any) => {
       const av = (a.variant || '').toString();
       const bv = (b.variant || '').toString();
       const an = Number.parseFloat(av);
