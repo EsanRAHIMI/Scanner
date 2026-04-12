@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
+import { SocialFeed } from './components/social-feed';
 
 async function logFrontendEvent(action: string, details: string = '', resourceId?: string) {
   try {
@@ -919,6 +920,7 @@ export function ProductsView({
   const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('gallery');
   const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
   const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
@@ -1625,9 +1627,20 @@ export function ProductsView({
         
         const damUrls = extractUrls(urlKey ? fields[urlKey] : undefined);
         const imageUrls = extractUrls(fields.Image);
-        const rawUrl = damUrls[0] || imageUrls[0] || '';
-        const url = getDriveDirectLink(rawUrl);
-        const driveId = url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+        
+        const allMedia = [...damUrls, ...imageUrls].map(u => {
+          const directUrl = getDriveDirectLink(u);
+          return {
+            originalUrl: u,
+            url: directUrl,
+            driveId: directUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null,
+            isVideo: isVideoUrl(u)
+          };
+        });
+
+        const rawUrl = allMedia[0]?.originalUrl || '';
+        const url = allMedia[0]?.url || '';
+        const driveId = allMedia[0]?.driveId || null;
 
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
@@ -1659,12 +1672,21 @@ export function ProductsView({
           formatScalar(fields['Note']) ||
           formatScalar(fields['NOTE']) ||
           (ntKey ? formatScalar(fields[ntKey]) : '');
+        const category = formatScalar(fields['Category']);
+        const space = formatScalar(fields['Space']);
+        const color = formatScalar(fields['Color']);
+        const material = formatScalar(fields['Material']);
+        const codeNumber = formatScalar(fields['CODE NUMBER']) || formatScalar(fields['Code Number']);
+        const l000 = formatScalar(fields['L000']);
+        const num = formatScalar(fields['Num']);
+        const isMain = fields['Main'] === true;
 
         return {
           id: r.id,
           url,
           originalUrl: rawUrl,
           driveId,
+          allMedia,
           title,
           collectionName,
           collectionNameNormalized,
@@ -1673,6 +1695,14 @@ export function ProductsView({
           dimension,
           note,
           price,
+          category,
+          space,
+          color,
+          material,
+          codeNumber,
+          l000,
+          num,
+          isMain
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -1688,9 +1718,20 @@ export function ProductsView({
         });
         const damUrls = extractUrls(urlEntry?.[1]);
         const imageUrls = extractUrls(fields.Image);
-        const rawUrl = damUrls[0] || imageUrls[0] || '';
-        const url = getDriveDirectLink(rawUrl);
-        const driveId = url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null;
+        
+        const allMedia = [...damUrls, ...imageUrls].map(u => {
+          const directUrl = getDriveDirectLink(u);
+          return {
+            originalUrl: u,
+            url: directUrl,
+            driveId: directUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null,
+            isVideo: isVideoUrl(u)
+          };
+        });
+
+        const rawUrl = allMedia[0]?.originalUrl || '';
+        const url = allMedia[0]?.url || '';
+        const driveId = allMedia[0]?.driveId || null;
 
         const collectionName =
           formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
@@ -1714,12 +1755,21 @@ export function ProductsView({
           (noteKey ? formatScalar(fields[noteKey]) : '');
 
         const price = formatPrice(fields['Price']);
+        const category = formatScalar(fields['Category']);
+        const space = formatScalar(fields['Space']);
+        const color = formatScalar(fields['Color']);
+        const material = formatScalar(fields['Material']);
+        const codeNumber = formatScalar(fields['CODE NUMBER']) || formatScalar(fields['Code Number']);
+        const l000 = formatScalar(fields['L000']);
+        const num = formatScalar(fields['Num']);
+        const isMain = fields['Main'] === true;
 
         return {
           id: r.id,
           url,
           originalUrl: rawUrl,
           driveId,
+          allMedia,
           title,
           collectionName,
           collectionNameNormalized,
@@ -1728,6 +1778,14 @@ export function ProductsView({
           dimension,
           note,
           price,
+          category,
+          space,
+          color,
+          material,
+          codeNumber,
+          l000,
+          num,
+          isMain
         };
       })
       .filter((x) => Boolean(x.url));
@@ -2749,6 +2807,35 @@ export function ProductsView({
     </button>
   );
 
+  const maxModeToggleNode = (
+    <button
+      type="button"
+      onClick={() => setMaxMode((m) => (m === 'classic' ? 'social' : 'classic'))}
+      aria-pressed={maxMode === 'social'}
+      title={maxMode === 'social' ? 'Switch to Classic Lightbox' : 'Switch to Social Feed'}
+      className={
+        headerToggleBase +
+        (maxMode === 'social'
+          ? ' border-emerald-500/20 bg-emerald-50 text-emerald-600 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-400'
+          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
+      }
+    >
+      {maxMode === 'social' ? (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+          <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+          <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <line x1="12" y1="8" x2="12" y2="16" />
+          <line x1="8" y1="12" x2="16" y2="12" />
+        </svg>
+      )}
+    </button>
+  );
+
   // Portal dropdown for Space/Color/Material/Category editing
   const fieldEditPortal = React.useMemo(() => {
     if (typeof document === 'undefined') return null;
@@ -2899,6 +2986,7 @@ export function ProductsView({
           <div className="flex flex-none items-center gap-2">
             {familyToggleNode}
             {viewToggleNode}
+            {maxModeToggleNode}
             {themeToggleNode}
             <AccountMenu onAuthChange={fetchUserSession} />
           </div>
@@ -2920,6 +3008,7 @@ export function ProductsView({
             <div className="flex items-center gap-2">
               {familyToggleNode}
               {viewToggleNode}
+              {maxModeToggleNode}
               {themeToggleNode}
               <AccountMenu onAuthChange={fetchUserSession} />
             </div>
@@ -3364,7 +3453,21 @@ export function ProductsView({
         </div>
       ) : null}
 
-      {currentItem?.url ? (
+      {currentItem?.url && maxMode === 'social' && (
+        <SocialFeed
+          variants={galleryItems as any}
+          initialVariantId={previewId}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelected}
+          onClose={closePreview}
+          onFilterCollection={(name) => {
+            setFamilyCollectionName(name);
+            logFrontendEvent('COLLECTION_VIEW_SOCIAL', `Switched to collection: ${name}`);
+          }}
+        />
+      )}
+
+      {currentItem?.url && maxMode === 'classic' && (
         <div
           className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
           role="dialog"
@@ -3655,7 +3758,7 @@ export function ProductsView({
             </div>
           </div>
         </div>
-      ) : null}
+      )}
       {linkHoverState && (
         <div 
           className="fixed z-[2000] pointer-events-none animate-fade-in"
