@@ -9,9 +9,21 @@ interface FeedActionsProps {
   onShare: () => Promise<void>;
   onShowCollection: () => void;
   onDelete?: () => void;
+  activeCollectionFilter?: string | null;
+  selectedCount: number;
 }
 
-export function FeedActions({ variant, isSelected, onToggleSelect, onDownload, onShare, onShowCollection, onDelete }: FeedActionsProps) {
+export function FeedActions({ 
+  variant, 
+  isSelected, 
+  onToggleSelect, 
+  onDownload, 
+  onShare, 
+  onShowCollection, 
+  onDelete,
+  activeCollectionFilter,
+  selectedCount
+}: FeedActionsProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
 
@@ -28,14 +40,16 @@ export function FeedActions({ variant, isSelected, onToggleSelect, onDownload, o
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-        className="group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-90"
+        className="group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95"
       >
-        <div className={`flex h-[42px] w-[42px] items-center justify-center rounded-full backdrop-blur-md transition-colors ${isSelected ? 'bg-red-500/90 text-white' : 'bg-black/20 text-white hover:bg-black/40'}`}>
-          <svg viewBox="0 0 24 24" className={`h-6 w-6 transition-transform ${isSelected ? 'fill-current scale-110' : 'fill-none'}`} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className={`flex h-[40px] w-[40px] items-center justify-center rounded-full transition-all duration-300 ${isSelected ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]' : 'text-white hover:text-white/80'}`}>
+          <svg viewBox="0 0 24 24" className={`h-6 w-6 transition-transform ${isSelected ? 'fill-current scale-110' : 'fill-none'}`} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </div>
-        <span className="text-[11px] font-semibold text-white drop-shadow-md">Select</span>
+        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">
+          {selectedCount > 0 ? `${selectedCount} Selected` : 'Select'}
+        </span>
       </button>
 
       {/* COMMENT / DOWNLOAD */}
@@ -43,55 +57,63 @@ export function FeedActions({ variant, isSelected, onToggleSelect, onDownload, o
         type="button" 
         onClick={handleDownload}
         disabled={isDownloading}
-        className="group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-90 disabled:opacity-50"
+        className="group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95 disabled:opacity-50"
       >
-        <div className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-md hover:bg-black/40">
+        <div className="flex h-[40px] w-[40px] items-center justify-center text-white hover:text-white/80">
           {isDownloading ? (
-             <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+             <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" className="opacity-75" />
              </svg>
           ) : (
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
           )}
         </div>
-        <span className="text-[11px] font-semibold text-white drop-shadow-md">Save</span>
+        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Download</span>
       </button>
 
       {/* SHARE */}
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); onShare(); }}
-        className="group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-90"
+        className="group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95"
       >
-        <div className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-md hover:bg-black/40">
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none -mt-0.5 -ml-0.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex h-[40px] w-[40px] items-center justify-center text-white hover:text-white/80">
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none -mt-0.5 -ml-0.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </div>
-        <span className="text-[11px] font-semibold text-white drop-shadow-md">Share</span>
+        <span className="text-[10px] font-bold text-white drop-shadow-lg uppercase tracking-wider scale-95 origin-top">Share</span>
       </button>
 
       {/* REPOST / COLLECTION */}
       <button 
         type="button" 
         onClick={(e) => { e.stopPropagation(); onShowCollection(); }}
-        className="group relative flex flex-col items-center justify-center gap-1 transition-transform active:scale-90"
+        className="group relative flex w-16 flex-col items-center justify-center gap-0.5 transition-transform active:scale-95"
       >
-        <div className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-emerald-500/80 text-white backdrop-blur-md hover:bg-emerald-600/90 shadow-lg shadow-emerald-900/20">
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className={`flex h-[40px] w-[40px] items-center justify-center transition-all duration-300 ${
+          activeCollectionFilter 
+            ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]' 
+            : 'text-white hover:text-white/80'
+        }`}>
+          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="17 1 21 5 17 9" />
             <path d="M3 11V9a4 4 0 0 1 4-4h14" />
             <polyline points="7 23 3 19 7 15" />
             <path d="M21 13v2a4 4 0 0 1-4 4H3" />
           </svg>
         </div>
-        <span className="text-[11px] font-semibold text-white drop-shadow-md">Collection</span>
+        <div className="w-full flex justify-center px-1">
+          <span className={`text-[10px] font-bold drop-shadow-lg truncate text-center transition-colors uppercase tracking-wider w-full scale-95 origin-top ${activeCollectionFilter ? 'text-emerald-400 font-extrabold' : 'text-white'}`}>
+            {activeCollectionFilter || 'Collection'}
+          </span>
+        </div>
       </button>
 
       {/* MORE OPTIONS */}

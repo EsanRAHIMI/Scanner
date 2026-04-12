@@ -13,6 +13,8 @@ interface FeedItemProps {
   onShareMedia: (mediaUrl: string) => Promise<void>;
   onShowCollection: () => void;
   onDeleteMedia?: (mediaUrl: string) => void;
+  activeCollectionFilter?: string | null;
+  selectedCount: number;
 }
 
 export function FeedItem({
@@ -24,6 +26,8 @@ export function FeedItem({
   onShareMedia,
   onShowCollection,
   onDeleteMedia,
+  activeCollectionFilter,
+  selectedCount
 }: FeedItemProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
@@ -54,6 +58,41 @@ export function FeedItem({
 
   const allMedia = variant.allMedia || [];
   const currentMediaUrl = allMedia[activeMediaIndex]?.url || variant.url;
+
+  // Keyboard navigation for Horizontal Scroll (Media within variant)
+  useEffect(() => {
+    if (!isActive) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if focus is in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'ArrowRight') {
+        if (activeMediaIndex < allMedia.length - 1) {
+          e.preventDefault();
+          const nextIndex = activeMediaIndex + 1;
+          scrollContainerRef.current?.scrollTo({
+            left: nextIndex * scrollContainerRef.current.clientWidth,
+            behavior: 'smooth'
+          });
+          setActiveMediaIndex(nextIndex);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        if (activeMediaIndex > 0) {
+          e.preventDefault();
+          const prevIndex = activeMediaIndex - 1;
+          scrollContainerRef.current?.scrollTo({
+            left: prevIndex * scrollContainerRef.current.clientWidth,
+            behavior: 'smooth'
+          });
+          setActiveMediaIndex(prevIndex);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive, activeMediaIndex, allMedia.length]);
 
   return (
     <div className="relative h-full w-full snap-start snap-always bg-black flex-none overflow-hidden touch-pan-y">
@@ -119,6 +158,8 @@ export function FeedItem({
         onShare={() => onShareMedia(currentMediaUrl)} 
         onShowCollection={onShowCollection} 
         onDelete={onDeleteMedia ? () => onDeleteMedia(currentMediaUrl) : undefined}
+        activeCollectionFilter={activeCollectionFilter}
+        selectedCount={selectedCount}
       />
 
       {/* Caption (Bottom) */}

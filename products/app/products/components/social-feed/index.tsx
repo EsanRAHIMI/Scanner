@@ -8,7 +8,9 @@ export interface SocialFeedProps {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onClose: () => void;
-  onFilterCollection: (collectionName: string) => void;
+  onFilterCollection: (collectionName: string | null) => void;
+  activeCollectionName?: string | null;
+  selectedCount: number;
 }
 
 export function SocialFeed({
@@ -17,7 +19,9 @@ export function SocialFeed({
   selectedIds,
   onToggleSelect,
   onClose,
-  onFilterCollection
+  onFilterCollection,
+  activeCollectionName,
+  selectedCount
 }: SocialFeedProps) {
 
   // Resolve initial index
@@ -32,8 +36,11 @@ export function SocialFeed({
 
   // Set initial scroll position logic on mount
   useEffect(() => {
-    if (containerRef.current && initialIndex > 0) {
-      containerRef.current.scrollTop = initialIndex * window.innerHeight;
+    if (containerRef.current) {
+      if (initialIndex > 0) {
+        containerRef.current.scrollTop = initialIndex * containerRef.current.clientHeight;
+      }
+      containerRef.current.focus();
     }
   }, []); // Only on mount
 
@@ -56,6 +63,43 @@ export function SocialFeed({
     el.addEventListener('scroll', handleScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleScroll);
   }, [activeIndex]);
+
+  // Keyboard navigation for Vertical Scroll (Products)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if focus is in an input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'ArrowDown') {
+        if (activeIndex < variants.length - 1) {
+          e.preventDefault();
+          const nextIndex = activeIndex + 1;
+          const height = containerRef.current?.clientHeight || window.innerHeight;
+          containerRef.current?.scrollTo({
+            top: nextIndex * height,
+            behavior: 'smooth'
+          });
+          setActiveIndex(nextIndex);
+        }
+      } else if (e.key === 'ArrowUp') {
+        if (activeIndex > 0) {
+          e.preventDefault();
+          const prevIndex = activeIndex - 1;
+          const height = containerRef.current?.clientHeight || window.innerHeight;
+          containerRef.current?.scrollTo({
+            top: prevIndex * height,
+            behavior: 'smooth'
+          });
+          setActiveIndex(prevIndex);
+        }
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeIndex, variants.length, onClose]);
 
   const handleDownloadMedia = async (url: string) => {
     try {
@@ -83,7 +127,11 @@ export function SocialFeed({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black text-white touch-none">
+    <div 
+      className="fixed inset-0 z-[1000] bg-black text-white focus:outline-none"
+      tabIndex={0}
+      onMouseDown={() => containerRef.current?.focus()}
+    >
       
       {/* Header Overlay */}
       <div className="absolute top-0 left-0 right-0 z-[1050] flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
@@ -96,16 +144,14 @@ export function SocialFeed({
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
-        <div className="font-bold tracking-widest text-[13px] drop-shadow-md text-white/90">
-          PRODUCTS FEED
-        </div>
         <div className="w-10" />
       </div>
 
       {/* Vertical Snap Container */}
       <div 
         ref={containerRef}
-        className="h-full w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory scrollbar-none"
+        tabIndex={-1}
+        className="h-full w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory scrollbar-none focus:outline-none"
         style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
       >
         {variants.map((variant, idx) => (
@@ -128,10 +174,17 @@ export function SocialFeed({
               onShowCollection={() => {
                 const key = variant.collectionNameNormalized;
                 if (key) {
-                  onFilterCollection(key);
-                  onClose();
+                  // Toggle behavior: If already filtering THIS collection, clear it.
+                  if (activeCollectionName === key) {
+                    onFilterCollection(null);
+                  } else {
+                    onFilterCollection(key);
+                  }
+                  // We NO LONGER call onClose() here to stay in the feed
                 }
               }}
+              activeCollectionFilter={activeCollectionName}
+              selectedCount={selectedCount}
             />
           </div>
         ))}

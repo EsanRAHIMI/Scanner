@@ -1482,9 +1482,24 @@ export function ProductsView({
       });
     }
 
-    if (!showSelectedOnly) return base;
+    if (!showSelectedOnly) {
+      // Family Collection Filter
+      if (familyCollectionName) {
+        const key = familyCollectionName.toLowerCase().trim();
+        base = base.filter(r => {
+          const name = (
+            formatScalar(r.fields?.['Colecction Name']) || 
+            formatScalar(r.fields?.Name) || 
+            formatScalar(r.fields?.['Collection Name']) || 
+            ''
+          ).toLowerCase().trim();
+          return name === key;
+        });
+      }
+      return base;
+    }
     return base.filter((r) => selectedIds.has(r.id));
-  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName]);
+  }, [displayedColumns, getSearchText, records, search, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName, familyCollectionName]);
 
   const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
     const k = key.trim().toLowerCase();
@@ -1578,7 +1593,8 @@ export function ProductsView({
   }, [sortedRecords]);
 
   const visibleRecords = React.useMemo(() => {
-    if (familyMode !== 'main') return sortedRecords;
+    // If we are filtering by a specific collection, we always want to see ALL variants
+    if (familyMode !== 'main' || familyCollectionName) return sortedRecords;
 
     const groupMap = new Map<string, ProductsRecord>();
     const out: ProductsRecord[] = [];
@@ -3475,8 +3491,10 @@ export function ProductsView({
           onClose={closePreview}
           onFilterCollection={(name) => {
             setFamilyCollectionName(name);
-            logFrontendEvent('COLLECTION_VIEW_SOCIAL', `Switched to collection: ${name}`);
+            logFrontendEvent('COLLECTION_VIEW_SOCIAL', name ? `Switched to collection: ${name}` : 'Cleared collection filter');
           }}
+          activeCollectionName={familyCollectionName}
+          selectedCount={selectedIds.size}
         />
       )}
 
