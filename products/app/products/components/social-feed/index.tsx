@@ -13,6 +13,7 @@ export interface SocialFeedProps {
   selectedCount: number;
   canEdit?: boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
+  onUpdateVariant?: (id: string, fields: Record<string, any>) => Promise<void>;
 }
 
 export function SocialFeed({
@@ -25,7 +26,8 @@ export function SocialFeed({
   activeCollectionName,
   selectedCount,
   canEdit,
-  onAddMedia
+  onAddMedia,
+  onUpdateVariant
 }: SocialFeedProps) {
 
   // Resolve initial index
@@ -37,6 +39,9 @@ export function SocialFeed({
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [showFilterHint, setShowFilterHint] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
   const containerRef = useRef<HTMLDivElement>(null);
   const hintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -108,13 +113,48 @@ export function SocialFeed({
           setActiveIndex(prevIndex);
         }
       } else if (e.key === 'Escape') {
-        onClose();
+        if (showSearch) {
+          setShowSearch(false);
+          setSearchQuery('');
+        } else {
+          onClose();
+        }
+      } else if (e.key === '/' && !showSearch) {
+        e.preventDefault();
+        setShowSearch(true);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeIndex, variants.length, onClose, activeCollectionName, showFilterHint]);
+  }, [activeIndex, variants.length, onClose, activeCollectionName, showFilterHint, showSearch]);
+
+  const handleSearch = (q: string) => {
+    setSearchQuery(q);
+    if (!q) return;
+
+    const lowerQ = q.toLowerCase().trim();
+    // Try search by code first, then title
+    const foundIdx = variants.findIndex(v => {
+      const code = (v.codeNumber || v.code || '').toLowerCase();
+      const title = (v.title || '').toLowerCase();
+      return code.includes(lowerQ) || title.includes(lowerQ);
+    });
+
+    if (foundIdx >= 0 && foundIdx !== activeIndex) {
+      const height = containerRef.current?.clientHeight || window.innerHeight;
+      containerRef.current?.scrollTo({
+        top: foundIdx * height,
+        behavior: 'smooth'
+      });
+      setActiveIndex(foundIdx);
+      // Close search after finding
+      setTimeout(() => {
+        setShowSearch(false);
+        setSearchQuery('');
+      }, 800);
+    }
+  };
 
   // Touch/Wheel overscroll detection
   useEffect(() => {
@@ -218,6 +258,36 @@ export function SocialFeed({
         <div className="w-10" />
       </div>
 
+      {/* Quick Search Overlay */}
+      {showSearch && (
+        <div className="absolute inset-x-0 top-20 z-[2000] flex justify-center px-4 animate-fade-in">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/20 bg-zinc-950/40 p-1 backdrop-blur-3xl shadow-2xl">
+            <div className="relative flex items-center">
+              <div className="absolute left-4 text-white/40">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </div>
+              <input 
+                autoFocus
+                type="text"
+                placeholder="Product Code or Name..."
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="h-12 w-full bg-transparent pl-12 pr-4 text-sm font-bold text-white outline-none placeholder:text-white/20"
+              />
+              <button 
+                onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+                className="mr-2 rounded-lg bg-white/10 px-2 py-1 text-[10px] font-black uppercase text-white/60 hover:bg-white/20"
+              >
+                Esc
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Vertical Snap Container */}
       <div 
         ref={containerRef}
@@ -238,6 +308,7 @@ export function SocialFeed({
             <FeedItem 
               variant={variant}
               isActive={idx === activeIndex}
+              shouldPreload={Math.abs(idx - activeIndex) === 1}
               isSelected={selectedIds.has(variant.id)}
               onToggleSelect={() => onToggleSelect(variant.id)}
               onDownloadMedia={handleDownloadMedia}
@@ -258,6 +329,7 @@ export function SocialFeed({
               selectedCount={selectedCount}
               canEdit={canEdit}
               onAddMedia={onAddMedia}
+              onUpdateVariant={onUpdateVariant}
               triggerFilterHint={idx === activeIndex ? showFilterHint : false}
             />
           </div>

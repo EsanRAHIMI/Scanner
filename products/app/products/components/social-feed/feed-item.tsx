@@ -7,6 +7,7 @@ import { FeedCaption } from './feed-caption';
 interface FeedItemProps {
   variant: FeedVariant;
   isActive: boolean; // True when this variant is taking up the main screen vertically
+  shouldPreload?: boolean; // True if this item is adjacent to the active one
   isSelected: boolean;
   onToggleSelect: () => void;
   onDownloadMedia: (mediaUrl: string) => Promise<void>;
@@ -17,12 +18,14 @@ interface FeedItemProps {
   selectedCount: number;
   canEdit?: boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
+  onUpdateVariant?: (id: string, fields: Record<string, any>) => Promise<void>;
   triggerFilterHint?: boolean;
 }
 
 export function FeedItem({
   variant,
   isActive,
+  shouldPreload,
   isSelected,
   onToggleSelect,
   onDownloadMedia,
@@ -33,6 +36,7 @@ export function FeedItem({
   selectedCount,
   canEdit,
   onAddMedia,
+  onUpdateVariant,
   triggerFilterHint
 }: FeedItemProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -112,29 +116,29 @@ export function FeedItem({
           ref={scrollContainerRef}
           className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden scrollbar-none"
           style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
-          onPointerDown={(e) => {
-            // Stop pointer down from bleeding into any hidden iframe interaction,
-            // but let normal flow happen for horizontal swiping
-          }}
         >
           {allMedia.map((media, idx) => (
             <div key={idx} className="h-full min-w-full w-full snap-center flex-none">
               <FeedMedia 
                 media={media} 
                 isActive={isActive} 
+                shouldPreload={shouldPreload}
                 isPrimary={isActive && activeMediaIndex === idx} 
+                onToggleSelect={onToggleSelect}
+                isSelected={isSelected}
               />
             </div>
           ))}
         </div>
       )}
 
-      {/* OVERLAYS */}
+      {/* VIGNETTES & OVERLAYS */}
       
-      {/* OVERLAYS */}
-      
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/0 via-black/0 to-black/60" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/0 via-black/0 to-black/20 h-32" />
+      {/* Top Vignette (for readability and edge masking) */}
+      <div className="pointer-events-none absolute top-0 left-0 right-0 h-40 bg-gradient-to-b from-black/60 to-transparent z-10" />
+
+      {/* Bottom Vignette (for caption readability) */}
+      <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10" />
 
       {/* Top Media Info (Counter & Pagination Dots) */}
       {allMedia.length > 1 && (
@@ -175,7 +179,11 @@ export function FeedItem({
       />
 
       {/* Caption (Bottom) */}
-      <FeedCaption variant={variant} />
+      <FeedCaption 
+        variant={variant} 
+        canEdit={canEdit} 
+        onUpdateVariant={onUpdateVariant} 
+      />
 
     </div>
   );

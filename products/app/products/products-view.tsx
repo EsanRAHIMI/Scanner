@@ -1391,6 +1391,32 @@ export function ProductsView({
   const uniqueSpaces = React.useMemo(() => SPACE_OPTIONS, []);
   const uniqueMaterials = React.useMemo(() => MATERIAL_OPTIONS, []);
 
+  const handleUpdateVariant = React.useCallback(async (id: string, fields: Record<string, any>) => {
+    try {
+      const res = await apiFetch(`/products/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      });
+      if (res.ok) {
+        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')}`, id);
+        setData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            records: prev.records.map(r => r.id === id ? { ...r, fields: { ...r.fields, ...fields } } : r)
+          };
+        });
+      } else {
+        const err = await res.json();
+        alert(`Update failed: ${err.message || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error('Inline update failed:', e);
+      alert('Network error during update');
+    }
+  }, [setData]);
+
   const displayedColumns = React.useMemo(() => {
     const isAdmin = user?.is_admin === true || user?.role === 'admin';
 
@@ -1867,9 +1893,28 @@ export function ProductsView({
   }, [sortedRecords]);
 
   const galleryItems = React.useMemo(() => {
-    if (!familyCollectionName) return baseGalleryItems;
+    // 1. Calculate counts per collection for all items
+    const counts: Record<string, number> = {};
+    for (const item of allGalleryItems) {
+      const key = item.collectionNameNormalized;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    // 2. Map items with counts
+    const mapped = allGalleryItems.map(item => ({
+      ...item,
+      siblingCount: counts[item.collectionNameNormalized] || 1
+    }));
+
+    // 3. Filter if needed
+    if (!familyCollectionName) {
+      // Return base gallery items but enriched with siblingCounts
+      const baseIds = new Set(baseGalleryItems.map(x => x.id));
+      return mapped.filter(x => baseIds.has(x.id)) as any;
+    }
+
     const key = familyCollectionName.trim();
-    return allGalleryItems.filter((x) => x.collectionNameNormalized === key);
+    return mapped.filter((x) => x.collectionNameNormalized === key) as any;
   }, [allGalleryItems, baseGalleryItems, familyCollectionName]);
 
   const openPreviewByUrl = React.useCallback(
@@ -3544,6 +3589,7 @@ export function ProductsView({
           selectedCount={selectedIds.size}
           canEdit={canEdit}
           onAddMedia={handleAddMediaToVariant}
+          onUpdateVariant={handleUpdateVariant}
         />
       )}
 

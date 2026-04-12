@@ -27,4 +27,5 @@ export interface FeedVariant {
   l000: string;
   num: string;
   isMain: boolean;
+  siblingCount: number;
 }
