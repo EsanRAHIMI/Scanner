@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 import { SocialFeed } from './components/social-feed';
+import type { FeedVariant } from './components/social-feed/types';
 
 async function logFrontendEvent(action: string, details: string = '', resourceId?: string) {
   try {
@@ -1889,7 +1890,7 @@ export function ProductsView({
           isMain
         };
       })
-      .filter((x) => Boolean(x.url));
+      .filter((x: any) => Boolean(x.url));
   }, [sortedRecords]);
 
   const galleryItems = React.useMemo(() => {
@@ -1901,7 +1902,7 @@ export function ProductsView({
     }
 
     // 2. Map items with counts
-    const mapped = allGalleryItems.map(item => ({
+    const mapped = allGalleryItems.map((item: FeedVariant) => ({
       ...item,
       siblingCount: counts[item.collectionNameNormalized] || 1
     }));
@@ -1909,26 +1910,26 @@ export function ProductsView({
     // 3. Filter if needed
     if (!familyCollectionName) {
       // Return base gallery items but enriched with siblingCounts
-      const baseIds = new Set(baseGalleryItems.map(x => x.id));
-      return mapped.filter(x => baseIds.has(x.id)) as any;
+      const baseIds = new Set(baseGalleryItems.map((x: FeedVariant) => x.id));
+      return mapped.filter((x: any) => baseIds.has(x.id)) as any;
     }
 
     const key = familyCollectionName.trim();
-    return mapped.filter((x) => x.collectionNameNormalized === key) as any;
+    return mapped.filter((x: any) => x.collectionNameNormalized === key) as any;
   }, [allGalleryItems, baseGalleryItems, familyCollectionName]);
 
   const openPreviewByUrl = React.useCallback(
     (url: string) => {
       if (!url) return;
       // Try exact match first (O(N) with fast string comparison)
-      let idx = galleryItems.findIndex((x) => x.url === url || x.originalUrl === url);
+      let idx = galleryItems.findIndex((x: FeedVariant) => x.url === url || x.originalUrl === url);
       
       // If no match, try by matching Drive IDs if applicable
       if (idx === -1 && (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com'))) {
         const inputId = getDriveDirectLink(url).match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
         if (inputId) {
           // pre-calculated driveId makes this very fast O(N) simple comparison
-          idx = galleryItems.findIndex(x => x.driveId === inputId);
+          idx = galleryItems.findIndex((x: FeedVariant) => x.driveId === inputId);
         }
       }
 
