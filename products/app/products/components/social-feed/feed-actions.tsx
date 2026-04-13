@@ -47,13 +47,11 @@ export function FeedActions({
         <button 
           type="button" 
           onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-          className={`group flex h-[48px] w-[48px] items-center justify-center rounded-full border transition-all duration-300 active:scale-90 ${
-            isSelected 
-              ? 'bg-red-500/20 border-red-500/40 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
-              : 'bg-zinc-950/40 backdrop-blur-3xl border-white/15 text-white hover:bg-zinc-900/60'
+          className={`flex h-[48px] w-[48px] items-center justify-center transition-all duration-300 active:scale-95 ${
+            isSelected ? 'text-red-500' : 'text-white/80 hover:text-white'
           }`}
         >
-          <svg viewBox="0 0 24 24" className={`h-6 w-6 transition-all duration-300 ${isSelected ? 'fill-current scale-110' : 'fill-none'}`} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className={`h-7 w-7 DropShadow transition-all duration-300 ${isSelected ? 'fill-current' : 'fill-none'}`} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
         </button>
@@ -68,15 +66,15 @@ export function FeedActions({
           type="button" 
           onClick={handleDownload}
           disabled={isDownloading}
-          className="group flex h-[48px] w-[48px] items-center justify-center rounded-full bg-zinc-950/40 backdrop-blur-3xl border border-white/15 text-white transition-all duration-300 hover:bg-zinc-900/60 active:scale-90 disabled:opacity-50"
+          className="flex h-[48px] w-[48px] items-center justify-center text-white/80 transition-all duration-300 hover:text-white active:scale-95 disabled:opacity-50"
         >
           {isDownloading ? (
-             <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+             <svg className="h-6 w-6 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" className="opacity-75" />
              </svg>
           ) : (
-            <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 24 24" className="h-7 w-7 DropShadow fill-none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
@@ -91,9 +89,9 @@ export function FeedActions({
         <button 
           type="button" 
           onClick={(e) => { e.stopPropagation(); onShare(); }}
-          className="group flex h-[48px] w-[48px] items-center justify-center rounded-full bg-zinc-950/40 backdrop-blur-3xl border border-white/15 text-white transition-all duration-300 hover:bg-zinc-900/60 active:scale-90"
+          className="flex h-[48px] w-[48px] items-center justify-center text-white/80 transition-all duration-300 hover:text-white active:scale-95"
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none -mt-0.5 -ml-0.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className="h-7 w-7 DropShadow fill-none -mt-0.5 -ml-0.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
@@ -106,13 +104,11 @@ export function FeedActions({
         <button 
           type="button" 
           onClick={(e) => { e.stopPropagation(); onShowCollection(); }}
-          className={`relative flex h-[48px] w-[48px] items-center justify-center rounded-full transition-all duration-500 border active:scale-90 ${
-            activeCollectionFilter 
-              ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
-              : 'bg-zinc-950/40 backdrop-blur-3xl border-white/15 text-white hover:bg-zinc-900/60'
+          className={`relative flex h-[48px] w-[48px] items-center justify-center transition-all duration-500 active:scale-95 ${
+            activeCollectionFilter ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'text-white/80 hover:text-white'
           } ${triggerFilterHint ? 'animate-attention-bounce' : ''}`}
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className={`h-7 w-7 DropShadow transition-transform duration-500 ${activeCollectionFilter ? 'scale-110' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="12 2 2 7 12 12 22 7 12 2" />
             <polyline points="2 12 12 17 22 12" />
             <polyline points="2 17 12 22 22 17" />
@@ -120,17 +116,17 @@ export function FeedActions({
           
           {/* Variant Count Badge */}
           {variant.siblingCount > 1 && (
-            <div className={`absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black shadow-lg ring-1 transition-colors duration-500 ${
+            <div className={`absolute -right-2 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-black shadow-lg ring-1 transition-all duration-500 ${
               activeCollectionFilter 
                 ? 'bg-emerald-500 text-white ring-emerald-400/50' 
-                : 'bg-white text-black ring-black/5'
+                : 'bg-white/90 text-black ring-black/5'
             }`}>
               {variant.siblingCount}
             </div>
           )}
         </button>
-        <span className={`text-[10px] font-black uppercase tracking-widest drop-shadow-md select-none transition-colors duration-300 ${activeCollectionFilter ? 'text-emerald-400' : 'text-white'} ${activeCollectionFilter ? 'block' : 'hidden md:block'}`}>
-          {activeCollectionFilter ? 'Filtering' : 'Family'}
+        <span className={`text-[10px] font-black uppercase tracking-widest drop-shadow-md select-none transition-colors duration-300 text-center w-20 truncate ${activeCollectionFilter ? 'text-emerald-400' : 'text-white'}`}>
+          {activeCollectionFilter ? (variant.collectionName || 'Filtered') : 'Collection'}
         </span>
       </div>
 
@@ -139,9 +135,9 @@ export function FeedActions({
         <button 
           type="button" 
           onClick={(e) => { e.stopPropagation(); setShowOptions(v => !v); }}
-          className={`group flex h-[48px] w-[48px] items-center justify-center rounded-full bg-zinc-950/40 backdrop-blur-3xl border border-white/15 text-white transition-all duration-300 hover:bg-zinc-900/60 active:scale-90 ${showOptions ? 'ring-2 ring-white/20' : ''}`}
+          className={`flex h-[48px] w-[48px] items-center justify-center text-white/80 transition-all duration-300 hover:text-white active:scale-95 ${showOptions ? 'text-white' : ''}`}
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className={`h-7 w-7 DropShadow fill-none transition-transform duration-300 ${showOptions ? 'scale-125' : ''}`} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="1" />
             <circle cx="12" cy="5" r="1" />
             <circle cx="12" cy="19" r="1" />

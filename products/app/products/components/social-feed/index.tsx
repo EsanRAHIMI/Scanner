@@ -245,9 +245,9 @@ export function SocialFeed({
           type="button"
           onClick={onClose}
           title="Back to gallery"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 transition-colors pointer-events-auto active:scale-95"
+          className="flex h-12 w-12 items-center justify-center text-white/70 hover:text-white transition-all pointer-events-auto active:scale-90"
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className="h-7 w-7 DropShadow" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
@@ -256,9 +256,9 @@ export function SocialFeed({
           type="button"
           onClick={() => setShowSearch(true)}
           title="Search"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md hover:bg-white/20 transition-colors pointer-events-auto active:scale-95"
+          className="flex h-12 w-12 items-center justify-center text-white/70 hover:text-white transition-all pointer-events-auto active:scale-90"
         >
-          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" className="h-7 w-7 DropShadow" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
           </svg>

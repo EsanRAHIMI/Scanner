@@ -945,6 +945,30 @@ export function ProductsView({
 
   const [showCommandPalette, setShowCommandPalette] = React.useState(false);
 
+  // Global Keydown for Command Palette (Esc and Enter)
+  React.useEffect(() => {
+    if (!showCommandPalette) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Esc: Always close and enable Collection View
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setFamilyMode('collection');
+        setShowCommandPalette(false);
+        return;
+      }
+
+      // Enter: Close, enable Collection View and apply current search
+      if (e.key === 'Enter') {
+        setFamilyMode('collection');
+        setShowCommandPalette(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true); // Use capture phase
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [showCommandPalette]);
+
   // Sync debounced search to URL
   React.useEffect(() => {
     const currentQ = searchParams?.get('q') || '';
@@ -1467,30 +1491,72 @@ export function ProductsView({
   const uniqueMaterials = React.useMemo(() => MATERIAL_OPTIONS, []);
 
   const handleUpdateVariant = React.useCallback(async (id: string, fields: Record<string, any>) => {
+    const rawRecords = data?.records || [];
+    const targetRecord = rawRecords.find(r => r.id === id);
+    if (!targetRecord) return;
+
+    // Detect if we are updating the collection name
+    const isNameUpdate = 'Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields;
+    
+    // Identify target IDs (single or entire collection)
+    let idsToUpdate = [id];
+    if (isNameUpdate) {
+      const currentName = (
+        formatScalar(targetRecord.fields['Colecction Name']) || 
+        formatScalar(targetRecord.fields['Name']) || 
+        formatScalar(targetRecord.fields['Collection Name']) || 
+        ''
+      ).trim();
+
+      if (currentName) {
+        idsToUpdate = rawRecords
+          .filter(r => {
+            const rName = (
+              formatScalar(r.fields['Colecction Name']) || 
+              formatScalar(r.fields['Name']) || 
+              formatScalar(r.fields['Collection Name']) || 
+              ''
+            ).trim();
+            return rName === currentName;
+          })
+          .map(r => r.id);
+      }
+    }
+
     try {
-      const res = await apiFetch(`/products/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields }),
-      });
-      if (res.ok) {
-        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')}`, id);
+      // Execute all updates
+      const results = await Promise.all(
+        idsToUpdate.map(tid => 
+          apiFetch(`/products/${tid}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields }),
+          })
+        )
+      );
+
+      const allOk = results.every(res => res.ok);
+
+      if (allOk) {
+        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, id);
         setData(prev => {
           if (!prev) return prev;
+          const updateSet = new Set(idsToUpdate);
           return {
             ...prev,
-            records: prev.records.map(r => r.id === id ? { ...r, fields: { ...r.fields, ...fields } } : r)
+            records: prev.records.map(r => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
           };
         });
       } else {
-        const err = await res.json();
-        alert(`Update failed: ${err.message || 'Unknown error'}`);
+        const errorRes = results.find(res => !res.ok);
+        const err = await errorRes?.json();
+        alert(`Update failed: ${err?.message || 'Unknown error'}`);
       }
     } catch (e) {
       console.error('Inline update failed:', e);
       alert('Network error during update');
     }
-  }, [setData]);
+  }, [setData, data?.records]);
 
   const highlightMatches = React.useCallback((text: string, query: string) => {
     if (!query.trim()) return text;
@@ -2934,7 +3000,15 @@ export function ProductsView({
   const hasActiveFilters = search.trim().length > 0 || selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0 || !!familyCollectionName;
 
   const searchGroupNode = (
-    <div className="flex items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all duration-500 ease-in-out dark:border-white/10 dark:bg-black/40">
+    <div 
+      className={`group flex items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all duration-500 ease-in-out dark:border-white/10 dark:bg-black/40 cursor-pointer ${
+        hasActiveFilters ? 'pr-1' : 'pr-0'
+      } ${
+        // On desktop, we want to align it with the 4 items below (approx 440px)
+        'min-w-[40px] sm:min-w-[440px]'
+      }`}
+      onClick={() => setShowCommandPalette(true)}
+    >
       <div 
         className={`overflow-hidden transition-all duration-500 ease-in-out flex items-center ${
           hasActiveFilters ? 'w-10 opacity-100' : 'w-0 opacity-0 pointer-events-none'
@@ -2942,7 +3016,8 @@ export function ProductsView({
       >
         <button
           type="button"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             setSearch('');
             setSelectedCategories(new Set());
             setSelectedColors(new Set());
@@ -2958,21 +3033,22 @@ export function ProductsView({
           </svg>
         </button>
       </div>
-      <button
-        type="button"
-        onClick={() => setShowCommandPalette(true)}
-        title="Search (Cmd+K or /)"
-        className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 ${
+      <div className="flex flex-1 items-center gap-3 px-3">
+        <svg viewBox="0 0 24 24" className={`h-5 w-5 transition-all active:scale-95 ${
           showCommandPalette 
             ? 'text-emerald-600 dark:text-emerald-400' 
-            : 'text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white'
-        }`}
-      >
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
+            : 'text-black/40 dark:text-white/40 group-hover:text-black dark:group-hover:text-white'
+        }`} fill="none" stroke="currentColor" strokeWidth="2.5">
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
-      </button>
+        <span className="hidden sm:block text-xs font-medium text-black/30 dark:text-white/30 group-hover:text-black/60 dark:group-hover:text-white/60 transition-colors">
+          Search products, codes, collections...
+        </span>
+      </div>
+      <div className="hidden sm:flex items-center gap-1.5 rounded-lg bg-black/5 dark:bg-white/5 px-2 py-1 text-[9px] font-black text-black/20 dark:text-white/20 uppercase mr-1 group-hover:text-black/40 dark:group-hover:text-white/40 ring-1 ring-black/5 dark:ring-white/5 transition-all">
+        Cmd + K
+      </div>
     </div>
   );
 
@@ -3251,8 +3327,8 @@ export function ProductsView({
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2">
-              {searchGroupNode}
+            {searchGroupNode}
+            <div className="flex items-center gap-2 ml-2">
               {familyToggleNode}
               {viewToggleNode}
               {maxModeToggleNode}
@@ -4108,7 +4184,11 @@ export function ProductsView({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setShowCommandPalette(false);
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setFamilyMode('collection');
+                    setShowCommandPalette(false);
+                  }
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();
                     setPaletteIndex(prev => Math.min(prev + 1, Math.min(filteredRecords.length, 10) - 1));
@@ -4116,19 +4196,17 @@ export function ProductsView({
                     e.preventDefault();
                     setPaletteIndex(prev => Math.max(prev - 1, 0));
                   } else if (e.key === 'Enter') {
+                    e.preventDefault();
                     const selected = filteredRecords.slice(0, 10)[paletteIndex];
                     if (selected) {
-                      addToRecent(search);
-                      const idx = sortedRecords.findIndex(sr => sr.id === selected.id);
-                      if (idx >= 0) {
-                        setPreviewId(selected.id);
-                        setPreviewIndex(idx);
-                      }
-                      setShowCommandPalette(false);
+                      const name = formatScalar(selected.fields?.['Colecction Name']) || formatScalar(selected.fields?.Name) || '';
+                      if (name) setSearch(name);
+                      addToRecent(name || search);
                     } else if (search.trim()) {
                       addToRecent(search);
-                      setShowCommandPalette(false);
                     }
+                    setFamilyMode('collection');
+                    setShowCommandPalette(false);
                   }
                 }}
               />
