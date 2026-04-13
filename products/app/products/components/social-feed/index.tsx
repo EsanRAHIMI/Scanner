@@ -204,30 +204,60 @@ export function SocialFeed({
   };
 
   const handleShareMedia = async (variant: FeedVariant, mediaUrl: string) => {
-    const message = `📦 مشخصات محصول
-------------------
-🏷️ نام: ${variant.title || '---'}
-🔢 کد: ${variant.codeNumber || variant.code || '---'}
-🆔 ورینت: ${variant.variant || '---'}
-📏 سایز: ${variant.dimension || '---'}
-💰 قیمت: ${variant.price || '---'}
+    // 1. Structure the minimalist English metadata
+    const specs = [
+      `Collection: ${variant.collectionName || variant.title || '---'}`,
+      `Code: ${variant.codeNumber || variant.code || '---'}`,
+      `Variant: No. ${variant.variant || variant.num || '---'}`,
+      variant.price ? `Price: ${variant.price} AED` : null,
+      variant.material ? `Material: ${variant.material}` : null,
+      variant.dimension ? `Dimension: ${variant.dimension}` : null,
+      variant.category ? `Category: ${variant.category}` : null,
+    ].filter(Boolean).join('\n');
 
-🔗 لینک: ${mediaUrl}`;
+    const message = `PRODUCT SPECIFICATIONS\n----------------------\n${specs}\n\nLink: ${mediaUrl}`;
 
     try {
       if (navigator.share) {
-        await navigator.share({
-          title: variant.title,
+        const shareData: ShareData = {
+          title: variant.collectionName || variant.title,
           text: message,
-          url: mediaUrl,
-        });
+        };
+
+        // 2. Attempt to share as a file if it's an image
+        const isImage = !mediaUrl.toLowerCase().includes('.mp4') && !mediaUrl.toLowerCase().includes('#video');
+        
+        if (isImage && navigator.canShare && navigator.canShare({ files: [] })) {
+          try {
+            const response = await fetch(mediaUrl, { mode: 'cors' });
+            if (response.ok) {
+              const blob = await response.blob();
+              const extension = mediaUrl.split('.').pop()?.split(/[#?]/)[0] || 'jpg';
+              const file = new File([blob], `product-${variant.code || 'image'}.${extension}`, { type: blob.type });
+              
+              if (navigator.canShare({ files: [file] })) {
+                shareData.files = [file];
+                // When sharing files, some platforms prefer the text to be in the 'text' field, 
+                // and some sometimes ignore 'url' if 'files' is present.
+              }
+            }
+          } catch (fetchErr) {
+            console.warn('Could not fetch image for sharing (CORS or Network):', fetchErr);
+            // Fallback to URL if fetch fails
+            shareData.url = mediaUrl;
+          }
+        } else {
+          shareData.url = mediaUrl;
+        }
+
+        await navigator.share(shareData);
       } else {
         await navigator.clipboard.writeText(message);
-        alert('مشخصات محصول در حافظه کپی شد!');
+        alert('Product specifications copied to clipboard!');
       }
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
-        alert('خطا در اشتراک‌گذاری');
+        alert('Error sharing product detail');
       }
     }
   };
