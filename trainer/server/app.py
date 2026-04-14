@@ -184,6 +184,7 @@ _CONTENT_CALENDAR_FIELDS = [
   "# Hashtag",
   "Product",
   "Product Image",
+  "Assets",
 ]
 
 

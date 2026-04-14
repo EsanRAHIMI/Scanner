@@ -9,7 +9,7 @@
     "dev": "next dev -p 3005",
     "build": "next build",
     "start": "next start -p 3005 -H 0.0.0.0",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,7 +17,8 @@
     "next": "16.1.6",
     "react": "19.2.4",
     "react-big-calendar": "^1.19.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@types/node": "20.6.2",
@@ -25,7 +26,7 @@
     "@types/react-big-calendar": "^1.16.3",
     "@types/react-dom": "19.2.0",
     "autoprefixer": "10.4.15",
-    "eslint": "^10.0.0",
+    "eslint": "^9.0.0",
     "eslint-config-next": "^16.1.6",
     "postcss": "8.4.30",
     "tailwindcss": "3.4.10",
