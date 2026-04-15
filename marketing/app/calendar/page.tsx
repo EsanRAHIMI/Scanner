@@ -132,6 +132,10 @@ function CalendarContent() {
           onContextMenu={openContextMenu}
           onCommitCell={logic.commitCellEdit}
           statusOptions={logic.statusOptions}
+          contentPillarOptions={logic.contentPillarOptions}
+          formatOptions={logic.formatOptions}
+          toneOfVoiceOptions={logic.toneOfVoiceOptions}
+          targetAudienceOptions={logic.targetAudienceOptions}
           onPickAssets={(item) => {
             setAssetsModalItem(item);
             void products.fetchAssets();

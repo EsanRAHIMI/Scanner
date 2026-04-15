@@ -23,7 +23,8 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
         body: JSON.stringify({ fields: {} }),
       });
       if (!res.ok) throw new Error('Create failed');
-      await refresh();
+      const created = (await res.json()) as ContentItem;
+      setItems(prev => [created, ...prev]);
       success('New item created');
     } catch {
       toastError('Failed to create item');
@@ -53,6 +54,11 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
     try {
       setIsSaving(true);
       const fields = { ...(source.fields ?? {}) };
+      
+      // Clear date-related fields so the duplicate appears at the top
+      delete fields['Publish Date'];
+      delete fields['Day of Week'];
+
       const res = await fetch('/api/content-calendar', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

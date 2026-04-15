@@ -9,6 +9,8 @@ interface CreatableSelectProps {
   autoFocus?: boolean;
   className?: string;
   onChange: (value: string) => void;
+  onCommit?: (value: string) => void;
+  onBlur?: () => void;
 }
 
 export function CreatableSelect({
@@ -18,27 +20,34 @@ export function CreatableSelect({
   autoFocus,
   className = "w-full text-sm outline-none rounded-lg border border-border bg-background px-3 py-1.5 focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40",
   onChange,
+  onCommit,
+  onBlur,
 }: CreatableSelectProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
     const onPointerDown = (e: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        if (open) {
+          setOpen(false);
+          // If we click outside, commit current value
+          onCommit?.(value);
+        } else {
+          onBlur?.();
+        }
       }
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [open]);
+  }, [open, value, onCommit, onBlur]);
 
   const q = value.trim().toLowerCase();
   const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
   const exists = options.some((o) => o.toLowerCase() === q);
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative w-full">
       <input
         autoFocus={autoFocus}
         className={className}
@@ -50,8 +59,18 @@ export function CreatableSelect({
           setOpen(true);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') setOpen(false);
-          if (e.key === 'Enter') setOpen(false);
+          if (e.key === 'Escape') {
+            onBlur?.();
+            setOpen(false);
+          }
+          if (e.key === 'Enter') {
+            onCommit?.(value);
+            setOpen(false);
+          }
+          if (e.key === 'Tab') {
+            onCommit?.(value);
+            setOpen(false);
+          }
         }}
       />
 
@@ -59,13 +78,13 @@ export function CreatableSelect({
         <div className="absolute left-0 right-0 top-full mt-2 z-50 max-h-64 overflow-auto rounded-xl border border-border bg-popover/95 backdrop-blur-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
           {!exists && q && (
             <button
-              className="w-full px-4 py-2.5 text-left text-sm font-bold hover:bg-muted flex items-center gap-2 transition-colors"
+              className="w-full px-4 py-2.5 text-left text-sm font-bold hover:bg-muted flex items-center gap-2 transition-colors text-primary"
               onClick={() => {
-                onChange(value);
+                onCommit?.(value);
                 setOpen(false);
               }}
             >
-              <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
               Add "{value}"
@@ -74,9 +93,9 @@ export function CreatableSelect({
           {filtered.map((opt) => (
             <button
               key={opt}
-              className={`w-full px-4 py-2.5 text-left text-sm hover:bg-muted transition-colors ${opt === value ? 'bg-muted font-bold text-primary' : 'text-foreground/80'}`}
+              className={`w-full px-4 py-2.5 text-left text-sm hover:bg-muted transition-colors ${opt === value ? 'bg-primary/10 font-bold text-primary' : 'text-foreground/80'}`}
               onClick={() => {
-                onChange(opt);
+                onCommit?.(opt);
                 setOpen(false);
               }}
             >
@@ -84,7 +103,7 @@ export function CreatableSelect({
             </button>
           ))}
           {filtered.length === 0 && !q && (
-            <div className="px-4 py-3 text-xs text-muted-foreground/60 italic font-medium">Start typing to search or add...</div>
+            <div className="px-4 py-3 text-xs text-muted-foreground/60 italic font-medium text-center">Start typing to search or add...</div>
           )}
         </div>
       )}

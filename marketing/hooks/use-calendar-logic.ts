@@ -43,6 +43,10 @@ export function useCalendarLogic() {
   const [allColumns, setAllColumns] = useState<string[]>(ORDERED_COLUMNS);
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [statusOptions, setStatusOptions] = useState<string[]>(STATUS_OPTIONS_DEFAULT);
+  const [contentPillarOptions, setContentPillarOptions] = useState<string[]>([]);
+  const [formatOptions, setFormatOptions] = useState<string[]>([]);
+  const [toneOfVoiceOptions, setToneOfVoiceOptions] = useState<string[]>([]);
+  const [targetAudienceOptions, setTargetAudienceOptions] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   
@@ -73,6 +77,37 @@ export function useCalendarLogic() {
         ...discoveredStatuses.filter((s) => !STATUS_OPTIONS_DEFAULT.includes(s)),
       ];
       setStatusOptions(orderedStatuses.length ? orderedStatuses : STATUS_OPTIONS_DEFAULT);
+      
+      // Extract other dynamic options
+      const pillarSet = new Set<string>();
+      const formatSet = new Set<string>();
+      const toneSet = new Set<string>();
+      
+      contentItems.forEach(it => {
+        const pillar = String(it.fields?.['Content Pillar'] ?? '').trim();
+        const format = String(it.fields?.['Format'] ?? '').trim();
+        const tone = String(it.fields?.['Tone of Voice'] ?? '').trim();
+        
+        if (pillar) pillarSet.add(pillar);
+        if (format) formatSet.add(format);
+        if (tone) toneSet.add(tone);
+      });
+      
+      setContentPillarOptions(Array.from(pillarSet).sort());
+      setFormatOptions(Array.from(formatSet).sort());
+      setToneOfVoiceOptions(Array.from(toneSet).sort());
+
+      // Extract Target Audience options (multi-select)
+      const audienceSet = new Set<string>();
+      contentItems.forEach(it => {
+        const val = String(it.fields?.['Target Audience'] ?? '').trim();
+        if (val) {
+          // Split by common delimiters: comma, newline, or semicolon
+          const parts = val.split(/[,\n;]+/).map(p => p.trim()).filter(Boolean);
+          parts.forEach(p => audienceSet.add(p));
+        }
+      });
+      setTargetAudienceOptions(Array.from(audienceSet).sort());
     }
   }, [contentItems]);
 
@@ -119,7 +154,15 @@ export function useCalendarLogic() {
       const dateB = b.fields?.['Publish Date'] ? new Date(String(b.fields['Publish Date'])).getTime() : 0;
       const timeA = isNaN(dateA) ? 0 : dateA;
       const timeB = isNaN(dateB) ? 0 : dateB;
+      
+      // Items without a date should always be at the top
+      if (timeA === 0 && timeB !== 0) return -1;
+      if (timeB === 0 && timeA !== 0) return 1;
+      
+      // If both have dates, sort by date descending (newest first)
       if (timeA !== timeB) return timeB - timeA;
+      
+      // Tie-breaker: sort by ID descending (newest items usually have "larger" IDs)
       return b.id.localeCompare(a.id);
     });
   }, [contentItems, selectedStatus, deferredSearchTerm]);
@@ -176,6 +219,10 @@ export function useCalendarLogic() {
     selectedStatus,
     setSelectedStatus,
     statusOptions,
+    contentPillarOptions,
+    formatOptions,
+    toneOfVoiceOptions,
+    targetAudienceOptions,
     isSaving,
     authRequired,
     setAuthRequired,

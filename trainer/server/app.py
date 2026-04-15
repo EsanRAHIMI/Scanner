@@ -350,7 +350,7 @@ api.add_middleware(
     "http://127.0.0.1:3003",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://scanner.ehsanrahimi.com",
+    "https://lorenzo.ehsanrahimi.com",
     "https://products.ehsanrahimi.com",
     "https://marketing.ehsanrahimi.com",
     "https://trainer.ehsanrahimi.com",
@@ -460,6 +460,16 @@ api.mount("/files", StaticFiles(directory=str(STORAGE_DIR)), name="files")
 @api.get("/health")
 def health():
   return {"status": "ok"}
+
+
+@api.get("/mongodb/health")
+async def mongodb_health(db=Depends(_get_db)):
+  try:
+    # Ping the database to check connectivity
+    await db.command("ping")
+    return {"status": "online", "database": "connected"}
+  except Exception as e:
+    raise HTTPException(status_code=503, detail=f"MONGODB_OFFLINE: {str(e)}")
 
 
 @api.post("/auth/register")

@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { extractUrls, isImageUrl, isVideoUrl } from '../../lib/calendar/utils';
+import { extractUrls, isImageUrl, isVideoUrl, getMediaPreviewUrl, getGoogleDriveFileId } from '../../lib/calendar/utils';
 
 type ProductsAssetsResponse = {
   columns: string[];
@@ -219,10 +219,19 @@ export function AssetsPickerModal({
                             });
                           }}
                         />
-                        <div className="h-12 w-12 flex-none overflow-hidden rounded-xl border border-border bg-background shadow-sm">
-                          {isImageUrl(u) ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={u} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        <div className="h-12 w-12 flex-none overflow-hidden rounded-xl border border-border bg-background shadow-sm relative group">
+                          {isImageUrl(u) || getGoogleDriveFileId(u) ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={getMediaPreviewUrl(u)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                              {isVideoUrl(u) && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+                                  <svg className="w-4 h-4 text-white fill-current" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z" />
+                                  </svg>
+                                </div>
+                              )}
+                            </>
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-muted-foreground/40">
                               {isVideoUrl(u) ? 'VIDEO' : 'FILE'}

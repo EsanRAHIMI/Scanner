@@ -94,6 +94,26 @@ export function extractUrls(v: unknown): string[] {
   return [];
 }
 
+export function getGoogleDriveFileId(url: string): string | null {
+  if (!url) return null;
+  // Patterns: /file/d/ID, /open?id=ID, /uc?id=ID, /d/ID
+  const match = url.match(/[\/=]d\/([^\/=\?&#\s]+)/) || 
+                url.match(/[?&]id=([^\/=\?&#\s]+)/);
+  
+  if (match?.[1]) return match[1];
+  
+  // Handle lh3.googleusercontent.com/d/ID
+  if (url.includes('lh3.googleusercontent.com/d/')) {
+    const parts = url.split('lh3.googleusercontent.com/d/');
+    if (parts[1]) {
+      const id = parts[1].split(/[=\?&#\s]/)[0];
+      return id || null;
+    }
+  }
+
+  return null;
+}
+
 export function isVideoUrl(url: string): boolean {
   if (!url) return false;
   const l = url.toLowerCase();
@@ -105,6 +125,23 @@ export function isImageUrl(url: string): boolean {
   if (!url) return false;
   const l = url.toLowerCase();
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.heic'];
-  if (l.includes('lh3.googleusercontent.com/d/')) return true;
+  
+  // Google Drive links (if not explicitly tagged as video) are candidates for image preview
+  if (l.includes('drive.google.com') || l.includes('lh3.googleusercontent.com/d/')) {
+    return !isVideoUrl(url);
+  }
+
   return imageExts.some((ext) => l.includes(ext));
+}
+
+export function getMediaPreviewUrl(url: string): string {
+  if (!url) return '';
+  
+  const driveId = getGoogleDriveFileId(url);
+  if (driveId) {
+    // lh3.googleusercontent.com/d/ID is generally more robust for embedding in <img> tags
+    return `https://lh3.googleusercontent.com/d/${driveId}`;
+  }
+
+  return url;
 }

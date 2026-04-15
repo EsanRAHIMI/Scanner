@@ -96,7 +96,7 @@ export default function Home() {
       { name: 'Trainer API', url: isLocal ? 'http://localhost:8010/health' : 'https://trainer.ehsanrahimi.com/api/health' },
       { name: 'Products Service', url: isLocal ? 'http://localhost:3004' : productsUrl },
       { name: 'Marketing Service', url: marketingUrl },
-      { name: 'MongoDB', url: isLocal ? 'http://localhost:8000/mongodb/health' : '/api/mongodb/health' }
+      { name: 'MongoDB', url: isLocal ? 'http://localhost:8000/mongodb/health' : 'https://trainer.ehsanrahimi.com/api/mongodb/health' }
     ];
 
     // Initial check

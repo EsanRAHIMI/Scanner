@@ -8,6 +8,9 @@ import {
   MAX_COL_PX,
 } from '../../lib/calendar/constants';
 import { CalendarCell } from './CalendarCell';
+import { CreatableSelect } from './CreatableSelect';
+import { DatePicker } from './DatePicker';
+import { MultiSelect } from './MultiSelect';
 
 interface CalendarGridProps {
   items: ContentItem[];
@@ -15,6 +18,10 @@ interface CalendarGridProps {
   onContextMenu: (e: React.MouseEvent, item: ContentItem) => void;
   onCommitCell: (id: string, column: string, value: string) => Promise<void>;
   statusOptions: string[];
+  contentPillarOptions: string[];
+  formatOptions: string[];
+  toneOfVoiceOptions: string[];
+  targetAudienceOptions: string[];
   onPickAssets: (item: ContentItem) => void;
 }
 
@@ -24,6 +31,10 @@ export function CalendarGrid({
   onContextMenu,
   onCommitCell,
   statusOptions,
+  contentPillarOptions,
+  formatOptions,
+  toneOfVoiceOptions,
+  targetAudienceOptions,
   onPickAssets,
 }: CalendarGridProps) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -166,47 +177,74 @@ export function CalendarGrid({
                       )}
 
                       {isEditing ? (
-                        <div className="w-full h-full min-h-[3rem] animate-in fade-in duration-200">
+                        <div className="relative h-full w-full min-h-[48px] z-20 bg-background/50 p-1.5 animate-in fade-in duration-200 ring-1 ring-primary/30 rounded-lg">
                           {col === 'Status' ? (
-                            <div className="p-1.5 focus-within:z-50 relative">
-                              <div className="flex flex-col gap-0.5 bg-popover/95 backdrop-blur-2xl border border-border rounded-xl shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-200 ring-4 ring-primary/5">
-                                {statusOptions.map((opt) => (
-                                  <button
-                                    key={opt}
-                                    className={`w-full px-3 py-2 text-left text-xs font-semibold rounded-lg transition-all ${opt === cellDraftValue ? 'bg-primary/10 text-primary' : 'hover:bg-muted/50'}`}
-                                    onClick={() => {
-                                      handleCommit(item.id, col, opt);
-                                      setEditingCell(null);
-                                    }}
-                                  >
-                                    {opt}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ) : isDateField ? (
-                             <div className="p-2">
-                               <input
-                                 autoFocus
-                                 type="date"
-                                 className="w-full h-10 bg-background px-3 text-sm rounded-lg border border-input focus:ring-2 focus:ring-primary outline-none transition-all font-medium"
-                                 value={cellDraftValue}
-                                onChange={e => setCellDraftValue(e.target.value)}
-                                onBlur={() => {
-                                  if (cellDraftValue !== String(item.fields[col] ?? '')) {
-                                    handleCommit(item.id, col, cellDraftValue);
-                                  }
-                                  setEditingCell(null);
-                                }}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') {
-                                    handleCommit(item.id, col, cellDraftValue);
+                            <div className="absolute top-full left-0 z-[100] mt-2 w-48 flex flex-col gap-0.5 bg-popover/95 backdrop-blur-2xl border border-border rounded-xl shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-200 ring-4 ring-primary/5">
+                              {statusOptions.map((opt) => (
+                                <button
+                                  key={opt}
+                                  className={`w-full px-3 py-2 text-left text-xs font-semibold rounded-lg transition-all ${opt === cellDraftValue ? 'bg-primary/10 text-primary' : 'hover:bg-muted/50'}`}
+                                  onClick={() => {
+                                    handleCommit(item.id, col, opt);
                                     setEditingCell(null);
-                                  }
-                                  if (e.key === 'Escape') setEditingCell(null);
-                                }}
-                              />
+                                  }}
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                              <div className="h-px bg-border my-1 mx-2" />
+                              <button
+                                className="w-full px-3 py-2 text-left text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
+                                onClick={() => setEditingCell(null)}
+                              >
+                                Cancel
+                              </button>
                             </div>
+                          ) : col === 'Content Pillar' || col === 'Format' || col === 'Tone of Voice' ? (
+                            <CreatableSelect
+                              value={cellDraftValue}
+                              options={
+                                col === 'Content Pillar' ? contentPillarOptions :
+                                col === 'Format' ? formatOptions :
+                                toneOfVoiceOptions
+                              }
+                              autoFocus
+                              className="w-full h-full text-sm outline-none rounded-lg border-0 bg-background px-3 py-1 transiton-all"
+                              onChange={(val) => {
+                                setCellDraftValue(val);
+                              }}
+                              onCommit={(val) => {
+                                if (val !== String(item.fields[col] ?? '')) {
+                                  handleCommit(item.id, col, val || cellDraftValue);
+                                }
+                                setEditingCell(null);
+                              }}
+                              onBlur={() => setEditingCell(null)}
+                            />
+                          ) : col === 'Target Audience' ? (
+                            <MultiSelect
+                              value={cellDraftValue}
+                              options={targetAudienceOptions}
+                              onCommit={(val) => {
+                                if (val !== String(item.fields[col] ?? '')) {
+                                  handleCommit(item.id, col, val);
+                                }
+                                setEditingCell(null);
+                              }}
+                              onClose={() => setEditingCell(null)}
+                            />
+                          ) : isDateField ? (
+                            <DatePicker
+                              value={cellDraftValue}
+                              onChange={(val) => setCellDraftValue(val)}
+                              onCommit={(val) => {
+                                if (val !== String(item.fields[col] ?? '')) {
+                                  handleCommit(item.id, col, val);
+                                }
+                                setEditingCell(null);
+                              }}
+                              onClose={() => setEditingCell(null)}
+                            />
                           ) : (
                              <textarea
                                autoFocus
