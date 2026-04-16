@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import useSWR from 'swr';
 
 import type { ProductsAssetsResponse } from '@/types/trainer';
 
@@ -19,36 +20,50 @@ export function useProductsCache() {
   return ctx;
 }
 
+async function fetcher(url: string): Promise<ProductsAssetsResponse> {
+  const res = await fetch(url);
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
+  return JSON.parse(text) as ProductsAssetsResponse;
+}
+
 export function ProductsCacheProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = React.useState<ProductsAssetsResponse | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const didFetchRef = React.useRef(false);
+  // SWR provides: automatic deduplication, stale-while-revalidate, keepPreviousData
+  // — so switching tabs or remounting won't trigger a new full fetch.
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+  const {
+    data: swrData,
+    error: swrError,
+    isLoading,
+  } = useSWR<ProductsAssetsResponse>(
+    `${basePath}/api/products/assets`,
+    fetcher,
+    {
+      revalidateOnFocus: false,       // Don't hammer backend when tab regains focus
+      revalidateOnReconnect: true,    // Revalidate after network comes back
+      dedupingInterval: 60_000,       // 60s dedup — only one in-flight request per minute
+      keepPreviousData: true,         // Show old data instantly while fetching new
+      shouldRetryOnError: true,
+      errorRetryCount: 3,
+    }
+  );
 
+  // Allow optimistic mutations via setData (same API as before)
+  const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
+
+  // When SWR gets fresh data, clear any local override so the canonical data wins
   React.useEffect(() => {
-    if (didFetchRef.current) return;
-    didFetchRef.current = true;
+    if (swrData) setLocalOverride(null);
+  }, [swrData]);
 
-    setLoading(true);
-    setError(null);
+  const data = localOverride ?? swrData ?? null;
+  const loading = isLoading;
+  const error = swrError ? (swrError instanceof Error ? swrError.message : 'Failed to load Products') : null;
 
-    void (async () => {
-      try {
-        const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-        const res = await fetch(`${basePath}/api/products/assets`, { cache: 'no-store' });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
-        const json = JSON.parse(text) as ProductsAssetsResponse;
-        setData(json);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load Products');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const value = React.useMemo<ProductsCacheContextValue>(() => ({ data, loading, error, setData }), [data, error, loading]);
+  const value = React.useMemo<ProductsCacheContextValue>(
+    () => ({ data, loading, error, setData: setLocalOverride }),
+    [data, error, loading]
+  );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;
 }

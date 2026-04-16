@@ -1261,7 +1261,8 @@ export function ProductsView({
         propagatedIds = variantsToUpdate.map(v => v.id);
 
         // Sync variants with server
-        for (const variantId of propagatedIds) {
+        // Sync variants with server in parallel
+        await Promise.all(propagatedIds.map(async (variantId) => {
           try {
             await fetch(`/api/products/${variantId}`, {
               method: 'PATCH',
@@ -1271,7 +1272,7 @@ export function ProductsView({
           } catch (e) {
             console.error(`Failed to propagate to variant ${variantId}`, e);
           }
-        }
+        }));
       }
 
       // 3. Update local state for all modified records
@@ -2119,6 +2120,9 @@ export function ProductsView({
     });
   }, [galleryItems]);
 
+  const allGalleryIdsString = React.useMemo(() => allGalleryItems.map((x: any) => x.id).join('|'), [allGalleryItems]);
+  const galleryIdsString = React.useMemo(() => galleryItems.map((x: any) => x.id).join('|'), [galleryItems]);
+
   React.useEffect(() => {
     if (previewIndex === null) return;
     if (!previewId) return;
@@ -2144,7 +2148,7 @@ export function ProductsView({
       setPreviewIndex(0);
       setPreviewId(galleryItems[0].id);
     }
-  }, [previewId, previewIndex, allGalleryItems.map((x: any) => x.id).join('|'), galleryItems.map((x: any) => x.id).join('|')]);
+  }, [previewId, previewIndex, allGalleryIdsString, galleryIdsString]);
 
   const toggleSelected = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
