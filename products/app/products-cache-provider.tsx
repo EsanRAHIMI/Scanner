@@ -70,13 +70,18 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       },
       mutate: async (optimisticData?: ProductsAssetsResponse) => {
         if (optimisticData) {
-          // Use SWR's native optimistic update
+          // 1. Update local cache immediately and DON'T revalidate yet
           await swrMutate(optimisticData, {
-            revalidate: true,
+            revalidate: false,
             populateCache: true,
-            rollbackOnError: true,
           });
+          // 2. Clear our local state override
           setLocalOverride(null);
+          
+          // 3. Schedule a fetch from server after 2.5s delay to allow backend to commit
+          setTimeout(() => {
+            swrMutate();
+          }, 2500);
         } else {
           await swrMutate();
           setLocalOverride(null);

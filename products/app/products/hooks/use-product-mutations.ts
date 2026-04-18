@@ -45,7 +45,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       }
     }
 
-    // Calculate next state
+    // Initial optimistic UI update
     const updateSet = new Set(idsToUpdate);
     setData(prev => {
       if (!prev) return prev;
@@ -69,18 +69,18 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
 
       if (results.every(res => res.ok)) {
         logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, id);
-        // Sync SWR cache
+        
+        // Final sync with SWR
         setData(prev => {
           if (!prev) return prev;
           const next = {
             ...prev,
             records: prev.records.map((r: any) => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
           };
-          mutate(next);
+          // Schedule mutate for NEXT tick to avoid "update while rendering" error
+          setTimeout(() => mutate(next), 0);
           return next;
         });
-      } else {
-        console.error('Update failed on some records');
       }
     } catch (e) {
       console.error('Update failed', e);
@@ -108,10 +108,9 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
         .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
         .map(r => r.id);
 
-      let nextData: any = null;
       setData(prev => {
         if (!prev) return prev;
-        nextData = {
+        const next = {
           ...prev,
           records: prev.records.map((r: any) => {
             const rFields = r.fields || {};
@@ -120,12 +119,12 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
             return r;
           })
         };
-        mutate(nextData);
-        return nextData;
+        setTimeout(() => mutate(next), 0);
+        return next;
       });
 
       const updates = [{ id: recordId, fields: { Main: true } }, ...otherMainIds.map(id => ({ id, fields: { Main: false } }))];
-      const res = await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
+      await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
         method: 'PATCH', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields: u.fields }) 
@@ -147,7 +146,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
           ...prev,
           records: prev.records.map((r: any) => r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r)
         };
-        mutate(next);
+        setTimeout(() => mutate(next), 0);
         return next;
       });
 
@@ -178,7 +177,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
           ...prev,
           records: prev.records.map((r: any) => r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r)
         };
-        mutate(next);
+        setTimeout(() => mutate(next), 0);
         return next;
       });
 
