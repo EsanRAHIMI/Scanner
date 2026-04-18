@@ -9,6 +9,11 @@ import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 import { SocialFeed } from './components/social-feed';
 import type { FeedVariant } from './components/social-feed/types';
+import { useProductFilters } from './hooks/use-product-filters';
+import { useProductSelection } from './hooks/use-product-selection';
+import { useProductSync } from './hooks/use-product-sync';
+import { useProductMutations } from './hooks/use-product-mutations';
+import { useProductDragDrop } from './hooks/use-product-drag-drop';
 
 async function logFrontendEvent(action: string, details: string = '', resourceId?: string) {
   try {
@@ -22,902 +27,37 @@ async function logFrontendEvent(action: string, details: string = '', resourceId
   }
 }
 
-function useDebounce<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
-  React.useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
-}
-
-function ActivityLogModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [logs, setLogs] = React.useState<any[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [total, setTotal] = React.useState(0);
-  const [skip, setSkip] = React.useState(0);
-  const [search, setSearch] = React.useState('');
-  const [actionFilter, setActionFilter] = React.useState('');
-
-  const limit = 50;
-
-  const fetchLogs = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        limit: String(limit),
-        skip: String(skip),
-        ...(search && { search }),
-        ...(actionFilter && { action: actionFilter }),
-      });
-      const res = await apiFetch(`/admin/activity-logs?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs);
-        setTotal(data.total);
-      }
-    } catch (e) {
-      console.error('Failed to fetch logs', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [skip, search, actionFilter]);
-
-  React.useEffect(() => {
-    if (isOpen) fetchLogs();
-  }, [isOpen, fetchLogs]);
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="relative flex h-full max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900">
-        <div className="flex items-center justify-between border-b border-black/10 p-4 dark:border-white/10">
-          <h2 className="text-xl font-bold text-black dark:text-white">Activity Logs</h2>
-          <button onClick={onClose} className="rounded-full p-2 hover:bg-black/5 dark:hover:bg-white/5">
-            <svg className="h-6 w-6 text-black/60 dark:text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 border-b border-black/10 bg-black/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
-          <input
-            type="text"
-            placeholder="Search users, IPs, details..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setSkip(0); }}
-            className="h-10 flex-1 min-w-[200px] rounded-lg border border-black/10 bg-white px-3 text-sm dark:border-white/10 dark:bg-zinc-800"
-          />
-          <select
-            value={actionFilter}
-            onChange={(e) => { setActionFilter(e.target.value); setSkip(0); }}
-            className="h-10 rounded-lg border border-black/10 bg-white px-3 text-sm dark:border-white/10 dark:bg-zinc-800"
-          >
-            <option value="">All Actions</option>
-            <option value="LOGIN">Login</option>
-            <option value="LOGOUT">Logout</option>
-            <option value="PRODUCT_EDIT">Product Edit</option>
-            <option value="PRODUCT_DOWNLOAD">Download</option>
-            <option value="PRODUCT_SHARE">Share</option>
-            <option value="USER_UPDATE">Admin: User Update</option>
-          </select>
-          <div className="text-sm font-medium text-black/40 dark:text-white/40">Total: {total}</div>
-        </div>
-
-        <div className="scrollbar-minimal flex-1 overflow-auto">
-          {loading ? (
-            <div className="flex h-40 items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-            </div>
-          ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-black/[0.03] text-black/60 dark:bg-white/[0.03] dark:text-white/60">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Time</th>
-                  <th className="px-4 py-3 font-semibold">User</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
-                  <th className="px-4 py-3 font-semibold">Details</th>
-                  <th className="px-4 py-3 font-semibold">IP / Device</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-black/5 dark:divide-white/5">
-                {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-black/[0.02] dark:hover:bg-white/[0.02]">
-                    <td className="whitespace-nowrap px-4 py-3 text-black/50 dark:text-white/50">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-black dark:text-white">{log.username}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                        log.action === 'LOGIN' ? 'bg-emerald-500/10 text-emerald-600' :
-                        log.action === 'LOGOUT' ? 'bg-orange-500/10 text-orange-600' :
-                        log.action === 'PRODUCT_EDIT' ? 'bg-blue-500/10 text-blue-600' :
-                        'bg-zinc-500/10 text-zinc-600'
-                      }`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-black/80 dark:text-white/80">{log.details}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-xs font-mono text-black/40 dark:text-white/40">{log.ip_address}</div>
-                      <div className="mt-0.5 text-[10px] text-black/30 dark:text-white/30">{log.device}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-black/10 p-4 dark:border-white/10">
-          <button
-            disabled={skip === 0}
-            onClick={() => setSkip(Math.max(0, skip - limit))}
-            className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium hover:bg-black/5 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
-          >
-            Previous
-          </button>
-          <div className="text-xs text-black/40 dark:text-white/40">
-            Showing {skip + 1} to {Math.min(skip + limit, total)} of {total}
-          </div>
-          <button
-            disabled={skip + limit >= total}
-            onClick={() => setSkip(skip + limit)}
-            className="rounded-lg border border-black/10 px-4 py-2 text-sm font-medium hover:bg-black/5 disabled:opacity-30 dark:border-white/10 dark:hover:bg-white/5"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function TopProgressBar({ loading }: { loading: boolean }) {
-  const [visible, setVisible] = React.useState(false);
-
-  React.useEffect(() => {
-    if (loading) {
-      const t = setTimeout(() => setVisible(true), 200);
-      return () => clearTimeout(t);
-    } else {
-      const t = setTimeout(() => setVisible(false), 500);
-      return () => clearTimeout(t);
-    }
-  }, [loading]);
-
-  if (!visible) return null;
-
-  return (
-    <div className="fixed left-0 right-0 top-0 z-[2000] h-0.5 overflow-hidden bg-emerald-500/10">
-      <div
-        className={`h-full bg-emerald-500 transition-all duration-500 ease-out ${
-          loading ? 'w-[70%] animate-pulse' : 'w-full opacity-0'
-        }`}
-      />
-    </div>
-  );
-}
-
-function ProductsSkeleton({ viewMode, rowsOnly }: { viewMode: 'gallery' | 'list'; rowsOnly?: boolean }) {
-  if (viewMode === 'list') {
-    const rows = [...Array(10)].map((_, i) => (
-      <tr key={i} className="animate-pulse border-t border-black/10 dark:border-white/10">
-        {[...Array(6)].map((_, j) => (
-          <td key={j} className="px-4 py-3">
-            <div className="h-4 w-full rounded bg-black/5 dark:bg-white/5" />
-          </td>
-        ))}
-      </tr>
-    ));
-
-    if (rowsOnly) return <>{rows}</>;
-
-    return (
-      <div className="w-full space-y-4 p-4">
-        <table className="w-full">
-          <tbody>{rows}</tbody>
-        </table>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-      {[...Array(12)].map((_, i) => (
-        <div key={i} className="animate-pulse space-y-3 overflow-hidden rounded-xl bg-black/[0.03] pb-3 dark:bg-white/[0.03]">
-          <div className="aspect-square bg-black/5 dark:bg-white/5" />
-          <div className="space-y-2 px-3">
-            <div className="h-4 w-3/4 rounded bg-black/5 dark:bg-white/5" />
-            <div className="h-3 w-1/2 rounded bg-black/5 dark:bg-white/5" />
-            <div className="flex justify-between pt-1">
-              <div className="h-3 w-1/4 rounded bg-black/5 dark:bg-white/5" />
-              <div className="h-3 w-1/4 rounded bg-black/5 dark:bg-white/5" />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type AuthMe = {
-  email: string;
-  username: string;
-  is_admin: boolean;
-  permissions: string[];
-};
-
-function AccountMenu({ onAuthChange }: { onAuthChange?: () => void }) {
-  const [open, setOpen] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [me, setMe] = React.useState<AuthMe | null>(null);
-  const [mode, setMode] = React.useState<'login' | 'register'>('login');
-  const [email, setEmail] = React.useState('');
-  const [username, setUsername] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [registerDone, setRegisterDone] = React.useState<{ status: string; user_id: string } | null>(null);
-
-  const menuRef = React.useRef<HTMLDivElement | null>(null);
-
-  React.useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    function onMouseDown(e: MouseEvent) {
-      const el = menuRef.current;
-      if (!el) return;
-      if (open && e.target instanceof Node && !el.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('mousedown', onMouseDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('mousedown', onMouseDown);
-    };
-  }, [open]);
-
-  async function loadMe() {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await apiFetch('/auth/me');
-      if (res.status === 401) {
-        setMe(null);
-        return;
-      }
-      const text = await res.text();
-      if (!res.ok) throw new Error(text || `Failed to load user (${res.status})`);
-      const data = JSON.parse(text) as { email?: string; username?: string; is_admin?: boolean; permissions?: unknown };
-      const perms = Array.isArray(data.permissions) ? data.permissions.filter((p): p is string => typeof p === 'string') : [];
-      if (!data.email || !data.username) throw new Error('Invalid /auth/me response');
-      setMe({ email: data.email, username: data.username, is_admin: Boolean(data.is_admin), permissions: perms });
-    } catch (e) {
-      setMe(null);
-      setError(e instanceof Error ? e.message : 'Failed to load user');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onToggle() {
-    const next = !open;
-    setOpen(next);
-    setError(null);
-    if (next) {
-      setRegisterDone(null);
-      await loadMe();
-    }
-  }
-
-  async function onLogout() {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await apiFetch('/auth/logout', { method: 'POST' });
-      const text = await res.text();
-      if (!res.ok) throw new Error(text || `Logout failed (${res.status})`);
-      setMe(null);
-      setMode('login');
-      onAuthChange?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Logout failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      if (mode === 'login') {
-        const res = await apiFetch('/auth/login', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ email, password }),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || `Login failed (${res.status})`);
-        await loadMe();
-        setOpen(false);
-        onAuthChange?.();
-        return;
-      }
-
-      const res = await apiFetch('/auth/register', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, username, password }),
-      });
-      const text = await res.text();
-      if (!res.ok) throw new Error(text || `Register failed (${res.status})`);
-      const data = JSON.parse(text) as { status: string; user_id: string };
-      setRegisterDone({ status: data.status, user_id: data.user_id });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : mode === 'login' ? 'Login failed' : 'Register failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white/50 text-black/60 shadow-sm backdrop-blur-md transition-all hover:bg-white/80 hover:text-black hover:shadow-md active:scale-95 dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title="Account"
-      >
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      </button>
-
-      {open ? (
-        <div
-          className="absolute right-0 top-full z-50 mt-2 w-[340px] rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/70"
-          role="menu"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {loading ? (
-            <div className="space-y-2 animate-pulse">
-              <div className="h-14 w-full rounded-lg bg-black/5 dark:bg-white/5" />
-              <div className="h-10 w-full rounded-md bg-black/5 dark:bg-white/5" />
-            </div>
-          ) : null}
-
-          {!loading && me ? (
-            <div className="space-y-2">
-              <div className="rounded-lg border border-black/10 bg-black/5 p-3 dark:border-white/10 dark:bg-white/5">
-                <div className="text-xs text-black/60 dark:text-white/60">Signed in as</div>
-                <div className="mt-1 text-sm font-medium text-black dark:text-white">{me.username}</div>
-                <div className="text-xs text-black/70 dark:text-white/70">{me.email}</div>
-              </div>
-
-              {error ? <div className="text-sm text-red-700 dark:text-red-200">{error}</div> : null}
-
-              {me.is_admin && (
-                <>
-                  <a
-                    href={typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
-                      ? "http://localhost:3010/admin/users" 
-                      : "/trainer/admin/users"
-                    }
-                    className="block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
-                    role="menuitem"
-                  >
-                    Manage users
-                  </a>
-                  <button
-                    onClick={() => { (window as any)._toggleActivityLogs?.(); setOpen(false); }}
-                    className="mt-2 block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
-                    role="menuitem"
-                  >
-                    Activity Logs
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={onLogout}
-                disabled={loading}
-                className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
-                role="menuitem"
-              >
-                Logout
-              </button>
-            </div>
-          ) : null}
-
-          {!loading && !me ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('login');
-                    setRegisterDone(null);
-                    setError(null);
-                  }}
-                  className={
-                    'flex-1 rounded-md px-3 py-2 text-sm font-medium border ' +
-                    (mode === 'login'
-                      ? 'border-black/20 bg-black text-white dark:border-white/15'
-                      : 'border-black/15 bg-transparent text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/70 dark:hover:bg-white/5')
-                  }
-                >
-                  Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMode('register');
-                    setRegisterDone(null);
-                    setError(null);
-                  }}
-                  className={
-                    'flex-1 rounded-md px-3 py-2 text-sm font-medium border ' +
-                    (mode === 'register'
-                      ? 'border-black/20 bg-black text-white dark:border-white/15'
-                      : 'border-black/15 bg-transparent text-black/70 hover:bg-black/5 dark:border-white/15 dark:text-white/70 dark:hover:bg-white/5')
-                  }
-                >
-                  Register
-                </button>
-              </div>
-
-              {registerDone ? (
-                <div className="rounded-lg border border-black/10 bg-black/5 p-3 text-sm text-black/80 dark:border-white/10 dark:bg-white/5 dark:text-white/75">
-                  Status: <span className="font-medium">{registerDone.status}</span>
-                </div>
-              ) : (
-                <form className="space-y-2" onSubmit={onSubmit}>
-                  <div className="space-y-1">
-                    <label className="text-xs text-black/60 dark:text-white/60">Email</label>
-                    <input
-                      className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      type="email"
-                      autoComplete="email"
-                      required
-                    />
-                  </div>
-
-                  {mode === 'register' ? (
-                    <div className="space-y-1">
-                      <label className="text-xs text-black/60 dark:text-white/60">Username</label>
-                      <input
-                        className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        type="text"
-                        autoComplete="username"
-                        required
-                      />
-                    </div>
-                  ) : null}
-
-                  <div className="space-y-1">
-                    <label className="text-xs text-black/60 dark:text-white/60">Password</label>
-                    <input
-                      className="h-10 w-full rounded-md border border-black/15 bg-white px-3 text-sm dark:border-white/15 dark:bg-black/25 dark:text-white"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      type="password"
-                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                      required
-                    />
-                  </div>
-
-                  {error ? <div className="text-sm text-red-700 dark:text-red-200">{error}</div> : null}
-
-                  <button
-                    className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
-                    disabled={loading}
-                    type="submit"
-                  >
-                    {mode === 'login' ? (loading ? 'Logging in...' : 'Login') : loading ? 'Creating...' : 'Create account'}
-                  </button>
-                </form>
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function FilterDropdown({
-  id,
-  title,
-  options,
-  selected,
-  activeDropdown,
-  setActiveDropdown,
-  onChange,
-}: {
-  id: string;
-  title: string;
-  options: string[];
-  selected: Set<string>;
-  activeDropdown: string | null;
-  setActiveDropdown: (id: string | null) => void;
-  onChange: (val: Set<string>) => void;
-}) {
-  const [search, setSearch] = React.useState('');
-  const isOpen = activeDropdown === id;
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setActiveDropdown(null);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    } else {
-      document.removeEventListener('mousedown', handleClickOutside);
-      setSearch('');
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, setActiveDropdown]);
-
-  const filteredOptions = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
-
-  const toggleOption = (opt: string) => {
-    const next = new Set(selected);
-    if (next.has(opt)) next.delete(opt);
-    else next.add(opt);
-    onChange(next);
-  };
-
-  const clear = () => {
-    onChange(new Set());
-  };
-
-  return (
-    <div className="relative inline-block" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setActiveDropdown(isOpen ? null : id)}
-        className={`flex h-[24px] items-center gap-1.5 rounded border px-2.5 py-0 font-medium transition-all ${selected.size > 0
-            ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/80'
-            : 'border-black/10 bg-black/5 text-black/60 hover:bg-black/10 dark:border-white/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
-          }`}
-      >
-        <span className="text-[10px] uppercase tracking-wider">{title}</span>
-        {selected.size > 0 ? (
-          <span className="flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-bold text-white">
-            {selected.size}
-          </span>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" className="h-3 w-3 opacity-40" stroke="currentColor" strokeWidth="3">
-            <path d="M19 9l-7 7-7-7" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 top-full z-[110] mt-1 w-[220px] rounded-lg border border-black/10 bg-white p-2 shadow-xl dark:border-white/20 dark:bg-black/90 dark:backdrop-blur-xl">
-          <div className="mb-2">
-            <input
-              autoFocus
-              className="w-full rounded border border-black/10 bg-black/5 px-2 py-1 text-[11px] outline-none dark:border-white/10 dark:bg-white/5"
-              placeholder={`Search ${title}...`}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-            />
-          </div>
-          <div className="scrollbar-minimal max-h-[220px] overflow-y-auto pr-1">
-            {filteredOptions.length === 0 ? (
-              <div className="py-2 text-center text-[10px] italic text-black/40 dark:text-white/40">No options found</div>
-            ) : (
-              filteredOptions.map((opt) => (
-                <label
-                  key={opt}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 cursor-pointer rounded border-black/20 accent-emerald-600 dark:border-white/20"
-                    checked={selected.has(opt)}
-                    onChange={() => toggleOption(opt)}
-                  />
-                  <span className="flex-1 truncate text-left text-[11px] text-black/80 dark:text-white/80">
-                    {opt}
-                  </span>
-                </label>
-              ))
-            )}
-          </div>
-          {selected.size > 0 && (
-            <div className="mt-2 border-t border-black/10 pt-2 dark:border-white/10">
-              <button
-                type="button"
-                onClick={clear}
-                className="w-full text-center text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
-              >
-                Clear Selections
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function isVideoUrl(url: string): boolean {
-  if (!url) return false;
-  const l = url.toLowerCase();
-  const videoExts = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkw', '.flv', '.wmv', '.m4v'];
-  return (
-    videoExts.some(ext => l.includes(ext)) || 
-    l.includes('youtube.com') || 
-    l.includes('youtu.be') || 
-    l.includes('vimeo.com') || 
-    l.includes('#video') ||
-    (l.includes('drive.google.com') && l.includes('video'))
-  );
-}
-
-function isImageUrl(url: string): boolean {
-  if (!url) return false;
-  const l = url.toLowerCase();
-  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.heic'];
-  if (l.includes('lh3.googleusercontent.com/d/')) return true;
-  return imageExts.some(ext => l.includes(ext));
-}
-
-function formatScalar(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (value instanceof Date) return value.toISOString();
-  return '';
-}
-
-function extractUrls(v: unknown): string[] {
-  if (typeof v === 'string') {
-    const parts = v.split(/[\s,\n]+/).map((s) => s.trim()).filter(Boolean);
-    return parts.filter((s) => /^https?:\/\//i.test(s));
-  }
-  if (Array.isArray(v)) {
-    const out: string[] = [];
-    for (const item of v) {
-      if (typeof item === 'string') {
-        const s = item.trim();
-        if (/^https?:\/\//i.test(s)) out.push(s);
-      } else if (item && typeof item === 'object') {
-        const maybe = (item as Record<string, unknown>).url;
-        if (typeof maybe === 'string') {
-          const s = maybe.trim();
-          if (/^https?:\/\//i.test(s)) out.push(s);
-        }
-      }
-    }
-    return out;
-  }
-  if (v && typeof v === 'object') {
-    const maybe = (v as Record<string, unknown>).url;
-    if (typeof maybe === 'string') {
-      const s = maybe.trim();
-      return /^https?:\/\//i.test(s) ? [s] : [];
-    }
-  }
-  return [];
-}
-
-function getDriveDirectLink(url: string): string {
-  if (!url) return '';
-  const u = url.trim();
-  if (!u.includes('drive.google.com') && !u.includes('google.com/file/d/') && !u.includes('googleusercontent.com')) return u;
-
-  // If it's already a direct link we generated, return as is (but allow updating width)
-  const lh3Match = u.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
-  if (lh3Match && lh3Match[1]) {
-    return `https://lh3.googleusercontent.com/d/${lh3Match[1]}=w1200`;
-  }
-
-  let id = '';
-  // Pattern 1: /file/d/ID or /d/ID
-  const matchD = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{25,})/);
-  if (matchD && matchD[1]) {
-    id = matchD[1];
-  } else {
-    // Pattern 2: ?id=ID or &id=ID or ?docid=ID
-    const matchId = u.match(/[?&](?:id|fileId|docid|fileid)=([a-zA-Z0-9_-]{25,})/);
-    if (matchId && matchId[1]) {
-      id = matchId[1];
-    }
-  }
-
-  if (id) {
-    // Return high-performance direct link (w1200 for better preview quality)
-    return `https://lh3.googleusercontent.com/d/${id}=w1200`;
-  }
-  return u;
-}
-
-function formatPrice(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Intl.NumberFormat('en-US').format(value);
-  }
-  if (typeof value === 'string') {
-    const raw = value.trim();
-    if (!raw) return null;
-
-    const cleaned = raw.replace(/,/g, '');
-    const n = Number(cleaned);
-    if (Number.isFinite(n)) return new Intl.NumberFormat('en-US').format(n);
-  }
-  return null;
-}
 
 
-const SPACE_OPTIONS = ['Corner', 'Corridor', 'Entrance', 'Staircase', 'Living Room', 'Dining Room', 'Bedroom', 'Kitchen', 'Commercial', 'Bathroom'];
-const CATEGORY_OPTIONS = ['Chandeliers', 'Pendant', 'Cascade Light', 'Floor Lamps', 'Long Chandeliers', 'Ring Chandeliers', 'Wall Light', 'Table Lamps', 'Accessories', 'Sofa & Seating', 'Table', 'Wall Decoration'];
-const COLOR_OPTIONS = ['Transparent', 'Chrome', 'White', 'Black', 'Bronze', 'Blue', 'Gold', 'Pink'];
-const MATERIAL_OPTIONS = ['Stone', 'Fabric', 'Metal', 'Glass', 'Wood'];
+import { 
+  isVideoUrl, 
+  isImageUrl, 
+  formatScalar, 
+  extractUrls, 
+  getDriveDirectLink, 
+  highlightMatches, 
+  formatPrice 
+} from './lib/product-utils';
 
-const getTagColorStyles = (color: string) => {
-  const c = color.toLowerCase().trim();
-  switch (c) {
-    case 'transparent':
-      return 'border-zinc-200 bg-zinc-50/50 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/60';
-    case 'chrome':
-      return 'border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300';
-    case 'white':
-      return 'border-zinc-200 bg-white text-zinc-800 dark:border-zinc-300 dark:bg-zinc-100 dark:text-zinc-900';
-    case 'black':
-      return 'border-zinc-800 bg-zinc-900 text-white dark:border-zinc-700 dark:bg-black dark:text-zinc-400';
-    case 'bronze':
-      return 'border-[#964B00]/20 bg-[#964B00]/10 text-[#964B00] dark:border-[#CD7F32]/20 dark:bg-[#CD7F32]/10 dark:text-[#CD7F32]';
-    case 'blue':
-      return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/20 dark:bg-blue-900/30 dark:text-blue-300';
-    case 'gold':
-      return 'border-amber-300/50 bg-amber-50 text-amber-700 dark:border-amber-800/20 dark:bg-amber-900/30 dark:text-amber-300';
-    case 'pink':
-      return 'border-pink-200 bg-pink-50 text-pink-700 dark:border-pink-800/20 dark:bg-pink-900/30 dark:text-pink-300';
-    default:
-      return 'border-sky-500/20 bg-sky-50 text-sky-700 dark:border-sky-400/20 dark:bg-sky-900/25 dark:text-sky-300';
-  }
-};
+import { 
+  getTagColorStyles,
+  getTagMaterialStyles
+} from './lib/constants';
 
-const getTagMaterialStyles = (material: string) => {
-  const m = material.toLowerCase().trim();
-  switch (m) {
-    case 'stone':
-      return 'border-stone-200 bg-stone-100 text-stone-700 dark:border-stone-700 dark:bg-stone-800/50 dark:text-stone-300';
-    case 'fabric':
-      return 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800/20 dark:bg-indigo-900/30 dark:text-indigo-300';
-    case 'metal':
-      return 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300';
-    case 'glass':
-      return 'border-cyan-200/50 bg-cyan-50/50 text-cyan-700 dark:border-cyan-800/20 dark:bg-cyan-900/30 dark:text-cyan-300';
-    case 'wood':
-      return 'border-orange-200 bg-orange-50 text-orange-900/80 dark:border-orange-800/20 dark:bg-orange-900/30 dark:text-orange-300';
-    default:
-      return 'border-amber-500/20 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-900/25 dark:text-amber-300';
-  }
-};
+import { ActivityLogModal } from './components/activity-log-modal';
+import { TopProgressBar } from './components/top-progress-bar';
+import { AccountMenu } from './components/account-menu';
+import { ProductsSkeleton } from './components/products-skeleton';
+import { ProductFilters } from './components/product-filters';
+import { ProductDetailsPanel } from './components/product-details-panel';
+import { SelectionBar } from './components/selection-bar';
+import { CommandPalette } from './components/command-palette';
+import { GalleryCard } from './components/gallery-card';
+import { ListView } from './components/list-view';
+import { PhotoDeck } from './components/photo-deck';
+import type { AuthMe } from './types';
 
-interface PhotoDeckProps {
-  urls: string[];
-  maxItems?: number;
-  onOpenPreview?: (url: string) => void;
-  onDragStart?: (url: string) => void;
-  onDragEnd?: () => void;
-  linkHoverTimerRef?: React.RefObject<NodeJS.Timeout | null>;
-  recordId?: string;
-  column?: string;
-}
 
-const PhotoDeck = React.memo(({ 
-  urls, 
-  maxItems = 4, 
-  onOpenPreview, 
-  onDragStart, 
-  onDragEnd,
-  linkHoverTimerRef,
-  recordId,
-  column 
-}: PhotoDeckProps) => {
-  const visibleUrls = urls.slice(0, maxItems);
-  if (visibleUrls.length === 0) return null;
-
-  return (
-    <div className="group relative h-24 w-24 flex items-center justify-center pointer-events-auto">
-      {visibleUrls
-        .slice()
-        .reverse()
-        .map((u, i) => {
-          const revIdx = visibleUrls.length - 1 - i;
-          const isVideo = isVideoUrl(u);
-          const finalUrl = getDriveDirectLink(u);
-          
-          return (
-            <button
-              key={u + i}
-              type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenPreview?.(finalUrl);
-              }}
-              title={finalUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}
-              aria-label={`View ${isVideo ? 'video' : 'image'} ${revIdx + 1} of ${urls.length}`}
-              style={{
-                '--idx': revIdx,
-                zIndex: 10 - revIdx,
-              } as React.CSSProperties}
-              className={`absolute transition-all duration-300 ease-out origin-bottom
-                [transform:rotate(calc(var(--idx)*3.2deg))_translate(calc(var(--idx)*4px),calc(var(--idx)*-2px))]
-                group-hover:[transform:rotate(calc(var(--idx)*8deg))_translate(calc(var(--idx)*16px),calc(var(--idx)*-5px))]
-                hover:!scale-110 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-md
-              `}
-              draggable
-              onDragStart={(e) => {
-                if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
-                e.dataTransfer.setData('text/plain', u);
-                onDragStart?.(u);
-              }}
-              onDragEnd={() => onDragEnd?.()}
-              tabIndex={0}
-            >
-              <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={finalUrl}
-                  alt={`Product view ${revIdx + 1}`}
-                  loading="lazy"
-                  decoding="async"
-                  fetchPriority={revIdx === 0 ? "high" : "low"}
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                  className="block h-full w-full object-cover"
-                />
-                {isVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">
-                      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      {urls.length > 1 && (
-        <div className="absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%] pointer-events-none group-hover:scale-110 transition-transform">
-          +{urls.length - 1}
-        </div>
-      )}
-    </div>
-  );
-});
-PhotoDeck.displayName = 'PhotoDeck';
 
 export function ProductsView({
   title = 'Products',
@@ -933,124 +73,95 @@ export function ProductsView({
     (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
   }, []);
 
-  const { data, loading, error, setData } = useProductsCache();
-  
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const initialSearch = React.useMemo(() => searchParams?.get('q') || '', [searchParams]);
-  const [search, setSearch] = React.useState<string>(initialSearch);
-  const debouncedSearch = useDebounce(search, 300);
-
-  const [showCommandPalette, setShowCommandPalette] = React.useState(false);
-
-  // Global Keydown for Command Palette (Esc and Enter)
-  React.useEffect(() => {
-    if (!showCommandPalette) return;
-
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Esc: Always close and enable Collection View
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setFamilyMode('collection');
-        setShowCommandPalette(false);
-        return;
-      }
-
-      // Enter: Close, enable Collection View and apply current search
-      if (e.key === 'Enter') {
-        setFamilyMode('collection');
-        setShowCommandPalette(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown, true); // Use capture phase
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [showCommandPalette]);
-
-  // Sync debounced search to URL
-  React.useEffect(() => {
-    const currentQ = searchParams?.get('q') || '';
-    if (debouncedSearch !== currentQ) {
-      const params = new URLSearchParams(searchParams?.toString());
-      if (debouncedSearch) params.set('q', debouncedSearch);
-      else params.delete('q');
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-    }
-  }, [debouncedSearch, pathname, router, searchParams]);
-
-  const [showSelectedOnly, setShowSelectedOnly] = React.useState<boolean>(false);
-  const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
-  const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
-  const [sortKey, setSortKey] = React.useState<string>('Num');
-  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('gallery');
-  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
-  const [previewId, setPreviewId] = React.useState<string | null>(null);
-  const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
-  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
-  const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
-  const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
-  const [tableSwipeStart, setTableSwipeStart] = React.useState<{ x: number; y: number } | null>(null);
-  const [imageLongPressTimer, setImageLongPressTimer] = React.useState<NodeJS.Timeout | null>(null);
-  const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; originalValue?: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend'; rect?: { top: number; left: number; width: number; height: number } } | null>(null);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
-  const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
-  const [selectedSpaces, setSelectedSpaces] = React.useState<Set<string>>(new Set());
-  const [selectedMaterials, setSelectedMaterials] = React.useState<Set<string>>(new Set());
-  const [activeFilterDropdown, setActiveFilterDropdown] = React.useState<string | null>(null);
-
+  const { data, loading, error, setData, mutate } = useProductsCache();
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
 
-  const [paletteIndex, setPaletteIndex] = React.useState(0);
-  React.useEffect(() => {
-    setPaletteIndex(0);
-  }, [search]);
-
+  const [showCommandPalette, setShowCommandPalette] = React.useState(false);
+  const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
+  const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
+  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
+  const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
+  const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; originalValue?: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend'; rect?: { top: number; left: number; width: number; height: number } } | null>(null);
   const [linkHoverState, setLinkHoverState] = React.useState<{ url: string; x: number; y: number; title: string; code: string; variant: string } | null>(null);
   const linkHoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const [recentSearches, setRecentSearches] = React.useState<string[]>([]);
-  React.useEffect(() => {
-    const saved = localStorage.getItem('recent_searches');
-    if (saved) {
-      try {
-        setRecentSearches(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load recent searches', e);
-      }
-    }
-  }, []);
+  // --- Specialized Hooks ---
+  const selection = useProductSelection();
+  
+  const filters = useProductFilters({
+    records,
+    columns,
+    loading,
+    user,
+    selectedIds: selection.selectedIds,
+    showSelectedOnly: selection.showSelectedOnly,
+    familyCollectionName: selection.familyCollectionName,
+    familyMode
+  });
 
-  const addToRecent = React.useCallback((q: string) => {
-    const val = q.trim();
-    if (!val) return;
-    setRecentSearches(prev => {
-      const next = [val, ...prev.filter(x => x !== val)].slice(0, 5);
-      localStorage.setItem('recent_searches', JSON.stringify(next));
-      return next;
+  const sync = useProductSync({
+    debouncedSearch: filters.debouncedSearch,
+    setSearch: filters.setSearch,
+    setShowCommandPalette
+  });
+
+  const mutations = useProductMutations({ setData, mutate, columns });
+  const dnd = useProductDragDrop({ 
+    handleSaveField: mutations.handleSaveField, 
+    records, 
+    columns 
+  });
+
+  // Mapping hook values to original names for JSX compatibility
+  const { 
+    search, setSearch, debouncedSearch, sortKey, setSortKey, sortDir, setSortDir, 
+    viewMode, setViewMode, selectedCategories, setSelectedCategories, 
+    selectedColors, setSelectedColors, selectedSpaces, setSelectedSpaces, 
+    selectedMaterials, setSelectedMaterials, activeFilterDropdown, 
+    setActiveFilterDropdown, filteredRecords, sortedRecords,
+    categoryFieldName, colorFieldName, spaceFieldName, materialFieldName
+  } = filters;
+  const { selectedIds, setSelectedIds, showSelectedOnly, setShowSelectedOnly, familyCollectionName, setFamilyCollectionName } = selection;
+
+  const getUniqueValues = React.useCallback((fieldName: string) => {
+    const vals = new Set<string>();
+    records.forEach(r => {
+      const v = r.fields?.[fieldName];
+      if (typeof v === 'string' && v.trim()) vals.add(v.trim());
+      else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && x.trim() && vals.add(x.trim()));
     });
-  }, []);
+    return Array.from(vals).sort((a, b) => a.localeCompare(b));
+  }, [records]);
 
-  // Global Shortcuts
+  const uniqueCategories = React.useMemo(() => getUniqueValues(categoryFieldName), [getUniqueValues, categoryFieldName]);
+  const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
+  const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
+  const uniqueMaterials = React.useMemo(() => getUniqueValues(materialFieldName), [getUniqueValues, materialFieldName]);
+  const { recentSearches, addToRecent } = sync;
+  const { isSaving } = mutations;
+  const { draggedUrlInfo, setDraggedUrlInfo, activeDropTargetRef } = dnd;
+
+
+
+  // Command Palette Esc/Enter Logic
   React.useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowCommandPalette(v => !v);
-      } else if (e.key === '/' && !isInput) {
-        e.preventDefault();
-        setShowCommandPalette(true);
+    if (!showCommandPalette) return;
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        setFamilyMode('collection');
+        setShowCommandPalette(false);
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [showCommandPalette]);
+
+  const [paletteIndex, setPaletteIndex] = React.useState(0);
+  React.useEffect(() => { setPaletteIndex(0); }, [search]);
 
   const handleLinkMouseEnter = React.useCallback((url: string, recordId: string, e: React.MouseEvent) => {
     const { clientX: x, clientY: y } = e;
@@ -1074,74 +185,11 @@ export function ProductsView({
     setLinkHoverState(null);
   }, []);
 
-  const [draggedUrlInfo, setDraggedUrlInfo] = React.useState<{ url: string; sourceId: string; sourceColumn: string } | null>(null);
-  const activeDropTargetRef = React.useRef<HTMLElement | null>(null);
-  const dropTargetId = null; // Removed React state for better performance during drag
-
-  const handleMoveUrl = React.useCallback(async (url: string, fromId: string, toId: string, targetCol?: string) => {
-    if (fromId === toId) return;
-
-    // Optimistic Update
-    const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
-    let finalUrlToMove = url;
-    
-    // Auto-tag with #video if dropped into Video column
-    if (targetCol?.trim().toLowerCase() === 'video' && !isVideoUrl(finalUrlToMove)) {
-      finalUrlToMove = finalUrlToMove.trim() + '#video';
-    }
-
-    const prevData = data;
-    setData(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        records: prev.records.map(r => {
-          if (r.id === fromId) {
-            const currentUrls = extractUrls(r.fields[urlFieldName]);
-            const filtered = currentUrls.filter(u => u !== url);
-            return { ...r, fields: { ...r.fields, [urlFieldName]: filtered.join('\n') } };
-          }
-          if (r.id === toId) {
-            const currentFieldValue = String(r.fields[urlFieldName] || '').trim();
-            const newVal = currentFieldValue ? (currentFieldValue + '\n' + finalUrlToMove) : finalUrlToMove;
-            return { ...r, fields: { ...r.fields, [urlFieldName]: newVal } };
-          }
-          return r;
-        })
-      };
-    });
-
-    try {
-      // 1. Remove from source
-      const sourceRecord = data?.records?.find(r => r.id === fromId);
-      const sourceUrls = extractUrls(sourceRecord?.fields[urlFieldName]);
-      const newSourceVal = sourceUrls.filter(u => u !== url).join('\n');
-      
-      const res1 = await fetch(`/api/products/${fromId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { [urlFieldName]: newSourceVal } })
-      });
-      if (!res1.ok) throw new Error('Failed to update source record');
-
-      // 2. Add to target
-      const targetRecord = data?.records?.find(r => r.id === toId);
-      const targetCurrentVal = String(targetRecord?.fields[urlFieldName] || '').trim();
-      const newTargetVal = targetCurrentVal ? (targetCurrentVal + '\n' + finalUrlToMove) : finalUrlToMove;
-      
-      const res2 = await fetch(`/api/products/${toId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { [urlFieldName]: newTargetVal } })
-      });
-      if (!res2.ok) throw new Error('Failed to update target record');
-
-    } catch (err) {
-      console.error('Drag and Drop error:', err);
-      setData(prevData); // Revert
-      alert('Error moving link: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    }
-  }, [columns, data, setData]);
+  const handleMoveUrl = dnd.handleMoveUrl;
+  const handleSaveField = (id: string, field: string, val: any) => mutations.handleSaveField(id, field, val, records);
+  const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
+  const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
+  const handleUpdateVariant = (id: string, fields: any) => mutations.handleUpdateVariant(id, fields, records);
 
   const fetchUserSession = React.useCallback(async () => {
     try {
@@ -1166,33 +214,23 @@ export function ProductsView({
 
   const hasInitializedMain = React.useRef(false);
   React.useEffect(() => {
-    if (!loading && data?.records && data.records.length > 0 && !hasInitializedMain.current) {
-      // Auto-initialize: mark the first record of each group as Main if the group doesn't have one.
-      const groupHasMain = new Set<string>();
-      const seenGroups = new Set<string>();
-
+    if (!loading && records.length > 0 && !hasInitializedMain.current) {
       const getCollectionKey = (fields: any) => {
         return (formatScalar(fields?.['Colecction Name']) || 
                 formatScalar(fields?.Name) || 
                 formatScalar(fields?.['Collection Name']) || 
                 '').trim();
       };
-
-      // Pass 1: find which groups already have a main variant
-      for (const r of data.records) {
+      const groupHasMain = new Set<string>();
+      const seenGroups = new Set<string>();
+      for (const r of records) {
         const key = getCollectionKey(r.fields);
-        if (key && r.fields?.Main === true) {
-          groupHasMain.add(key);
-        }
+        if (key && r.fields?.Main === true) groupHasMain.add(key);
       }
-
       let changed = false;
-      const nextRecords = data.records.map(r => {
+      const nextRecords = records.map(r => {
         const key = getCollectionKey(r.fields);
         if (!key) return r;
-
-        // If this group already has a true Main somewhere, do not auto-initialize any to true.
-        // We ensure siblings that are undefined become false for consistent state.
         if (groupHasMain.has(key)) {
           if (r.fields?.Main === undefined) {
              changed = true;
@@ -1200,900 +238,84 @@ export function ProductsView({
           }
           return r;
         }
-
-        // Group has NO Main. Mark first one as true, others as false.
         if (seenGroups.has(key)) {
           changed = true;
           return { ...r, fields: { ...r.fields, Main: false } };
         }
-
         seenGroups.add(key);
         changed = true;
         return { ...r, fields: { ...r.fields, Main: true } };
       });
-
-      if (changed) {
-        setData({ ...data, records: nextRecords as any });
-      }
+      if (changed) setData({ records: nextRecords as any, columns, count: nextRecords.length });
       hasInitializedMain.current = true;
     }
-  }, [data, loading, setData]);
+  }, [data, loading, records, setData]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
 
-  const handleSaveField = async (recordId: string, fieldName: string, newValue: string) => {
-    if (isSaving) return;
-    setIsSaving(true);
-    try {
-      const getCollectionKey = (f: any) => {
-        return (formatScalar(f?.['Colecction Name']) || 
-                formatScalar(f?.Name) || 
-                formatScalar(f?.['Collection Name']) || 
-                '').trim();
-      };
-
-      const targetRecord = data?.records?.find(r => r.id === recordId);
-      const isMainProduct = targetRecord?.fields?.Main === true;
-      const colLower = fieldName.trim().toLowerCase();
-      const isPropagatableField = colLower === 'category' || colLower === 'space' || colLower === 'color' || colLower === 'material';
-
-      // 1. Save the primary record
-      const res = await fetch(`/api/products/${recordId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: { [fieldName]: newValue }
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save primary record');
-
-      // 2. Identify variants for propagation if needed
-      let propagatedIds: string[] = [];
-      if (isMainProduct && isPropagatableField && data?.records) {
-        const groupKey = getCollectionKey(targetRecord?.fields);
-        const variantsToUpdate = data.records.filter(r => {
-          if (r.id === recordId) return false;
-          if (getCollectionKey(r.fields) !== groupKey) return false;
-          const currentVal = formatScalar(r.fields?.[fieldName]) || '';
-          return !currentVal.trim(); // Only propagate if empty
-        });
-
-        propagatedIds = variantsToUpdate.map(v => v.id);
-
-        // Sync variants with server
-        // Sync variants with server in parallel
-        await Promise.all(propagatedIds.map(async (variantId) => {
-          try {
-            await fetch(`/api/products/${variantId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fields: { [fieldName]: newValue } })
-            });
-          } catch (e) {
-            console.error(`Failed to propagate to variant ${variantId}`, e);
-          }
-        }));
-      }
-
-      // 3. Update local state for all modified records
-      setData(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          records: prev.records.map(r => {
-            if (r.id === recordId || propagatedIds.includes(r.id)) {
-              return {
-                ...r,
-                fields: { ...r.fields, [fieldName]: newValue }
-              };
-            }
-            return r;
-          }) as any
-        };
-      });
-      setEditingUrl(null);
-    } catch (err) {
-      alert('Error saving: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleSaveUrl = async () => {
     if (!editingUrl || isSaving) return;
-    setIsSaving(true);
-    try {
-      // Find the actual field name for URL
-      const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
-
-      let finalValueToSave = editingUrl.value;
-      
-      // Auto-tag with #video if added via Video column and not already detected as video
-      if (editingUrl.column?.trim().toLowerCase() === 'video' && finalValueToSave && !isVideoUrl(finalValueToSave)) {
-        finalValueToSave = finalValueToSave.trim() + '#video';
-      }
-
-      if (typeof editingUrl.index === 'number' && data?.records) {
-        const record = data.records.find(r => r.id === editingUrl.id);
-        if (record) {
-          const currentFieldValue = String(record.fields[urlFieldName] || '');
-          const urls = extractUrls(currentFieldValue);
-          if (editingUrl.index >= 0 && editingUrl.index < urls.length) {
-            urls[editingUrl.index] = editingUrl.value;
-            finalValueToSave = urls.join('\n');
-          }
-        }
-      } else if (data?.records) {
-        // Default to append/prepend if no index specified
-        const record = data.records.find(r => r.id === editingUrl.id);
-        const currentFieldValue = String(record?.fields[urlFieldName] || '').trim();
-        
-        if (editingUrl.mode === 'prepend') {
-          finalValueToSave = currentFieldValue ? (finalValueToSave + '\n' + currentFieldValue) : finalValueToSave;
-        } else {
-          // Default: Append to existing list
-          finalValueToSave = currentFieldValue ? (currentFieldValue + '\n' + finalValueToSave) : finalValueToSave;
-        }
-      }
-
-      const res = await fetch(`/api/products/${editingUrl.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            [urlFieldName]: finalValueToSave
-          }
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save');
-
-      // Update local state without reload
-      setData(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          records: prev.records.map(r => r.id === (editingUrl?.id) ? {
-            ...r,
-            fields: {
-              ...r.fields,
-              [urlFieldName]: finalValueToSave
-            }
-          } : r) as any
-        };
-      });
-      setEditingUrl(null);
-    } catch (err) {
-      alert('Error saving URL: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setIsSaving(false);
+    const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
+    let finalValueToSave = editingUrl.value;
+    if (editingUrl.column?.trim().toLowerCase() === 'video' && finalValueToSave && !isVideoUrl(finalValueToSave)) {
+      finalValueToSave = finalValueToSave.trim() + '#video';
     }
-  };
-
-  const handleAddMediaToVariant = async (variantId: string, newUrl: string) => {
-    if (!newUrl || isSaving) return;
-    setIsSaving(true);
-    try {
-      const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
-      const record = records.find((r) => r.id === variantId);
-      if (!record) throw new Error('Record not found');
-
+    const record = records.find(r => r.id === editingUrl.id);
+    if (typeof editingUrl.index === 'number' && record) {
+      const urls = extractUrls(record.fields[urlFieldName]);
+      if (editingUrl.index >= 0 && editingUrl.index < urls.length) {
+        urls[editingUrl.index] = editingUrl.value;
+        finalValueToSave = urls.join('\n');
+      }
+    } else if (record) {
       const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
-      const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
-
-      const res = await fetch(`/api/products/${variantId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            [urlFieldName]: finalValueToSave,
-          },
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to save');
-
-      // Update local state without reload
-      setData((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          records: prev.records.map((r) =>
-            r.id === variantId
-              ? {
-                  ...r,
-                  fields: {
-                    ...r.fields,
-                    [urlFieldName]: finalValueToSave,
-                  },
-                }
-              : r
-          ),
-        };
-      });
-    } catch (err) {
-      alert('Error adding media: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setIsSaving(false);
+      if (editingUrl.mode === 'prepend') finalValueToSave = currentFieldValue ? (finalValueToSave + '\n' + currentFieldValue) : finalValueToSave;
+      else finalValueToSave = currentFieldValue ? (currentFieldValue + '\n' + finalValueToSave) : finalValueToSave;
     }
+    await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
+    setEditingUrl(null);
   };
 
-  const handleToggleMain = async (recordId: string) => {
-    if (isSaving || !data?.records) return;
-    setIsSaving(true);
-    try {
-      const targetRecord = data.records.find(r => r.id === recordId);
-      if (!targetRecord) return;
+  const doSaveTag = React.useCallback(() => {
+    if (!editingUrl) return;
+    const colName = (editingUrl.column || '').trim();
+    handleSaveField(editingUrl.id, colName, editingUrl.value);
+    setEditingUrl(null);
+  }, [editingUrl, handleSaveField]);
 
-      const getCollectionKey = (rFields: any) => {
-        return (formatScalar(rFields?.['Colecction Name']) || 
-                formatScalar(rFields?.Name) || 
-                formatScalar(rFields?.['Collection Name']) || 
-                '').trim();
-      };
-
-      const groupKey = getCollectionKey(targetRecord.fields);
-      const otherMainIds = data.records
-        .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
-        .map(r => r.id);
-
-      // Mutate local state immediately for responsiveness
-      setData(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          records: prev.records.map(r => {
-            const rFields = r.fields || {};
-            const rKey = getCollectionKey(rFields);
-            if (r.id === recordId) return { ...r, fields: { ...rFields, Main: true } };
-            if (rKey === groupKey) return { ...r, fields: { ...rFields, Main: false } };
-            return r;
-          }) as any
-        };
-      });
-
-      // Perform updates (Target becomes true, others become false)
-      const updates = [
-        { id: recordId, fields: { Main: true } },
-        ...otherMainIds.map(id => ({ id, fields: { Main: false } }))
-      ];
-
-      for (const update of updates) {
-        await fetch(`/api/products/${update.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: update.fields })
-        });
-      }
-    } catch (err) {
-      alert('Error toggling Main: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-
-  const categoryFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'category') || 'Category', [columns]);
-  const colorFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'color') || 'Color', [columns]);
-  const spaceFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'space') || 'Space', [columns]);
-  const materialFieldName = React.useMemo(() => columns.find(c => c.trim().toLowerCase() === 'material') || 'Material', [columns]);
-
-  const getUniqueValues = React.useCallback((fieldName: string) => {
-    const vals = new Set<string>();
-    records.forEach(r => {
-      const v = r.fields?.[fieldName];
-      if (typeof v === 'string' && v.trim()) vals.add(v.trim());
-      else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && x.trim() && vals.add(x.trim()));
-    });
-    return Array.from(vals).sort((a, b) => a.localeCompare(b));
-  }, [records]);
-
-  const uniqueCategories = React.useMemo(() => CATEGORY_OPTIONS, []);
-  const uniqueColors = React.useMemo(() => COLOR_OPTIONS, []);
-  const uniqueSpaces = React.useMemo(() => SPACE_OPTIONS, []);
-  const uniqueMaterials = React.useMemo(() => MATERIAL_OPTIONS, []);
-
-  const handleUpdateVariant = React.useCallback(async (id: string, fields: Record<string, any>) => {
-    const rawRecords = data?.records || [];
-    const targetRecord = rawRecords.find(r => r.id === id);
-    if (!targetRecord) return;
-
-    // Detect if we are updating the collection name
-    const isNameUpdate = 'Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields;
-    
-    // Identify target IDs (single or entire collection)
-    let idsToUpdate = [id];
-    if (isNameUpdate) {
-      const currentName = (
-        formatScalar(targetRecord.fields['Colecction Name']) || 
-        formatScalar(targetRecord.fields['Name']) || 
-        formatScalar(targetRecord.fields['Collection Name']) || 
-        ''
-      ).trim();
-
-      if (currentName) {
-        idsToUpdate = rawRecords
-          .filter(r => {
-            const rName = (
-              formatScalar(r.fields['Colecction Name']) || 
-              formatScalar(r.fields['Name']) || 
-              formatScalar(r.fields['Collection Name']) || 
-              ''
-            ).trim();
-            return rName === currentName;
-          })
-          .map(r => r.id);
-      }
-    }
-
-    try {
-      // Execute all updates
-      const results = await Promise.all(
-        idsToUpdate.map(tid => 
-          apiFetch(`/products/${tid}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields }),
-          })
-        )
-      );
-
-      const allOk = results.every(res => res.ok);
-
-      if (allOk) {
-        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, id);
-        setData(prev => {
-          if (!prev) return prev;
-          const updateSet = new Set(idsToUpdate);
-          return {
-            ...prev,
-            records: prev.records.map(r => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
-          };
-        });
-      } else {
-        const errorRes = results.find(res => !res.ok);
-        const err = await errorRes?.json();
-        alert(`Update failed: ${err?.message || 'Unknown error'}`);
-      }
-    } catch (e) {
-      console.error('Inline update failed:', e);
-      alert('Network error during update');
-    }
-  }, [setData, data?.records]);
-
-  const highlightMatches = React.useCallback((text: string, query: string) => {
-    if (!query.trim()) return text;
-    const parts = text.split(new RegExp(`(${query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return parts.map((part, i) => 
-      part.toLowerCase() === query.trim().toLowerCase() 
-        ? <mark key={i} className="bg-emerald-500/40 text-emerald-950 dark:text-emerald-100 rounded-px px-0.5 no-underline ring-1 ring-emerald-500/20">{part}</mark> 
-        : part
-    );
+  const doCancelTag = React.useCallback(() => {
+    setEditingUrl(null);
   }, []);
 
-  const displayedColumns = React.useMemo(() => {
-    const isAdmin = user?.is_admin === true || user?.role === 'admin';
+  const displayedColumns = filters.displayedColumns;
+  const visibleRecords = filters.visibleRecords;
+  const baseGalleryItems = filters.baseGalleryItems;
+  const allGalleryItems = filters.allGalleryItems;
+  const variantCounts = filters.variantCounts;
 
-    const ordered = [
-      'Image',
-      'DAM',
-      'Video',
-      'Price',
-      'URL',
-      'Colecction Name',
-      'Colecction Code',
-      'Variant Number',
-      'Category',
-      'Space',
-      'Color',
-      'Material',
-      'DIMENSION (mm)',
-      'Note',
-      'CODE NUMBER',
-      'L000',
-      'Num'
-    ] as const;
 
-    if (columns.length === 0 && loading) {
-      return ['Image', 'DAM', 'Video', 'Price', 'Colecction Name', 'Variant Number', 'Category'];
-    }
 
-    const orderedSet = new Set<string>(ordered as readonly string[]);
-    const out: string[] = [];
 
-    // Push ordered headers that exist in API columns (or ones we want always like DAM, Video)
-    for (const key of ordered) {
-      if (key === 'URL') continue;
-      if (columns.includes(key) || key === 'DAM' || key === 'Video') {
-        out.push(key);
-        // For admins, append URL right after DAM
-        if (key === 'DAM' && isAdmin && columns.includes('URL')) {
-          out.push('URL');
-        }
-      }
-    }
 
-    // Add any unknown columns coming from API as extras
-    const extras = columns
-      .filter((c) => !orderedSet.has(c) && c !== 'URL' && c !== 'Main' && c !== 'Content Calendar')
-      .sort((a, b) => a.localeCompare(b));
-    out.push(...extras);
-
-    if (columns.includes('URL') && !isAdmin) {
-      if (!out.includes('Main')) out.push('Main');
-      out.push('URL');
-    } else {
-      if (!out.includes('Main')) out.push('Main');
-    }
-
-    return out;
-  }, [columns, loading, user?.is_admin, user?.role]);
-
-  const getSearchText = React.useCallback((r: ProductsRecord, usedColumns: string[]) => {
-    const parts: string[] = [];
-    for (const c of usedColumns) {
-      const v = r.fields?.[c];
-      if (v === null || v === undefined) continue;
-
-      const colLower = c.trim().toLowerCase();
-      if (colLower === 'image' || colLower === 'dam') {
-        const urls = extractUrls(v);
-        if (urls.length > 0) parts.push(urls.join(' | '));
-        continue;
-      }
-
-      if (Array.isArray(v)) {
-        const arr = v as unknown[];
-        const allStrings = arr.every((x) => typeof x === 'string');
-        if (allStrings) parts.push((arr as string[]).join(' | '));
-        else parts.push(String(arr.length));
-        continue;
-      }
-
-      const s = formatScalar(v);
-      if (s) {
-        parts.push(s);
-        continue;
-      }
-
-      if (typeof v === 'object') {
-        const obj = v as Record<string, unknown>;
-        if (typeof obj.name === 'string') parts.push(obj.name);
-        else if (typeof obj.url === 'string') parts.push(obj.url);
-      }
-    }
-    return parts.join(' \n ').toLowerCase();
-  }, []);
-
-  const filteredRecords = React.useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    let base = !q ? records : records.filter((r) => {
-      const text = getSearchText(r, displayedColumns);
-      // Principled Search: match starts of words or exact substring
-      if (text.includes(q)) return true;
-      const words = q.split(/\s+/);
-      return words.every(word => text.includes(word));
-    });
-
-    // Category Filter
-    if (selectedCategories.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[categoryFieldName];
-        if (typeof v === 'string') return selectedCategories.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedCategories.has(x.trim()));
-        return false;
-      });
-    }
-
-    // Color Filter
-    if (selectedColors.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[colorFieldName];
-        if (typeof v === 'string') return selectedColors.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedColors.has(x.trim()));
-        return false;
-      });
-    }
-
-    // Space Filter
-    if (selectedSpaces.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[spaceFieldName];
-        if (typeof v === 'string') return selectedSpaces.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedSpaces.has(x.trim()));
-        return false;
-      });
-    }
-
-    // Material Filter
-    if (selectedMaterials.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[materialFieldName];
-        if (typeof v === 'string') return selectedMaterials.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedMaterials.has(x.trim()));
-        return false;
-      });
-    }
-
-    if (!showSelectedOnly) {
-      // Family Collection Filter
-      if (familyCollectionName) {
-        const key = familyCollectionName.toLowerCase().trim();
-        base = base.filter(r => {
-          const name = (
-            formatScalar(r.fields?.['Colecction Name']) || 
-            formatScalar(r.fields?.Name) || 
-            formatScalar(r.fields?.['Collection Name']) || 
-            ''
-          ).toLowerCase().trim();
-          return name === key;
-        });
-      }
-      return base;
-    }
-    return base.filter((r) => selectedIds.has(r.id));
-  }, [displayedColumns, getSearchText, records, debouncedSearch, selectedIds, showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, materialFieldName, familyCollectionName]);
-
-  const getSortValue = React.useCallback((r: ProductsRecord, key: string) => {
-    const k = key.trim().toLowerCase();
-
-    if (k === 'image') {
-      const urls = extractUrls(r.fields?.[key]);
-      return urls[0] ?? '';
-    }
-
-    const v = r.fields?.[key];
-    if (v === null || v === undefined) return '';
-
-    if (k === 'price') {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      if (typeof v === 'string') {
-        const cleaned = v.trim().replace(/,/g, '');
-        const n = Number(cleaned);
-        return Number.isFinite(n) ? n : '';
-      }
-      return '';
-    }
-
-    if (k === 'num' || k === 'variant number') {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      if (typeof v === 'string') {
-        const n = Number(v.trim());
-        return Number.isFinite(n) ? n : '';
-      }
-      return '';
-    }
-
-    if (typeof v === 'number') return v;
-    if (typeof v === 'boolean') return v ? 1 : 0;
-    if (typeof v === 'string') return v.toLowerCase();
-    if (Array.isArray(v)) {
-      const arr = v as unknown[];
-      const allStrings = arr.every((x) => typeof x === 'string');
-      if (allStrings) return (arr as string[]).join(' | ').toLowerCase();
-      return arr.length;
-    }
-    if (typeof v === 'object') {
-      const obj = v as Record<string, unknown>;
-      if (typeof obj.name === 'string') return obj.name.toLowerCase();
-      if (typeof obj.url === 'string') return obj.url.toLowerCase();
-    }
-    return '';
-  }, []);
-
-  const sortedRecords = React.useMemo(() => {
-    const base = [...filteredRecords];
-
-    base.sort((a, b) => {
-      const av = getSortValue(a, sortKey);
-      const bv = getSortValue(b, sortKey);
-
-      let cmp = 0;
-      if (typeof av === 'number' && typeof bv === 'number') {
-        cmp = av - bv;
-      } else {
-        cmp = String(av).localeCompare(String(bv));
-      }
-
-      // If primary sort values are identical (e.g. variants of the same collection),
-      // we elevate the 'Main' variant to the top of its block.
-      if (cmp === 0) {
-        const aMain = a.fields?.Main === true;
-        const bMain = b.fields?.Main === true;
-        if (aMain && !bMain) return -1;
-        if (!aMain && bMain) return 1;
-      }
-
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return base;
-  }, [filteredRecords, getSortValue, sortDir, sortKey]);
-
-  const variantCounts = React.useMemo(() => {
-    const counts: Record<string, number> = {};
-    sortedRecords.forEach(r => {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
-      if (key) {
-        counts[key] = (counts[key] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [sortedRecords]);
-
-  const visibleRecords = React.useMemo(() => {
-    // If we are filtering by a specific collection, we always want to see ALL variants
-    if (familyMode !== 'main' || familyCollectionName) return sortedRecords;
-
-    const groupMap = new Map<string, ProductsRecord>();
-    const out: ProductsRecord[] = [];
-
-    for (const r of sortedRecords) {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
-
-      if (!key) {
-        out.push(r);
-        continue;
-      }
-
-      const isMain = r.fields?.Main === true;
-      const existing = groupMap.get(key);
-
-      // Prioritize the record marked as Main.
-      // If we don't have one for this group yet, or if this one is Main and the existing one isn't.
-      if (!existing || (isMain && existing.fields?.Main !== true)) {
-        groupMap.set(key, r);
-      }
-    }
-
-    // Now convert the map back to the output list, maintaining sorted order of the groups
-    const seenGroups = new Set<string>();
-    for (const r of sortedRecords) {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
-      if (!key) continue;
-      if (seenGroups.has(key)) continue;
-      seenGroups.add(key);
-      const chosen = groupMap.get(key);
-      if (chosen) out.push(chosen);
-    }
-
-    return out;
-  }, [familyMode, sortedRecords]);
-
-  const baseGalleryItems = React.useMemo(() => {
-    return visibleRecords
-      .map((r) => {
-        const fields = r.fields ?? {};
-        const fieldKeys = Object.keys(fields);
-        
-        // Find URL column once
-        const urlKey = fieldKeys.find(k => {
-          const l = k.trim().toLowerCase();
-          return l === 'url' || l.endsWith(' url') || l.endsWith('_url') || l.endsWith('-url');
-        });
-        
-        const damUrls = extractUrls(urlKey ? fields[urlKey] : undefined);
-        const imageUrls = extractUrls(fields.Image);
-        
-        const allMedia = [...damUrls, ...imageUrls].map(u => {
-          const directUrl = getDriveDirectLink(u);
-          return {
-            originalUrl: u,
-            url: directUrl,
-            driveId: directUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null,
-            isVideo: isVideoUrl(u)
-          };
-        });
-
-        const rawUrl = allMedia[0]?.originalUrl || '';
-        const url = allMedia[0]?.url || '';
-        const driveId = allMedia[0]?.driveId || null;
-
-        const collectionName =
-          formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
-        const collectionNameNormalized = collectionName.trim();
-        const title = collectionName || 'Product';
-        const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
-        const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
-        const price = formatPrice(r.fields?.Price) ?? null;
-
-        // Find dimension and note keys once
-        const normalizedKeys = fieldKeys.map(k => ({ k, n: k.trim().toLowerCase() }));
-        
-        const dimKeyObj = normalizedKeys.find(x => x.n.includes('dimension') && x.n.includes('mm')) || 
-                        normalizedKeys.find(x => x.n.startsWith('dimension'));
-        const dimKey = dimKeyObj?.k;
-
-        const dimension =
-          formatScalar(fields['DIMENSION (mm)']) ||
-          formatScalar(fields['Dimension (mm)']) ||
-          (dimKey ? formatScalar(fields[dimKey]) : '') ||
-          formatScalar(fields['DIMENSION']) ||
-          formatScalar(fields['DIMENSIONS']) ||
-          formatScalar(fields['Dimension']) ||
-          formatScalar(fields['Dimensions']);
-
-        const ntKey = normalizedKeys.find(x => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k;
-
-        const note =
-          formatScalar(fields['Note']) ||
-          formatScalar(fields['NOTE']) ||
-          (ntKey ? formatScalar(fields[ntKey]) : '');
-        const category = formatScalar(fields['Category']);
-        const space = formatScalar(fields['Space']);
-        const color = formatScalar(fields['Color']);
-        const material = formatScalar(fields['Material']);
-        const codeNumber = formatScalar(fields['CODE NUMBER']) || formatScalar(fields['Code Number']);
-        const l000 = formatScalar(fields['L000']);
-        const num = formatScalar(fields['Num']);
-        const isMain = fields['Main'] === true;
-
-        return {
-          id: r.id,
-          url,
-          originalUrl: rawUrl,
-          driveId,
-          allMedia,
-          title,
-          collectionName,
-          collectionNameNormalized,
-          code,
-          variant,
-          dimension,
-          note,
-          price,
-          category,
-          space,
-          color,
-          material,
-          codeNumber,
-          l000,
-          num,
-          isMain
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
-  }, [visibleRecords, variantCounts, familyMode]);
-
-  const allGalleryItems = React.useMemo(() => {
-    return sortedRecords
-      .map((r) => {
-        const fields = r.fields ?? {};
-        const urlEntry = Object.entries(fields).find(([k]) => {
-          const kl = k.trim().toLowerCase();
-          return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
-        });
-        const damUrls = extractUrls(urlEntry?.[1]);
-        const imageUrls = extractUrls(fields.Image);
-        
-        const allMedia = [...damUrls, ...imageUrls].map(u => {
-          const directUrl = getDriveDirectLink(u);
-          return {
-            originalUrl: u,
-            url: directUrl,
-            driveId: directUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || null,
-            isVideo: isVideoUrl(u)
-          };
-        });
-
-        const rawUrl = allMedia[0]?.originalUrl || '';
-        const url = allMedia[0]?.url || '';
-        const driveId = allMedia[0]?.driveId || null;
-
-        const collectionName =
-          formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || '';
-        const collectionNameNormalized = collectionName.trim();
-
-        const title = collectionName;
-        const code = formatScalar(fields['Colecction Code']) || formatScalar(fields['Code']);
-        const variant = formatScalar(fields['Variant Number']) || formatScalar(fields['Num']);
-        const dimension =
-          formatScalar(fields['DIMENSION (mm)']) || formatScalar(fields['Dimension (mm)']) || formatScalar(fields['Dimensions']);
-
-        const noteKey = (() => {
-          const keys = Object.keys(fields);
-          const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-          return normalized.find((x) => x.n === 'note' || x.n.startsWith('note ') || x.n.includes('note'))?.k ?? null;
-        })();
-
-        const note =
-          formatScalar(fields['Note']) ||
-          formatScalar(fields['NOTE']) ||
-          (noteKey ? formatScalar(fields[noteKey]) : '');
-
-        const price = formatPrice(fields['Price']);
-        const category = formatScalar(fields['Category']);
-        const space = formatScalar(fields['Space']);
-        const color = formatScalar(fields['Color']);
-        const material = formatScalar(fields['Material']);
-        const codeNumber = formatScalar(fields['CODE NUMBER']) || formatScalar(fields['Code Number']);
-        const l000 = formatScalar(fields['L000']);
-        const num = formatScalar(fields['Num']);
-        const isMain = fields['Main'] === true;
-
-        return {
-          id: r.id,
-          url,
-          originalUrl: rawUrl,
-          driveId,
-          allMedia,
-          title,
-          collectionName,
-          collectionNameNormalized,
-          code,
-          variant,
-          dimension,
-          note,
-          price,
-          category,
-          space,
-          color,
-          material,
-          codeNumber,
-          l000,
-          num,
-          isMain
-        };
-      })
-      .filter((x: any) => Boolean(x.url));
-  }, [sortedRecords]);
-
-  const galleryItems = React.useMemo(() => {
-    // 1. Calculate counts per collection for all items
-    const counts: Record<string, number> = {};
-    for (const item of allGalleryItems) {
-      const key = item.collectionNameNormalized;
-      counts[key] = (counts[key] || 0) + 1;
-    }
-
-    // 2. Map items with counts
-    const mapped = allGalleryItems.map((item: any) => ({
-      ...item,
-      siblingCount: counts[item.collectionNameNormalized] || 1
-    }));
-
-    // 3. Filter if needed
-    if (!familyCollectionName) {
-      // Return base gallery items but enriched with siblingCounts
-      const baseIds = new Set(baseGalleryItems.map((x: any) => x.id));
-      return mapped.filter((x: any) => baseIds.has(x.id)) as any;
-    }
-
-    const key = familyCollectionName.trim();
-    return mapped.filter((x: any) => x.collectionNameNormalized === key) as any;
-  }, [allGalleryItems, baseGalleryItems, familyCollectionName]);
+  const galleryItems = filters.galleryItems;
 
   const openPreviewByUrl = React.useCallback(
     (url: string) => {
       if (!url) return;
-      // Try exact match first (O(N) with fast string comparison)
+      // Try exact match first
       let idx = galleryItems.findIndex((x: any) => x.url === url || x.originalUrl === url);
       
       // If no match, try by matching Drive IDs if applicable
       if (idx === -1 && (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com'))) {
         const inputId = getDriveDirectLink(url).match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
         if (inputId) {
-          // pre-calculated driveId makes this very fast O(N) simple comparison
           idx = galleryItems.findIndex((x: any) => x.driveId === inputId);
         }
       }
 
-      if (idx >= 0) {
-        const resolved = galleryItems[idx];
+      if (idx !== -1) {
+        setPreviewId(galleryItems[idx].id);
         setPreviewIndex(idx);
-        setPreviewId(resolved?.id ?? null);
       }
     },
     [galleryItems]
@@ -2246,605 +468,7 @@ export function ProductsView({
     return current ? [current, ...rest] : [...variants];
   }, [allGalleryItems, currentItem?.collectionNameNormalized, currentItem?.id]);
 
-  const renderCell = React.useCallback(
-    (column: string, value: unknown, recordId: string) => {
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-      const col = column.trim().toLowerCase();
 
-      const isUrl = col === 'url' || col.endsWith(' url') || col.endsWith('_url') || col.endsWith('-url');
-      const isDAM = col === 'dam';
-      const isVideo = col === 'video';
-      const isMain = col === 'main';
-      const isEditable = isUrl || isDAM || isVideo || isMain || col === 'space' || col === 'color' || col === 'material' || col === 'category';
-
-      if ((value === null || value === undefined) && !isEditable) return null;
-
-      if (isMain) {
-        const record = records.find(r => r.id === recordId);
-        const checked = record?.fields?.Main === true;
-        
-        return (
-          <div className="flex h-full w-full items-center justify-center">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (canEdit) handleToggleMain(recordId);
-              }}
-              className={`flex h-6 w-6 items-center justify-center rounded-lg border-2 transition-all ${
-                checked 
-                  ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm' 
-                  : 'border-black/10 bg-black/5 hover:border-emerald-500/30 dark:border-white/10 dark:bg-white/5 dark:hover:border-emerald-500/30'
-              } ${!canEdit ? 'cursor-default opacity-50' : ''}`}
-            >
-              {checked && (
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3.5">
-                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </button>
-          </div>
-        );
-      }
-
-      if (isUrl) {
-        if (editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && (editingUrl.index === undefined || editingUrl.index === null)) {
-          return (
-            <div
-              className="absolute inset-0 z-40 bg-white dark:bg-black"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <textarea
-                className="h-full w-full resize-none border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                value={editingUrl.value}
-                onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSaveUrl();
-                  } else if (e.key === 'Escape' || e.key === 'Esc') {
-                    setEditingUrl(null);
-                  }
-                }}
-              />
-              {isSaving && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-black/50">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-                </div>
-              )}
-            </div>
-          );
-        }
-
-        const urls = extractUrls(value);
-        return (
-          <>
-            {canEdit && urls.length > 0 && (
-              <button
-                type="button"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
-                }}
-                className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-bl-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
-                title="Add URL to top"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
-                  <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            )}
-            <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : ''}`}>
-              {urls.length === 0 ? (
-                <div className="flex w-full items-center justify-center py-1">
-                  {canEdit ? (
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingUrl({ id: recordId, value: '', column });
-                      }}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
-                      title="Add URL"
-                    >
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M12 5v14M5 12h14" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <span className="text-2xl font-light text-red-500/60 dark:text-red-400/60">+</span>
-                  )}
-                </div>
-              ) : (
-                <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5 rounded-lg transition-all">
-
-                  {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.mode === 'prepend' && (
-                    <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                      <input
-                        className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                        value={editingUrl.value}
-                        onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                        autoFocus
-                        placeholder="New URL..."
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleSaveUrl();
-                          } else if (e.key === 'Escape' || e.key === 'Esc') {
-                            setEditingUrl(null);
-                          }
-                        }}
-                      />
-                      <div className="flex flex-col gap-0.5">
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {urls.map((u, i) => {
-                    const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
-                    if (isBeingEdited) {
-                      return (
-                        <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                          <input
-                            className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                            value={editingUrl.value}
-                            onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleSaveUrl();
-                              } else if (e.key === 'Escape' || e.key === 'Esc') {
-                                setEditingUrl(null);
-                              }
-                            }}
-                          />
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              type="button"
-                              disabled={isSaving}
-                              onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                              className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                              className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                                <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={u + i} className="group/link relative flex min-w-0 items-center pl-4 pr-8">
-                        <a
-                          href={u}
-                          target="_blank"
-                          rel="noreferrer"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseEnter={(e) => handleLinkMouseEnter(u, recordId, e)}
-                          onMouseLeave={handleLinkMouseLeave}
-                          draggable
-                          onDragStart={(e) => {
-                            if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
-                            e.dataTransfer.setData('text/plain', u);
-                            setDraggedUrlInfo({ url: u, sourceId: recordId, sourceColumn: column });
-                          }}
-                          onDragEnd={() => setDraggedUrlInfo(null)}
-                          className="flex-1 min-w-0 rounded border border-emerald-500/10 bg-emerald-500/[0.03] px-2 py-1 text-[11px] font-medium text-emerald-700 transition-all hover:bg-emerald-500/10 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
-                        >
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            {isVideoUrl(u) ? (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                            <span className="truncate">{u}</span>
-                          </div>
-                        </a>
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingUrl({ id: recordId, value: u, column, index: i });
-                            }}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                            title="Edit this link"
-                          >
-                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
-                              <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        );
-      }
-
-      if (col === 'space') {
-        const displayValue = formatScalar(value);
-        const activeValues = (displayValue || '').split(',').map(s => s.trim()).filter(Boolean);
-        const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
-
-        return (
-          <div
-            className={`group relative flex flex-col h-full min-h-[44px] w-full items-stretch overflow-hidden ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
-            onClick={(e) => {
-              if (!canEdit) return;
-              e.stopPropagation();
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
-            }}
-          >
-            {activeValues.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center">
-                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
-                  {canEdit ? '+ Add space' : '—'}
-                </span>
-              </div>
-            ) : (
-              activeValues.map((v, i) => (
-                <div 
-                  key={v} 
-                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80 ${
-                    i !== activeValues.length - 1 ? 'border-b border-black/5 dark:border-white/5' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-2 leading-tight">
-                    <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 flex-none opacity-20" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    <span className="truncate">{v}</span>
-                  </div>
-                </div>
-              ))
-            )}
-            {canEdit && (
-              <div className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
-                <svg viewBox="0 0 24 24" className="h-3 w-3 text-emerald-600/40 dark:text-emerald-400/40" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </div>
-            )}
-          </div>
-        );
-      }
-
-      if (col === 'color' || col === 'material' || col === 'category') {
-        const displayValue = formatScalar(value);
-        const activeValues = (displayValue || '').split(',').map(s => s.trim()).filter(Boolean);
-        const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
-
-        return (
-          <div
-            className={`group relative flex flex-col h-full min-h-[44px] w-full items-stretch overflow-hidden ${canEdit ? 'cursor-pointer' : ''} ${isActiveEdit ? 'ring-2 ring-inset ring-emerald-500/40' : ''}`}
-            onClick={(e) => {
-              if (!canEdit) return;
-              e.stopPropagation();
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
-            }}
-          >
-            {activeValues.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center">
-                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
-                  {canEdit ? `+ Add ${col}` : '—'}
-                </span>
-              </div>
-            ) : (
-              activeValues.map((v, i) => (
-                <div 
-                  key={v} 
-                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors border-b last:border-b-0 ${
-                    col === 'category'
-                      ? 'border-black/5 bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80'
-                      : col === 'color'
-                      ? `${getTagColorStyles(v)} border-black/5 dark:border-white/5`
-                      : `${getTagMaterialStyles(v)} border-black/5 dark:border-white/5`
-                  }`}
-                >
-                  <span className="truncate">{v}</span>
-                </div>
-              ))
-            )}
-            {canEdit && (
-              <div className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
-                <svg viewBox="0 0 24 24" className="h-3 w-3 text-black/40 dark:text-white/40" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </div>
-            )}
-          </div>
-        );
-      }
-
-      if (col === 'price') {
-        const formatted = formatPrice(value);
-        if (!formatted) return formatScalar(value);
-        return (
-          <span className="hidden items-baseline gap-1 sm:inline-flex">
-            <span className="inline-flex items-baseline">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`${basePath}/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg`}
-                alt="AED"
-                className="inline-block h-[9px] w-auto"
-                onLoad={(e) => {
-                  const parent = e.currentTarget.parentElement;
-                  const fallback = parent?.querySelector('[data-dirham-fallback]') as HTMLElement | null;
-                  if (fallback) fallback.style.display = 'none';
-                }}
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              <span data-dirham-fallback className="text-[11px] text-black/80">
-                AED
-              </span>
-            </span>
-            <span>{formatted}</span>
-          </span>
-        );
-      }
-      if (col === 'image' || col === 'dam' || col === 'video') {
-        const allUrls = extractUrls(value);
-        const urls = col === 'video' 
-          ? allUrls.filter(isVideoUrl) 
-          : col === 'image' || col === 'dam' 
-            ? allUrls.filter(u => !isVideoUrl(u)) // Anything not video is image for DAM
-            : allUrls;
-
-        // For image, video, and dam: only show the image stack, or 'No image' if empty
-        if (urls.length === 0) {
-          if ((col === 'dam' || col === 'video') && canEdit) {
-            if (editingUrl?.id === recordId && editingUrl.column === column) {
-              return (
-                <div
-                  className="absolute inset-0 z-10 bg-white dark:bg-black"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <textarea
-                    className="h-full w-full resize-none overflow-hidden border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                    value={editingUrl.value}
-                    onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                    autoFocus
-                    placeholder={`URL for ${col === 'video' ? 'Video' : 'Image'}...`}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSaveUrl();
-                      } else if (e.key === 'Escape' || e.key === 'Esc') {
-                        setEditingUrl(null);
-                      }
-                    }}
-                  />
-                  {isSaving && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[1px] dark:bg-black/50">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <div className="flex h-12 w-full items-center justify-center">
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingUrl({ id: recordId, value: '', column });
-                  }}
-                  className="group flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-600 transition-all hover:bg-red-500 hover:text-white dark:bg-red-500/20 dark:text-red-400 dark:hover:bg-red-500 dark:hover:text-white pointer-events-auto cursor-pointer"
-                  title={`Add URL for ${col === 'video' ? 'Video' : 'Image'}`}
-                >
-                  <span className="relative">
-                    {col === 'video' ? (
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                    <div className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white text-[10px] font-black text-red-600 shadow-sm dark:bg-black dark:text-red-400 ring-1 ring-black/5">
-                      +
-                    </div>
-                  </span>
-                </button>
-              </div>
-            );
-          }
-
-          return (
-            <div className="flex h-12 w-full items-center justify-center bg-black/5 dark:bg-white/5 rounded-md">
-              <span className="text-[10px] font-medium italic text-black/40 dark:text-white/40 uppercase tracking-tight">
-                No {col === 'video' ? 'video' : 'image'}
-              </span>
-            </div>
-          );
-        }
-
-        return (
-          <div className="relative min-h-[48px] w-full flex items-center justify-center transition-all rounded-lg">
-            <PhotoDeck 
-              urls={urls} 
-              maxItems={4} 
-              onOpenPreview={openPreviewByUrl}
-              recordId={recordId}
-              column={column}
-              onDragStart={(url) => setDraggedUrlInfo({ url, sourceId: recordId, sourceColumn: column })}
-              onDragEnd={() => setDraggedUrlInfo(null)}
-              linkHoverTimerRef={linkHoverTimerRef}
-            />
-          </div>
-        );
-      }
-
-      if (Array.isArray(value)) {
-        const arr = value as unknown[];
-        const allStrings = arr.every((x) => typeof x === 'string');
-        if (allStrings) {
-          const items = arr as string[];
-          return (
-            <div className="flex flex-wrap gap-1">
-              {items.map((label) => (
-                <span
-                  key={label}
-                  className="inline-flex items-center rounded-full border border-black/10 bg-black/5 px-2 py-0.5 text-[11px] dark:border-white/10 dark:bg-white/5"
-                  title={label}
-                >
-                  <span className="max-w-[240px] truncate">{highlightMatches(label, search)}</span>
-                </span>
-              ))}
-            </div>
-          );
-        }
-
-        return <span className="text-xs text-black/60 dark:text-white/60">[{arr.length}]</span>;
-      }
-
-      const scalar = formatScalar(value);
-      if (scalar) {
-        const colLower = column.trim().toLowerCase();
-        if (familyMode === 'main' && (colLower === 'num' || colLower === 'variant number')) {
-          const rec = records.find(r => r.id === recordId);
-          const key = (formatScalar(rec?.fields?.['Colecction Name']) || formatScalar(rec?.fields?.Name) || 
-                      formatScalar(rec?.fields?.['Collection Name']) || '').trim();
-          const count = variantCounts[key] || 0;
-          const extra = count - 1;
-          if (extra > 0) {
-            return (
-              <>
-                <span className="truncate">{highlightMatches(scalar, search)}</span>
-                <span className="absolute right-1 top-1 z-10 rounded bg-black/10 px-1 py-0.5 text-[8px] font-bold text-black/40 dark:bg-white/15 dark:text-white/40">
-                  +{extra}
-                </span>
-              </>
-            );
-          }
-        }
-        return highlightMatches(scalar, search);
-      }
-
-      if (typeof value === 'object') {
-        const maybe = value as Record<string, unknown>;
-        if (typeof maybe.name === 'string') return maybe.name;
-        if (typeof maybe.url === 'string') return maybe.url;
-        return <span className="text-xs text-black/60 dark:text-white/60">Object</span>;
-      }
-
-      return String(value);
-    },
-    [editingUrl, isSaving, handleSaveUrl, canEdit, openPreviewByUrl, familyMode, variantCounts, records]
-  );
-
-
-  const swipeRef = React.useRef<{
-    pointerId: number | null;
-    startX: number;
-    startY: number;
-    moved: boolean;
-    swiped: boolean;
-  }>({ pointerId: null, startX: 0, startY: 0, moved: false, swiped: false });
-
-  const variantSwipeRef = React.useRef<{
-    pointerId: number | null;
-    startX: number;
-    moved: boolean;
-    variantId: string | null;
-  }>({ pointerId: null, startX: 0, moved: false, variantId: null });
-
-  const handleVariantSwipeStart = (e: React.PointerEvent, variantId: string) => {
-    e.stopPropagation();
-    variantSwipeRef.current.pointerId = e.pointerId;
-    variantSwipeRef.current.startX = e.clientX;
-    variantSwipeRef.current.moved = false;
-    variantSwipeRef.current.variantId = variantId;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleVariantSwipeMove = (e: React.PointerEvent) => {
-    if (variantSwipeRef.current.pointerId !== e.pointerId) return;
-    const dx = e.clientX - variantSwipeRef.current.startX;
-    if (!variantSwipeRef.current.moved) {
-      if (Math.abs(dx) < 8) return;
-      variantSwipeRef.current.moved = true;
-    }
-  };
-
-  const handleVariantSwipeEnd = (e: React.PointerEvent) => {
-    if (variantSwipeRef.current.pointerId !== e.pointerId) return;
-    const dx = e.clientX - variantSwipeRef.current.startX;
-    const variantId = variantSwipeRef.current.variantId;
-
-    // Reset swipe state
-    variantSwipeRef.current.pointerId = null;
-    variantSwipeRef.current.variantId = null;
-
-    // Check if it was a swipe
-    if (Math.abs(dx) > 50 && variantId) {
-      if (dx > 0) {
-        // Swipe right - select
-        setSelectedIds(prev => {
-          const next = new Set(prev);
-          next.add(variantId);
-          return next;
-        });
-      } else {
-        // Swipe left - deselect
-        setSelectedIds(prev => {
-          const next = new Set(prev);
-          next.delete(variantId);
-          return next;
-        });
-      }
-    }
-  };
 
   React.useEffect(() => {
     const isOpen = Boolean(currentItem?.url);
@@ -3200,39 +824,36 @@ export function ProductsView({
     const recordId = editingUrl.id;
     const originalValue = editingUrl.originalValue ?? '';
 
-    const doSave = () => {
-      handleSaveField(recordId, column, editingUrl.value);
-    };
-    const doCancel = () => setEditingUrl(null);
-
     const portal = (
       <>
         {/* Backdrop — click outside saves */}
         <div
           className="fixed inset-0 z-[998]"
-          onClick={doSave}
+          onClick={doSaveTag}
           onKeyDown={(e) => { 
-            if (e.key === 'Escape') { e.preventDefault(); doCancel(); }
-            else if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+            if (e.key === 'Escape') { e.preventDefault(); doCancelTag(); }
+            else if (e.key === 'Enter') { e.preventDefault(); doSaveTag(); }
           }}
           tabIndex={-1}
         />
         {/* Dropdown */}
         <div
-          className="fixed z-[999] flex flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900"
+          ref={(el) => { if (el) el.focus(); }}
+          className="fixed z-[999] flex flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900 outline-none"
           style={{ top: popupTop, left: popupLeft, width: POPUP_W }}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
+          tabIndex={0}
           onKeyDown={(e) => { 
-            if (e.key === 'Escape') { e.preventDefault(); doCancel(); }
-            else if (e.key === 'Enter') { e.preventDefault(); doSave(); }
+            if (e.key === 'Escape') { e.preventDefault(); doCancelTag(); }
+            else if (e.key === 'Enter') { e.preventDefault(); doSaveTag(); }
           }}
         >
           {(isSpace || isCategory || isColor || isMaterial) ? (
             <>
               <div className="scrollbar-minimal overflow-y-auto p-2" style={{ maxHeight: 320 }}>
                 <div className="grid grid-cols-1 gap-1.5">
-                  {(isSpace ? SPACE_OPTIONS : isColor ? COLOR_OPTIONS : isMaterial ? MATERIAL_OPTIONS : CATEGORY_OPTIONS).map(opt => {
+                  {(isSpace ? uniqueSpaces : isColor ? uniqueColors : isMaterial ? uniqueMaterials : uniqueCategories).map(opt => {
                     const sel = currentSet.has(opt);
                     return (
                       <button
@@ -3271,8 +892,7 @@ export function ProductsView({
     );
 
     return createPortal(portal, document.body);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingUrl, isSaving]);
+  }, [editingUrl, isSaving, uniqueSpaces, uniqueColors, uniqueMaterials, uniqueCategories, doSaveTag, doCancelTag]);
 
   return (
     <main
@@ -3343,79 +963,24 @@ export function ProductsView({
         </div>
       </div>
 
-      <div className="-mx-5 px-5">
-        <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
-          <span className="font-medium text-black/60 dark:text-white/60">Variant:</span>{' '}
-          {data ? (
-            <span className="animate-fade-in">{data.count}</span>
-          ) : (
-            <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-          )}
-          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-          <span className="font-medium text-black/60 dark:text-white/60">List:</span>{' '}
-          {data ? (
-            <span className="animate-fade-in">{visibleRecords.length}</span>
-          ) : (
-            <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-          )}
-          
-          <span className="mx-2 text-black/25 dark:text-white/20">|</span>
-          <div className="inline-flex items-center gap-2">
-            <div className="inline-flex items-center gap-2">
-              <FilterDropdown
-                id="category"
-                title="Category"
-                options={uniqueCategories}
-                selected={selectedCategories}
-                activeDropdown={activeFilterDropdown}
-                setActiveDropdown={setActiveFilterDropdown}
-                onChange={setSelectedCategories}
-              />
-              <FilterDropdown
-                id="color"
-                title="Color"
-                options={uniqueColors}
-                selected={selectedColors}
-                activeDropdown={activeFilterDropdown}
-                setActiveDropdown={setActiveFilterDropdown}
-                onChange={setSelectedColors}
-              />
-              <FilterDropdown
-                id="space"
-                title="Space"
-                options={uniqueSpaces}
-                selected={selectedSpaces}
-                activeDropdown={activeFilterDropdown}
-                setActiveDropdown={setActiveFilterDropdown}
-                onChange={setSelectedSpaces}
-              />
-              <FilterDropdown
-                id="material"
-                title="Material"
-                options={uniqueMaterials}
-                selected={selectedMaterials}
-                activeDropdown={activeFilterDropdown}
-                setActiveDropdown={setActiveFilterDropdown}
-                onChange={setSelectedMaterials}
-              />
-            </div>
-            {(selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategories(new Set());
-                  setSelectedColors(new Set());
-                  setSelectedSpaces(new Set());
-                  setSelectedMaterials(new Set());
-                }}
-                className="ml-1 text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400"
-              >
-                Reset All
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <ProductFilters
+        data={data}
+        visibleCount={visibleRecords.length}
+        uniqueCategories={uniqueCategories}
+        selectedCategories={selectedCategories}
+        setSelectedCategories={setSelectedCategories}
+        uniqueColors={uniqueColors}
+        selectedColors={selectedColors}
+        setSelectedColors={setSelectedColors}
+        uniqueSpaces={uniqueSpaces}
+        selectedSpaces={selectedSpaces}
+        setSelectedSpaces={setSelectedSpaces}
+        uniqueMaterials={uniqueMaterials}
+        selectedMaterials={selectedMaterials}
+        setSelectedMaterials={setSelectedMaterials}
+        activeFilterDropdown={activeFilterDropdown}
+        setActiveDropdown={setActiveFilterDropdown}
+      />
 
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
@@ -3424,308 +989,51 @@ export function ProductsView({
       ) : null}
 
       {viewMode === 'list' ? (
-        <div className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
-          <table className="min-w-full table-auto text-left text-sm">
-            <thead className="bg-transparent text-xs uppercase tracking-wide text-black/60 dark:text-white/60">
-              <tr>
-                {displayedColumns.map((c, idx) => {
-                  const normalizedCol = c.trim().toLowerCase();
-                  const isURL = normalizedCol === 'url';
-                  return (
-                    <th
-                      key={c}
-                      className={
-                        'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
-                        (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
-                        (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : 
-                         normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' : '') +
-                        'px-4 py-3 text-left'
-                      }
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleSort(c)}
-                        className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
-                        title="Sort"
-                      >
-                        <span>{c}</span>
-                        {sortKey === c ? (
-                          <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
-                        ) : null}
-                      </button>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {loading && records.length === 0 ? (
-                <ProductsSkeleton viewMode="list" rowsOnly />
-              ) : (
-                visibleRecords.map((r, i) => {
-                  const getCollectionKey = (rec: any) => {
-                    return (formatScalar(rec.fields?.['Colecction Name']) || 
-                            formatScalar(rec.fields?.Name) || 
-                            formatScalar(rec.fields?.['Collection Name']) || 
-                            '').trim();
-                  };
-                  const currentKey = getCollectionKey(r);
-                  const prevKey = i > 0 ? getCollectionKey(visibleRecords[i-1]) : null;
-                  const nextKey = i < visibleRecords.length - 1 ? getCollectionKey(visibleRecords[i+1]) : null;
-
-                  const isGroupStart = currentKey !== '' && currentKey !== prevKey && currentKey === nextKey;
-                  const isGroupEnd = currentKey !== '' && currentKey !== nextKey && currentKey === prevKey;
-                  const isMiddleInGroup = currentKey !== '' && currentKey === prevKey && currentKey === nextKey;
-                  const isInGroup = currentKey !== '' && (currentKey === prevKey || currentKey === nextKey);
-
-                  const groupBorderClass = 'border-emerald-500/30 dark:border-emerald-400/25';
-                  
-                  return (
-                    <tr
-                      key={r.id}
-                      className={
-                        'align-middle transition-colors ' +
-                        (isGroupStart ? `border-t-2 ${groupBorderClass} ` : 
-                         isInGroup ? 'border-t-0 ' : 
-                         'border-t border-black/10 dark:border-white/10 ') +
-                        (isGroupEnd ? `border-b-2 ${groupBorderClass} ` : '') +
-                        (selectedIds.has(r.id) 
-                          ? 'bg-emerald-50/80 dark:bg-emerald-900/30' 
-                          : isInGroup 
-                            ? 'bg-emerald-500/[0.02] dark:bg-emerald-400/[0.02]' 
-                            : 'bg-white dark:bg-black/10')
-                      }
-                    >
-                      {displayedColumns.map((c, idx) => {
-                        const normalizedCol = c.trim().toLowerCase();
-                        const isDAM = normalizedCol === 'dam';
-                        const isVideoCol = normalizedCol === 'video';
-                        const isURL = normalizedCol === 'url';
-                        const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
-                        const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name';
-                        let cellValue = r.fields?.[c];
-                        if (isDAM || isVideoCol) {
-                          const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
-                            const kl = k.trim().toLowerCase();
-                            return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
-                          });
-                          cellValue = urlEntry?.[1];
-                        }
-                        const isEmpty = extractUrls(cellValue).length === 0;
-                        const isDebugType = (isDAM || isURL) && isEmpty;
-                        
-                        const isFirstCol = idx === 0;
-                        const isLastCol = idx === displayedColumns.length - 1;
-
-                        return (
-                          <td
-                            key={c}
-                            className={
-                              'relative transition-all ' +
-                              (isFirstCol
-                                ? 'sticky left-0 z-10 ' +
-                                  (isGroupStart ? `border-t-0 ` : '') +
-                                  (selectedIds.has(r.id)
-                                    ? 'bg-emerald-50 dark:bg-emerald-900/30 '
-                                    : isInGroup
-                                      ? 'bg-emerald-50/40 dark:bg-emerald-900/10 '
-                                      : 'bg-white dark:bg-black/10 ')
-                                : '') +
-                              (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
-                              (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
-                              (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : 
-                               normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' : '') +
-                              (isFirstCol
-                                ? 'px-4 py-1 whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
-                                : (isEditableTag 
-                                    ? 'p-0 h-px' 
-                                    : (isDAM
-                                      ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                                      : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')))) +
-                              (isDebugType ? ' bg-red-500/20 ring-1 ring-red-500/30' : '')
-                            }
-                            onDragOver={(e) => {
-                              if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
-                                e.preventDefault();
-                                const target = e.currentTarget;
-                                if (activeDropTargetRef.current !== target) {
-                                  activeDropTargetRef.current?.classList.remove('dnd-active');
-                                  target.classList.add('dnd-active');
-                                  activeDropTargetRef.current = target;
-                                }
-                              }
-                            }}
-                            onDragLeave={(e) => {
-                              const target = e.currentTarget;
-                              if (activeDropTargetRef.current === target) {
-                                target.classList.remove('dnd-active');
-                                activeDropTargetRef.current = null;
-                              }
-                            }}
-                            onDrop={(e) => {
-                              if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
-                                e.preventDefault();
-                                e.currentTarget.classList.remove('dnd-active');
-                                activeDropTargetRef.current = null;
-                                handleMoveUrl(draggedUrlInfo.url, draggedUrlInfo.sourceId, r.id, c);
-                                setDraggedUrlInfo(null);
-                              }
-                            }}
-                            onClick={() => {
-                              const colLower = c.trim().toLowerCase();
-                              if (colLower === 'image' || isDAM) {
-                                const u = extractUrls(cellValue)[0] ?? '';
-                                const finalUrl = isDAM ? getDriveDirectLink(u) : u;
-                                if (finalUrl) openPreviewByUrl(finalUrl);
-                                return;
-                              }
-                              toggleSelected(r.id);
-                            }}
-                          >
-                            {renderCell(c, cellValue, r.id)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })
-              )}
-              {visibleRecords.length === 0 && !loading ? (
-                <tr>
-                  <td className="px-4 py-32 text-center" colSpan={displayedColumns.length}>
-                    <div className="flex flex-col items-center justify-center animate-fade-in">
-                       <div className="h-16 w-16 items-center justify-center rounded-full bg-black/5 dark:bg-white/5 flex mb-4 text-black/20 dark:text-white/20">
-                          <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-                       </div>
-                       <h3 className="text-lg font-bold text-black dark:text-white">No products match your search</h3>
-                       <p className="mt-1 text-sm text-black/40 dark:text-white/40">Try adjusting your filters or search terms.</p>
-                       <button 
-                         onClick={() => { setSearch(''); setSelectedCategories(new Set()); setSelectedColors(new Set()); setSelectedSpaces(new Set()); setSelectedMaterials(new Set()); }}
-                         className="mt-6 rounded-full bg-emerald-600 px-6 py-2 text-sm font-bold text-white hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
-                       >
-                         Clear all filters
-                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ListView
+          loading={loading}
+          records={records}
+          visibleRecords={visibleRecords}
+          displayedColumns={displayedColumns}
+          selectedIds={selectedIds}
+          toggleSelected={toggleSelected}
+          toggleSort={toggleSort}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          openPreviewByUrl={openPreviewByUrl}
+          setEditingUrl={setEditingUrl}
+          handleMoveUrl={handleMoveUrl}
+          draggedUrlInfo={draggedUrlInfo}
+          setDraggedUrlInfo={setDraggedUrlInfo}
+          activeDropTargetRef={activeDropTargetRef}
+          linkHoverTimerRef={linkHoverTimerRef}
+          familyMode={familyMode}
+          variantCounts={variantCounts}
+          search={search}
+          setLinkHoverState={setLinkHoverState}
+          canEdit={canEdit}
+          handleSaveUrl={handleSaveUrl}
+          editingUrl={editingUrl}
+          isSaving={isSaving}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {loading && records.length === 0 ? (
               <ProductsSkeleton viewMode="gallery" />
-            ) : visibleRecords.map((r) => {
-              const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
-                const kl = k.trim().toLowerCase();
-                return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
-              });
-              const urlValue = urlEntry?.[1];
-              const rawImg = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
-              const img = getDriveDirectLink(rawImg);
-              const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
-              const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
-              const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
-              const fields = r.fields ?? {};
-              const dimensionKey = (() => {
-                const keys = Object.keys(fields);
-                const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-                const mm = normalized.find((x) => x.n.includes('dimension') && x.n.includes('mm'))?.k;
-                if (mm) return mm;
-                const dim = normalized.find((x) => x.n.startsWith('dimension'))?.k;
-                if (dim) return dim;
-                const size = normalized.find((x) => x.n.startsWith('size'))?.k;
-                if (size) return size;
-                return null;
-              })();
-
-              const size =
-                formatScalar(fields['DIMENSION (mm)']) ||
-                formatScalar(fields['Dimension (mm)']) ||
-                (dimensionKey ? formatScalar(fields[dimensionKey]) : '') ||
-                formatScalar(fields['DIMENSION']) ||
-                formatScalar(fields['DIMENSIONS']) ||
-                formatScalar(fields['Dimension']) ||
-                formatScalar(fields['Dimensions']) ||
-                formatScalar(fields['SIZE']) ||
-                formatScalar(fields['Size']);
-              const price = formatPrice(r.fields?.Price) ?? null;
-
-              return (
-                <div key={r.id} className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
-                  <div className="block w-full">
-                    <div className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
-                      {img ? (
-                        <button
-                          type="button"
-                          className="h-full w-full outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500/30"
-                          onClick={() => openPreviewByUrl?.(img)}
-                          title="Click to maximize"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={img}
-                            alt="product"
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                            }}
-                            className="h-full w-full object-cover"
-                          />
-                        </button>
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs italic text-black/40 dark:bg-white/5 dark:text-white/40">
-                          No image
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className={
-                      'block w-full text-left space-y-0.5 p-2.5 ' +
-                      (selectedIds.has(r.id) ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
-                    }
-                    onClick={() => toggleSelected(r.id)}
-                    title={selectedIds.has(r.id) ? 'Selected' : 'Select'}
-                    aria-pressed={selectedIds.has(r.id)}
-                  >
-                    <div className="flex items-start justify-between gap-2 leading-snug">
-                    <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{highlightMatches(name || '—', search)}</div>
-                      <div className="flex-none text-sm font-semibold text-black dark:text-white">
-                        {price ? (
-                          <>
-                            <span className="hidden sm:inline">AED </span>
-                            {price}
-                          </>
-                        ) : (
-                          ''
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? <span>Code: {highlightMatches(code, search)}</span> : ' '}</div>
-                    <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
-                      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                        <span className="truncate">{variant ? <span>Variant: {highlightMatches(variant, search)}</span> : ''}</span>
-                        {familyMode === 'main' && (name?.trim() ? (variantCounts[name.trim()] || 0) : 0) > 1 && (
-                          <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
-                            +{(variantCounts[name?.trim() || ''] || 0) - 1}
-                          </span>
-                        )}
-                      </div>
-                      <span className={selectedIds.has(r.id) ? 'text-emerald-700 dark:text-emerald-300' : 'text-black/35 dark:text-white/30'}>
-                        {selectedIds.has(r.id) ? 'Selected' : ''}
-                      </span>
-                    </div>
-                    <div className="text-xs leading-snug text-black/55 dark:text-white/50">{size ? `Size: ${size}` : ' '}</div>
-                  </button>
-                </div>
-              );
-            })}
+            ) : (
+              visibleRecords.map((r) => (
+                <GalleryCard
+                  key={r.id}
+                  record={r}
+                  search={search}
+                  selectedIds={selectedIds}
+                  toggleSelected={toggleSelected}
+                  openPreviewByUrl={openPreviewByUrl}
+                  familyMode={familyMode}
+                  variantCounts={variantCounts}
+                />
+              ))
+            )}
           </div>
 
           {!loading && visibleRecords.length === 0 && (
@@ -3748,58 +1056,22 @@ export function ProductsView({
 
       {selectedCount > 0 && !currentItem ? (
         <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
-          <div className="mx-auto max-w-xl transform transition-all duration-200 ease-out translate-y-0 opacity-100">
-            <div className="rounded-2xl border border-black/10 bg-white/80 p-2 text-black shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white">
-              <div className="flex items-center justify-between gap-3 px-2 pb-2">
-                <div className="text-xs font-medium text-black/60 dark:text-white/70">Selected: {selectedCount}</div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedIds(new Set())}
-                  className="text-xs font-semibold text-black/60 hover:text-black dark:text-white/70 dark:hover:text-white"
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className="rounded-2xl border border-black/10 bg-black/5 p-1 backdrop-blur dark:border-white/10 dark:bg-black/25">
-                <div className="grid grid-cols-3 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void downloadSelected()}
-                    className="h-11 w-full min-w-0 rounded-xl border border-black/10 bg-white/70 px-2 text-[11px] font-medium tracking-wide text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10"
-                  >
-                    <span className="truncate">Download</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void shareSelected()}
-                    className="h-11 w-full min-w-0 rounded-xl border border-black/10 bg-white/70 px-2 text-[11px] font-medium tracking-wide text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10"
-                  >
-                    <span className="truncate">Share</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (familyCollectionName) {
-                        setFamilyCollectionName(null);
-                        return;
-                      }
-                      setShowSelectedOnly((v) => !v);
-                    }}
-                    className={
-                      'h-11 w-full min-w-0 rounded-xl border px-2 text-[11px] font-medium tracking-wide ' +
-                      (familyCollectionName || showSelectedOnly
-                        ? 'border-red-200 bg-red-50 text-red-900 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100 dark:hover:bg-red-900/30'
-                        : 'border-black/10 bg-white/70 text-black/80 hover:bg-white dark:border-white/15 dark:bg-black/10 dark:text-white/90 dark:hover:bg-white/10')
-                    }
-                  >
-                    <span className="truncate">{familyCollectionName ? 'ALL' : showSelectedOnly ? 'ALL' : 'Selected'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+          <div className="mx-auto max-w-xl">
+            <SelectionBar
+              selectedCount={selectedCount}
+              onClear={() => setSelectedIds(new Set())}
+              onDownload={() => void downloadSelected()}
+              onShare={() => void shareSelected()}
+              onToggleView={() => {
+                if (familyCollectionName) {
+                  setFamilyCollectionName(null);
+                  return;
+                }
+                setShowSelectedOnly((v) => !v);
+              }}
+              viewLabel={familyCollectionName ? 'ALL' : showSelectedOnly ? 'ALL' : 'Selected'}
+              isViewActive={Boolean(familyCollectionName || showSelectedOnly)}
+            />
           </div>
         </div>
       ) : null}
@@ -3972,145 +1244,35 @@ export function ProductsView({
             </>
           )}
 
-          {/* Details Panel */}
-          <div
-            className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <div
-              className={
-                'mx-auto max-h-[45vh] max-w-xl rounded-2xl border p-4 pb-28 text-black shadow-lg backdrop-blur dark:text-white transition-all duration-300 ease-out ' +
-                (selectedIds.has(currentItem.id)
-                  ? 'border-emerald-300/40 bg-emerald-500/10 dark:border-emerald-200/40 dark:bg-emerald-900/20'
-                  : 'border-black/10 bg-white/70 dark:border-white/10 dark:bg-black/35') +
-                (lightboxDetailsCollapsed ? ' max-h-[120px] sm:max-h-[200px] overflow-hidden mt-8' : ' max-h-[55vh] sm:max-h-[45vh] overflow-auto')
-              }
-              onClick={() => {
-                if (currentCollectionVariants.length > 1) {
-                  setLightboxDetailsCollapsed((v) => !v);
-                }
-              }}
-            >
-              <div className="relative">
-                {currentCollectionVariants.length > 1 && (
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setLightboxDetailsCollapsed((v) => !v);
-                    }}
-                    className="absolute left-1/2 top-0 z-10 inline-flex h-10 w-10 -translate-x-1/2 -translate-y-[27px] items-center justify-center text-black/60 hover:text-black dark:text-white/55 dark:hover:text-white"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      className={'h-5 w-5 transition-transform duration-200 ease-out ' + (lightboxDetailsCollapsed ? '' : 'rotate-180')}
-                      fill="none"
-                    >
-                      <path d="M6 14l6-6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                )}
-
-                <div className="overflow-hidden rounded-xl border border-black/10 bg-black/5 transition-all duration-300 dark:border-white/10 dark:bg-black/10">
-                  <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Collection</div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Code</div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Variant</div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Dimension</div>
-                    <div className="min-h-10 bg-white/60 px-3 py-2 text-[11px] font-medium leading-tight text-black/60 dark:bg-black/20 dark:text-white/70">Price</div>
-
-                    {currentCollectionVariants[0] && (
-                      <React.Fragment key={currentCollectionVariants[0].id}>
-                        {(() => {
-                          const v = currentCollectionVariants[0];
-                          const baseClass = selectedIds.has(v.id)
-                            ? 'bg-emerald-100 px-3 py-2 text-left text-sm leading-tight hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 font-semibold text-emerald-900 dark:text-emerald-100'
-                            : 'bg-white/70 px-3 py-2 text-left text-sm leading-tight hover:bg-white dark:bg-black/20 dark:hover:bg-black/30 font-semibold text-black dark:text-white';
-                          const handler = (e: React.PointerEvent | React.MouseEvent) => {
-                            e.stopPropagation();
-                            if (e.shiftKey) { toggleSelected(v.id); return; }
-                            const key = (v.collectionNameNormalized || '').trim();
-                            if (key) setFamilyCollectionName(key);
-                            setPreviewId(v.id);
-                            setPreviewIndex((i) => (i === null ? 0 : i));
-                            setLightboxDetailsCollapsed(true);
-                          };
-                          return (
-                            <>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.title}</div></button>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.code || '—'}</div></button>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.variant || '—'}</div></button>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.dimension || '—'}</div></button>
-                              <button type="button" className={baseClass} onClick={handler}><div className="truncate">{v.price ? <><span className="hidden sm:inline">AED </span>{v.price}</> : '—'}</div></button>
-                            </>
-                          );
-                        })()}
-                      </React.Fragment>
-                    )}
-                  </div>
-
-                  <div className={'transition-[max-height] duration-300 ease-out ' + (lightboxDetailsCollapsed ? 'max-h-0 pointer-events-none overflow-hidden' : 'max-h-[50vh] overflow-y-auto')}>
-                    <div className="grid grid-cols-5 gap-px bg-black/10 dark:bg-white/10">
-                      {currentCollectionVariants.slice(1).map((v) => (
-                        <React.Fragment key={v.id}>
-                          <button
-                            type="button"
-                            className={selectedIds.has(v.id) ? 'bg-emerald-100 px-3 py-2 text-left text-sm text-emerald-900 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-100' : 'bg-white/70 px-3 py-2 text-left text-sm text-black/70 hover:bg-white dark:bg-black/20 dark:text-white/65'}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (e.shiftKey) { toggleSelected(v.id); return; }
-                              const key = (v.collectionNameNormalized || '').trim();
-                              if (key) setFamilyCollectionName(key);
-                              setPreviewId(v.id);
-                              setPreviewIndex((i) => (i === null ? 0 : i));
-                              setLightboxDetailsCollapsed(true);
-                            }}
-                          >
-                            <div className="truncate">{v.title}</div>
-                          </button>
-                          {/* Code, Variant, Dimension, Price buttons... keep concise */}
-                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.code || '—'}</div>
-                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.variant || '—'}</div>
-                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.dimension || '—'}</div>
-                          <div className="bg-white/70 px-3 py-2 text-sm dark:bg-black/20">{v.price ? <><span className="hidden sm:inline">AED </span>{v.price}</> : '—'}</div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ProductDetailsPanel
+            currentItem={currentItem}
+            currentCollectionVariants={currentCollectionVariants}
+            selectedIds={selectedIds}
+            toggleSelected={toggleSelected}
+            setFamilyCollectionName={setFamilyCollectionName}
+            setPreviewId={setPreviewId}
+            setPreviewIndex={setPreviewIndex}
+            lightboxDetailsCollapsed={lightboxDetailsCollapsed}
+            setLightboxDetailsCollapsed={setLightboxDetailsCollapsed}
+          />
 
           {/* Lightbox Selection Bar */}
           <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5" onPointerDown={(e) => e.stopPropagation()}>
             <div className="mx-auto max-w-xl">
-              <div className="rounded-2xl border border-white/10 bg-black/35 p-2 shadow-lg backdrop-blur">
-                <div className="flex items-center justify-between gap-3 px-2 pb-2">
-                  <div className="text-xs font-medium text-white/70">Selected: {selectedCount}</div>
-                  {selectedCount > 0 && (
-                    <button type="button" onClick={() => setSelectedIds(new Set())} className="text-xs font-semibold text-white/70 hover:text-white">Clear</button>
-                  )}
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/25 p-1">
-                  <div className="grid grid-cols-3 gap-1">
-                    <button type="button" onClick={() => void downloadSelected()} className="h-11 rounded-xl border border-white/15 bg-black/10 text-[11px] font-medium text-white/90 hover:bg-white/10">Download</button>
-                    <button type="button" onClick={() => void shareSelected()} className="h-11 rounded-xl border border-white/15 bg-black/10 text-[11px] font-medium text-white/90 hover:bg-white/10">Share</button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const key = (currentItem?.collectionNameNormalized || '').trim();
-                        if (familyCollectionName) setFamilyCollectionName(null);
-                        else if (key) setFamilyCollectionName(key);
-                      }}
-                      className={'h-11 rounded-xl border px-2 text-[11px] font-medium ' + (familyCollectionName ? 'border-red-300 bg-red-500/10 text-red-100' : 'border-white/15 bg-black/10 text-white/90')}
-                    >
-                      {familyCollectionName ? 'ALL' : 'Collection'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <SelectionBar
+                selectedCount={selectedCount}
+                onClear={() => setSelectedIds(new Set())}
+                onDownload={() => void downloadSelected()}
+                onShare={() => void shareSelected()}
+                onToggleView={() => {
+                  const key = (currentItem?.collectionNameNormalized || '').trim();
+                  if (familyCollectionName) setFamilyCollectionName(null);
+                  else if (key) setFamilyCollectionName(key);
+                }}
+                viewLabel={familyCollectionName ? 'ALL' : 'Collection'}
+                isViewActive={Boolean(familyCollectionName)}
+                theme="dark"
+              />
             </div>
           </div>
         </div>
@@ -4167,151 +1329,20 @@ export function ProductsView({
       )}
       {fieldEditPortal}
       
-      {/* Command Palette Search */}
-      {showCommandPalette && createPortal(
-        <div className="fixed inset-0 z-[5000] flex items-start justify-center p-4 sm:p-20 overflow-hidden isolate">
-          <div 
-            className="absolute inset-0 bg-zinc-900/60 backdrop-blur-md animate-fade-in" 
-            onClick={() => setShowCommandPalette(false)} 
-          />
-          <div className="relative w-full max-w-2xl transform overflow-hidden rounded-2xl border border-white/20 bg-zinc-900/80 p-0 shadow-2xl ring-1 ring-white/10 transition-all animate-fade-in scale-100 dark:bg-zinc-950/90 [box-shadow:0_0_80px_rgba(0,0,0,0.5)]">
-            <div className="flex items-center border-b border-white/10 px-4 py-3">
-              <svg viewBox="0 0 24 24" className="h-6 w-6 text-emerald-500" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-              <input
-                autoFocus
-                type="text"
-                placeholder="Search products, codes, collections..."
-                className="flex-1 bg-transparent px-4 py-2 text-lg font-medium text-white placeholder:text-zinc-500 outline-none"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    setFamilyMode('collection');
-                    setShowCommandPalette(false);
-                  }
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setPaletteIndex(prev => Math.min(prev + 1, Math.min(filteredRecords.length, 10) - 1));
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setPaletteIndex(prev => Math.max(prev - 1, 0));
-                  } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const selected = filteredRecords.slice(0, 10)[paletteIndex];
-                    if (selected) {
-                      const name = formatScalar(selected.fields?.['Colecction Name']) || formatScalar(selected.fields?.Name) || '';
-                      if (name) setSearch(name);
-                      addToRecent(name || search);
-                    } else if (search.trim()) {
-                      addToRecent(search);
-                    }
-                    setFamilyMode('collection');
-                    setShowCommandPalette(false);
-                  }
-                }}
-              />
-              <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2 py-1 text-[10px] font-black text-zinc-500 ring-1 ring-white/10 uppercase">
-                Esc
-              </div>
-            </div>
-            
-            <div className="scrollbar-minimal max-h-[60vh] overflow-y-auto p-2">
-              {recentSearches.length > 0 && !search && (
-                <div className="mb-4">
-                  <h3 className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Recent Searches</h3>
-                  <div className="space-y-1">
-                    {recentSearches.map((rs, i) => (
-                      <button
-                        key={i}
-                        onClick={() => { setSearch(rs); addToRecent(rs); }}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 active:bg-white/10 transition-colors"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4 opacity-30" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20v-8m0 0V4m0 8h8m-8 0H4" strokeLinecap="round" /></svg>
-                        {rs}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {search && (
-                <div>
-                  <h3 className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-500">Results</h3>
-                  <div className="space-y-2">
-                    {filteredRecords.slice(0, 10).map((r, idx) => {
-                      const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || 'Unknown Product';
-                      const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code) || 'No Code';
-                      return (
-                        <button
-                          key={r.id}
-                          onClick={() => {
-                            addToRecent(search);
-                            const idx = sortedRecords.findIndex(sr => sr.id === r.id);
-                            if (idx >= 0) {
-                                setPreviewId(r.id);
-                                setPreviewIndex(idx);
-                            }
-                            setShowCommandPalette(false);
-                          }}
-                          className={`flex w-full items-center gap-4 rounded-xl border p-3 transition-all text-left group ${
-                            idx === paletteIndex 
-                              ? 'border-emerald-500/50 bg-emerald-500/10 dark:bg-emerald-500/20' 
-                              : 'border-white/5 bg-white/5 hover:bg-white/10'
-                          }`}
-                        >
-                          <div className="h-12 w-12 flex-none overflow-hidden rounded-lg bg-black/20 ring-1 ring-white/10">
-                             {(() => {
-                               const raw = extractUrls(r.fields?.URL)[0] || extractUrls(r.fields?.Image)[0];
-                               if (!raw) return <div className="flex h-full w-full items-center justify-center bg-zinc-800 text-[8px] font-bold text-zinc-600 uppercase tracking-tighter text-center px-1">No Image</div>;
-                               return (
-                                 /* eslint-disable-next-line @next/next/no-img-element */
-                                 <img 
-                                   src={getDriveDirectLink(raw)} 
-                                   alt="" 
-                                   className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                                 />
-                               );
-                             })()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-bold text-white truncate">{highlightMatches(name, search)}</div>
-                            <div className="text-[10px] font-semibold text-zinc-500 mt-0.5 tracking-tight uppercase">{highlightMatches(code, search)}</div>
-                          </div>
-                          <svg viewBox="0 0 24 24" className="h-5 w-5 text-zinc-600 group-hover:text-emerald-500 transition-colors" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      );
-                    })}
-                    {filteredRecords.length === 0 && (
-                      <div className="py-12 text-center">
-                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800 text-zinc-600 mb-3">
-                          <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
-                        </div>
-                        <p className="text-sm font-medium text-zinc-400">No products found for "{search}"</p>
-                        <button onClick={() => setSearch('')} className="mt-2 text-[10px] font-bold uppercase tracking-widest text-emerald-500 hover:text-emerald-400">Clear Search</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="flex items-center justify-between border-t border-white/10 bg-black/20 px-4 py-2 text-[10px] font-semibold text-zinc-500 tracking-wider">
-               <div className="flex items-center gap-4">
-                  <span className="flex items-center gap-1"><kbd className="px-1 rounded bg-white/10 ring-1 ring-white/10 text-[9px]">↵</kbd> SELECT</span>
-                  <span className="flex items-center gap-1"><kbd className="px-1 rounded bg-white/10 ring-1 ring-white/10 text-[9px]">↑↓</kbd> NAVIGATE</span>
-               </div>
-               <span>{filteredRecords.length} Results</span>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
+        search={search}
+        setSearch={setSearch}
+        paletteIndex={paletteIndex}
+        setPaletteIndex={setPaletteIndex}
+        recentSearches={recentSearches}
+        addToRecent={addToRecent}
+        filteredRecords={filteredRecords}
+        sortedRecords={sortedRecords}
+        setPreviewId={setPreviewId}
+        setPreviewIndex={setPreviewIndex}
+      />
 
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
       <style dangerouslySetInnerHTML={{ __html: `

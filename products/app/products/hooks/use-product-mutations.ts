@@ -1,0 +1,206 @@
+import * as React from 'react';
+import type { ProductsRecord } from '@/types/trainer';
+import { apiFetch } from '@/lib/api';
+import { logFrontendEvent } from '../lib/product-service';
+import { formatScalar } from '../lib/product-utils';
+
+interface UseProductMutationsProps {
+  setData: (fn: (prev: any) => any) => void;
+  mutate: () => Promise<any>;
+  columns: string[];
+}
+
+export function useProductMutations({ setData, mutate, columns }: UseProductMutationsProps) {
+  const [isSaving, setIsSaving] = React.useState(false);
+
+  const handleUpdateVariant = React.useCallback(async (id: string, fields: Record<string, any>, records: ProductsRecord[]) => {
+    if (isSaving) return;
+    // Optimistic update
+    setData(prev => {
+      if (!prev) return prev;
+      const updateSet = new Set([id]);
+      if ('Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields) {
+        // Find siblings
+        const target = records.find(r => r.id === id);
+        if (target) {
+           const currentName = (formatScalar(target.fields['Colecction Name']) || formatScalar(target.fields['Name']) || formatScalar(target.fields['Collection Name']) || '').trim();
+           if (currentName) {
+             records.filter(r => (formatScalar(r.fields['Colecction Name']) || formatScalar(r.fields['Name']) || formatScalar(r.fields['Collection Name']) || '').trim() === currentName).forEach(r => updateSet.add(r.id));
+           }
+        }
+      }
+      return {
+        ...prev,
+        records: prev.records.map((r: any) => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
+      };
+    });
+
+    setIsSaving(true);
+    try {
+      const targetRecord = records.find(r => r.id === id);
+      if (!targetRecord) return;
+
+      const isNameUpdate = 'Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields;
+      let idsToUpdate = [id];
+
+      if (isNameUpdate) {
+        const currentName = (
+          formatScalar(targetRecord.fields['Colecction Name']) || 
+          formatScalar(targetRecord.fields['Name']) || 
+          formatScalar(targetRecord.fields['Collection Name']) || 
+          ''
+        ).trim();
+
+        if (currentName) {
+          idsToUpdate = records
+            .filter(r => {
+              const rName = (
+                formatScalar(r.fields['Colecction Name']) || 
+                formatScalar(r.fields['Name']) || 
+                formatScalar(r.fields['Collection Name']) || 
+                ''
+              ).trim();
+              return rName === currentName;
+            })
+            .map(r => r.id);
+        }
+      }
+
+      const results = await Promise.all(
+        idsToUpdate.map(tid => 
+          apiFetch(`/products/assets/${tid}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields }),
+          })
+        )
+      );
+
+      if (results.every(res => res.ok)) {
+        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, id);
+        mutate(); // Background revalidation
+      } else {
+        console.error('Update failed on some records');
+      }
+    } catch (e) {
+      console.error('Update failed', e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, setData, mutate]);
+
+  const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const targetRecord = records.find(r => r.id === recordId);
+      if (!targetRecord) return;
+
+      const getCollectionKey = (rFields: any) => {
+        return (formatScalar(rFields?.['Colecction Name']) || 
+                formatScalar(rFields?.Name) || 
+                formatScalar(rFields?.['Collection Name']) || 
+                '').trim();
+      };
+
+      const groupKey = getCollectionKey(targetRecord.fields);
+      const otherMainIds = records
+        .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
+        .map(r => r.id);
+
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map((r: any) => {
+            const rFields = r.fields || {};
+            if (r.id === recordId) return { ...r, fields: { ...rFields, Main: true } };
+            if (getCollectionKey(rFields) === groupKey) return { ...r, fields: { ...rFields, Main: false } };
+            return r;
+          })
+        };
+      });
+
+      const updates = [{ id: recordId, fields: { Main: true } }, ...otherMainIds.map(id => ({ id, fields: { Main: false } }))];
+      const res = await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
+        method: 'PATCH', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: u.fields }) 
+      })));
+      if (res.every(r => r.ok)) {
+        mutate();
+      }
+    } catch (err) {
+      console.error('Toggle Main failed', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, setData, mutate]);
+
+  const handleSaveField = React.useCallback(async (recordId: string, fieldName: string, newValue: any, records: ProductsRecord[]) => {
+    try {
+      const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
+      
+      // Optimistic update
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map((r: any) => r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r)
+        };
+      });
+
+      const res = await apiFetch(`/products/assets/${recordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { [exactFieldName]: newValue } })
+      });
+      if (res.ok) {
+        mutate();
+      }
+    } catch (err) {
+      console.error('Save field failed', err);
+    }
+  }, [setData, mutate, columns]);
+
+  return {
+    isSaving,
+    handleUpdateVariant,
+    handleToggleMain,
+    handleSaveField,
+    handleAddMediaToVariant: React.useCallback(async (variantId: string, newUrl: string, records: ProductsRecord[]) => {
+      if (!newUrl || isSaving) return;
+      setIsSaving(true);
+      try {
+        const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
+        const record = records.find(r => r.id === variantId);
+        if (!record) throw new Error('Record not found in state');
+        
+        const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
+        const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
+
+        // Optimistic update
+        setData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            records: prev.records.map((r: any) => r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r)
+          };
+        });
+
+        const patchRes = await apiFetch(`/products/assets/${variantId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: { [urlFieldName]: finalValueToSave } }),
+        });
+        if (patchRes.ok) {
+          mutate();
+        }
+      } catch (err) {
+        console.error('Add media failed', err);
+      } finally {
+        setIsSaving(false);
+      }
+    }, [isSaving, setData, mutate, columns])
+  };
+}

@@ -22,6 +22,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
     credentials: 'include',
     ...init,
     headers: {
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...(cookieHeader ? { cookie: cookieHeader } : {}),
       ...(init?.headers ?? {}),
     },

@@ -10,6 +10,7 @@ type ProductsCacheContextValue = {
   loading: boolean;
   error: string | null;
   setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
+  mutate: () => Promise<void>;
 };
 
 const ProductsCacheContext = React.createContext<ProductsCacheContextValue | null>(null);
@@ -35,34 +36,44 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     data: swrData,
     error: swrError,
     isLoading,
+    mutate: swrMutate,
   } = useSWR<ProductsAssetsResponse>(
     `${basePath}/api/products/assets`,
     fetcher,
     {
-      revalidateOnFocus: false,       // Don't hammer backend when tab regains focus
-      revalidateOnReconnect: true,    // Revalidate after network comes back
-      dedupingInterval: 60_000,       // 60s dedup — only one in-flight request per minute
-      keepPreviousData: true,         // Show old data instantly while fetching new
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      keepPreviousData: true,
       shouldRetryOnError: true,
       errorRetryCount: 3,
+      dedupingInterval: 0,
     }
   );
 
-  // Allow optimistic mutations via setData (same API as before)
   const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
-
-  // When SWR gets fresh data, clear any local override so the canonical data wins
-  React.useEffect(() => {
-    if (swrData) setLocalOverride(null);
-  }, [swrData]);
 
   const data = localOverride ?? swrData ?? null;
   const loading = isLoading;
   const error = swrError ? (swrError instanceof Error ? swrError.message : 'Failed to load Products') : null;
 
   const value = React.useMemo<ProductsCacheContextValue>(
-    () => ({ data, loading, error, setData: setLocalOverride }),
-    [data, error, loading]
+    () => ({ 
+      data, 
+      loading, 
+      error, 
+      setData: (updater: any) => {
+        setLocalOverride(prev => {
+          const base = prev ?? swrData;
+          if (typeof updater === 'function') return updater(base);
+          return updater;
+        });
+      },
+      mutate: async () => {
+        const fresh = await swrMutate();
+        if (fresh) setLocalOverride(null);
+      }
+    }),
+    [data, error, loading, swrMutate, swrData]
   );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;

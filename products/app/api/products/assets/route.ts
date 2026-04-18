@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getTrainerApiBase } from '@/lib/env';
 
 // Cache this route on the Next.js server for 60s; serves stale while revalidating
-export const revalidate = 60;
+export const revalidate = 0;
 
 export async function GET(req: Request) {
   const base = getTrainerApiBase();
@@ -12,9 +12,9 @@ export async function GET(req: Request) {
   const baseResolved = base.startsWith('/') ? `${origin}${base}` : base;
   const url = `${baseResolved}/public/products/assets`;
 
-  // Use Next.js Data Cache: revalidate every 60s instead of fetching fresh every request
+  // Disable revalidation
   const res = await fetch(url, {
-    next: { revalidate: 60 },
+    cache: 'no-store',
     headers: {
       accept: 'application/json',
     },
