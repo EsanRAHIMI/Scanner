@@ -131,8 +131,21 @@ export function ProductsView({
     const vals = new Set<string>();
     records.forEach(r => {
       const v = r.fields?.[fieldName];
-      if (typeof v === 'string' && v.trim()) vals.add(v.trim());
-      else if (Array.isArray(v)) v.forEach(x => typeof x === 'string' && x.trim() && vals.add(x.trim()));
+      if (typeof v === 'string' && v.trim()) {
+        v.split(',').forEach(part => {
+          const p = part.trim();
+          if (p) vals.add(p);
+        });
+      } else if (Array.isArray(v)) {
+        v.forEach(x => {
+          if (typeof x === 'string' && x.trim()) {
+            x.split(',').forEach(part => {
+              const p = part.trim();
+              if (p) vals.add(p);
+            });
+          }
+        });
+      }
     });
     return Array.from(vals).sort((a, b) => a.localeCompare(b));
   }, [records]);
@@ -979,7 +992,7 @@ export function ProductsView({
         selectedMaterials={selectedMaterials}
         setSelectedMaterials={setSelectedMaterials}
         activeFilterDropdown={activeFilterDropdown}
-        setActiveDropdown={setActiveFilterDropdown}
+        setActiveFilterDropdown={setActiveFilterDropdown}
       />
 
       {error ? (

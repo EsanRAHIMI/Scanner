@@ -600,7 +600,7 @@ export function ListView({
                     const isVideoCol = normalizedCol === 'video';
                     const isURL = normalizedCol === 'url';
                     const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
-                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name' || normalizedCol === 'colecction code' || normalizedCol === 'collection code' || normalizedCol === 'variant number' || normalizedCol === 'num';
+                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name';
                     let cellValue = r.fields?.[c];
                     if (isDAM || isVideoCol) {
                       const urlEntry = Object.entries(r.fields || {}).find(([k]) => {

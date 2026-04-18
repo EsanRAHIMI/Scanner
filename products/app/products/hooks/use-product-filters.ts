@@ -126,32 +126,32 @@ export function useProductFilters({
     if (selectedCategories.size > 0) {
       base = base.filter(r => {
         const v = r.fields?.[categoryFieldName];
-        if (typeof v === 'string') return selectedCategories.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedCategories.has(x.trim()));
+        if (typeof v === 'string') return v.split(',').some(p => selectedCategories.has(p.trim()));
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedCategories.has(p.trim())));
         return false;
       });
     }
     if (selectedColors.size > 0) {
       base = base.filter(r => {
         const v = r.fields?.[colorFieldName];
-        if (typeof v === 'string') return selectedColors.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedColors.has(x.trim()));
+        if (typeof v === 'string') return v.split(',').some(p => selectedColors.has(p.trim()));
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedColors.has(p.trim())));
         return false;
       });
     }
     if (selectedSpaces.size > 0) {
       base = base.filter(r => {
         const v = r.fields?.[spaceFieldName];
-        if (typeof v === 'string') return selectedSpaces.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedSpaces.has(x.trim()));
+        if (typeof v === 'string') return v.split(',').some(p => selectedSpaces.has(p.trim()));
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedSpaces.has(p.trim())));
         return false;
       });
     }
     if (selectedMaterials.size > 0) {
       base = base.filter(r => {
         const v = r.fields?.[materialFieldName];
-        if (typeof v === 'string') return selectedMaterials.has(v.trim());
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && selectedMaterials.has(x.trim()));
+        if (typeof v === 'string') return v.split(',').some(p => selectedMaterials.has(p.trim()));
+        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedMaterials.has(p.trim())));
         return false;
       });
     }

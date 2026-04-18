@@ -64,13 +64,23 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       setData: (updater: any) => {
         setLocalOverride(prev => {
           const base = prev ?? swrData;
-          if (typeof updater === 'function') return updater(base);
-          return updater;
+          const next = typeof updater === 'function' ? updater(base) : updater;
+          return next;
         });
       },
-      mutate: async () => {
-        const fresh = await swrMutate();
-        if (fresh) setLocalOverride(null);
+      mutate: async (optimisticData?: ProductsAssetsResponse) => {
+        if (optimisticData) {
+          // Use SWR's native optimistic update
+          await swrMutate(optimisticData, {
+            revalidate: true,
+            populateCache: true,
+            rollbackOnError: true,
+          });
+          setLocalOverride(null);
+        } else {
+          await swrMutate();
+          setLocalOverride(null);
+        }
       }
     }),
     [data, error, loading, swrMutate, swrData]
