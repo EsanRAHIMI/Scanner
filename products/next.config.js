@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone output for smaller Docker images (copies only required files)
+  output: 'standalone',
+
   env: {
     NEXT_PUBLIC_BASE_PATH: '',
   },
@@ -18,7 +21,6 @@ const nextConfig = {
     minimumCacheTTL: 3600, // 1 hour client-side image cache
   },
 
-  // Add cache-control headers for the products data API
   async headers() {
     return [
       {
@@ -28,6 +30,16 @@ const nextConfig = {
             key: 'Cache-Control',
             value: 'public, s-maxage=60, stale-while-revalidate=300',
           },
+        ],
+      },
+      {
+        // Security headers for all routes
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
     ];

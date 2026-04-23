@@ -1,19 +1,47 @@
 import * as React from 'react';
-import type { ProductsRecord } from '@/types/trainer';
+import type { ProductsRecord, ProductsAssetsResponse } from '@/types/trainer';
 import { apiFetch } from '@/lib/api';
 import { logFrontendEvent } from '../lib/product-service';
 import { formatScalar } from '../lib/product-utils';
 
 interface UseProductMutationsProps {
-  setData: (fn: (prev: any) => any) => void;
-  mutate: (optimisticData?: any) => Promise<any>;
+  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
+  mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
   columns: string[];
+}
+
+/** Extracts a collection name key from a record's fields. */
+function getCollectionKey(fields: Record<string, unknown> | undefined): string {
+  return (
+    formatScalar(fields?.['Colecction Name']) || 
+    formatScalar(fields?.Name) || 
+    formatScalar(fields?.['Collection Name']) || 
+    ''
+  ).trim();
 }
 
 export function useProductMutations({ setData, mutate, columns }: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
-  const handleUpdateVariant = React.useCallback(async (id: string, fields: Record<string, any>, records: ProductsRecord[]) => {
+  /** Applies an optimistic update and schedules SWR cache sync via queueMicrotask. */
+  const optimisticUpdate = React.useCallback(
+    (updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse) => {
+      setData(prev => {
+        if (!prev) return prev;
+        const next = updater(prev);
+        // Use queueMicrotask instead of setTimeout(0) to avoid race conditions
+        queueMicrotask(() => void mutate(next));
+        return next;
+      });
+    },
+    [setData, mutate]
+  );
+
+  const handleUpdateVariant = React.useCallback(async (
+    id: string, 
+    fields: Record<string, unknown>, 
+    records: ProductsRecord[]
+  ) => {
     if (isSaving) return;
 
     const targetRecord = records.find(r => r.id === id);
@@ -23,37 +51,22 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     let idsToUpdate = [id];
 
     if (isNameUpdate) {
-      const currentName = (
-        formatScalar(targetRecord.fields?.['Colecction Name']) || 
-        formatScalar(targetRecord.fields?.Name) || 
-        formatScalar(targetRecord.fields?.['Collection Name']) || 
-        ''
-      ).trim();
-
+      const currentName = getCollectionKey(targetRecord.fields);
       if (currentName) {
         idsToUpdate = records
-          .filter(r => {
-            const rName = (
-              formatScalar(r.fields?.['Colecction Name']) || 
-              formatScalar(r.fields?.Name) || 
-              formatScalar(r.fields?.['Collection Name']) || 
-              ''
-            ).trim();
-            return rName === currentName;
-          })
+          .filter(r => getCollectionKey(r.fields) === currentName)
           .map(r => r.id);
       }
     }
 
-    // Initial optimistic UI update
+    // Optimistic UI update
     const updateSet = new Set(idsToUpdate);
-    setData(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        records: prev.records.map((r: any) => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
-      };
-    });
+    optimisticUpdate(prev => ({
+      ...prev,
+      records: prev.records.map(r => 
+        updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r
+      )
+    }));
 
     setIsSaving(true);
     try {
@@ -68,26 +81,18 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       );
 
       if (results.every(res => res.ok)) {
-        logFrontendEvent('PRODUCT_INLINE_EDIT', `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, id);
-        
-        // Final sync with SWR
-        setData(prev => {
-          if (!prev) return prev;
-          const next = {
-            ...prev,
-            records: prev.records.map((r: any) => updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r)
-          };
-          // Schedule mutate for NEXT tick to avoid "update while rendering" error
-          setTimeout(() => mutate(next), 0);
-          return next;
-        });
+        logFrontendEvent(
+          'PRODUCT_INLINE_EDIT', 
+          `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, 
+          id
+        );
       }
     } catch (e) {
       console.error('Update failed', e);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate]);
+  }, [isSaving, optimisticUpdate]);
 
   const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
     if (isSaving) return;
@@ -96,34 +101,24 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       const targetRecord = records.find(r => r.id === recordId);
       if (!targetRecord) return;
 
-      const getCollectionKey = (rFields: any) => {
-        return (formatScalar(rFields?.['Colecction Name']) || 
-                formatScalar(rFields?.Name) || 
-                formatScalar(rFields?.['Collection Name']) || 
-                '').trim();
-      };
-
       const groupKey = getCollectionKey(targetRecord.fields);
       const otherMainIds = records
         .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
         .map(r => r.id);
 
-      setData(prev => {
-        if (!prev) return prev;
-        const next = {
-          ...prev,
-          records: prev.records.map((r: any) => {
-            const rFields = r.fields || {};
-            if (r.id === recordId) return { ...r, fields: { ...rFields, Main: true } };
-            if (getCollectionKey(rFields) === groupKey) return { ...r, fields: { ...rFields, Main: false } };
-            return r;
-          })
-        };
-        setTimeout(() => mutate(next), 0);
-        return next;
-      });
+      optimisticUpdate(prev => ({
+        ...prev,
+        records: prev.records.map(r => {
+          if (r.id === recordId) return { ...r, fields: { ...r.fields, Main: true } };
+          if (getCollectionKey(r.fields) === groupKey) return { ...r, fields: { ...r.fields, Main: false } };
+          return r;
+        })
+      }));
 
-      const updates = [{ id: recordId, fields: { Main: true } }, ...otherMainIds.map(id => ({ id, fields: { Main: false } }))];
+      const updates = [
+        { id: recordId, fields: { Main: true } }, 
+        ...otherMainIds.map(oid => ({ id: oid, fields: { Main: false } }))
+      ];
       await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
         method: 'PATCH', 
         headers: { 'Content-Type': 'application/json' },
@@ -134,21 +129,23 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate]);
+  }, [isSaving, optimisticUpdate]);
 
-  const handleSaveField = React.useCallback(async (recordId: string, fieldName: string, newValue: any, records: ProductsRecord[]) => {
+  const handleSaveField = React.useCallback(async (
+    recordId: string, 
+    fieldName: string, 
+    newValue: unknown, 
+    records: ProductsRecord[]
+  ) => {
     try {
       const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
       
-      setData(prev => {
-        if (!prev) return prev;
-        const next = {
-          ...prev,
-          records: prev.records.map((r: any) => r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r)
-        };
-        setTimeout(() => mutate(next), 0);
-        return next;
-      });
+      optimisticUpdate(prev => ({
+        ...prev,
+        records: prev.records.map(r => 
+          r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r
+        )
+      }));
 
       await apiFetch(`/products/assets/${recordId}`, {
         method: 'PATCH',
@@ -158,9 +155,13 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     } catch (err) {
       console.error('Save field failed', err);
     }
-  }, [setData, mutate, columns]);
+  }, [optimisticUpdate, columns]);
 
-  const handleAddMediaToVariant = React.useCallback(async (variantId: string, newUrl: string, records: ProductsRecord[]) => {
+  const handleAddMediaToVariant = React.useCallback(async (
+    variantId: string, 
+    newUrl: string, 
+    records: ProductsRecord[]
+  ) => {
     if (!newUrl || isSaving) return;
     setIsSaving(true);
     try {
@@ -171,15 +172,12 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
       const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
 
-      setData(prev => {
-        if (!prev) return prev;
-        const next = {
-          ...prev,
-          records: prev.records.map((r: any) => r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r)
-        };
-        setTimeout(() => mutate(next), 0);
-        return next;
-      });
+      optimisticUpdate(prev => ({
+        ...prev,
+        records: prev.records.map(r => 
+          r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r
+        )
+      }));
 
       await apiFetch(`/products/assets/${variantId}`, {
         method: 'PATCH',
@@ -191,7 +189,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, columns]);
+  }, [isSaving, optimisticUpdate, columns]);
 
   return {
     isSaving,

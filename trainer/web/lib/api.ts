@@ -18,14 +18,16 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
   const url = `${baseResolved}${path}`;
 
+  const headers = new Headers(init?.headers);
+  if (cookieHeader && !headers.has('Cookie')) {
+    headers.set('Cookie', cookieHeader);
+  }
+
   const res = await fetch(url, {
     cache: 'no-store',
     credentials: 'include',
     ...init,
-    headers: {
-      ...(cookieHeader ? { cookie: cookieHeader } : {}),
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   return res;

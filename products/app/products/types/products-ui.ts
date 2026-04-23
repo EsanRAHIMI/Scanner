@@ -1,5 +1,6 @@
-import { ProductsRecord } from '@/types/trainer';
-import * as React from 'react';
+import type { ProductsRecord } from '@/types/trainer';
+import type * as React from 'react';
+import type { EditingUrlState, DraggedUrlInfo } from './shared-types';
 
 export interface ListViewProps {
   loading: boolean;
@@ -12,19 +13,19 @@ export interface ListViewProps {
   sortKey: string | null;
   sortDir: 'asc' | 'desc';
   openPreviewByUrl: (url: string) => void;
-  setEditingUrl: (data: any) => void;
+  setEditingUrl: (data: EditingUrlState | null) => void;
   handleMoveUrl: (url: string, sourceId: string, targetId: string, column: string) => void;
-  draggedUrlInfo: any;
-  setDraggedUrlInfo: (info: any) => void;
-  activeDropTargetRef: React.MutableRefObject<HTMLElement | null>;
+  draggedUrlInfo: DraggedUrlInfo | null;
+  setDraggedUrlInfo: (info: DraggedUrlInfo | null) => void;
+  activeDropTargetRef: React.RefObject<HTMLElement | null>;
   linkHoverTimerRef: React.RefObject<NodeJS.Timeout | null>;
   familyMode: 'collection' | 'main';
   variantCounts: Record<string, number>;
   search: string;
-  setLinkHoverState: (state: any) => void;
-  canEdit: boolean;
+  setLinkHoverState: (state: { url: string; x: number; y: number; title: string; code: string; variant: string } | null) => void;
+  canEdit: boolean | undefined;
   handleSaveUrl: () => void;
-  editingUrl: any;
+  editingUrl: EditingUrlState | null;
   isSaving: boolean;
 }
 

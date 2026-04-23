@@ -1,20 +1,11 @@
 'use client';
 
 import * as React from 'react';
-
-interface Variant {
-  id: string;
-  title: string;
-  code?: string;
-  variant?: string;
-  dimension?: string;
-  price?: string;
-  collectionNameNormalized?: string;
-}
+import type { GalleryItem } from '../types/shared-types';
 
 interface ProductDetailsPanelProps {
-  currentItem: any;
-  currentCollectionVariants: Variant[];
+  currentItem: GalleryItem | null;
+  currentCollectionVariants: GalleryItem[];
   selectedIds: Set<string>;
   toggleSelected: (id: string) => void;
   setFamilyCollectionName: (name: string | null) => void;

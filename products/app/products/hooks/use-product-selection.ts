@@ -1,10 +1,8 @@
 import * as React from 'react';
 import { logFrontendEvent } from '../lib/product-service';
+import type { GalleryItem } from '../types/shared-types';
 
-interface UseProductSelectionProps {
-}
-
-export function useProductSelection({}: UseProductSelectionProps = {}) {
+export function useProductSelection() {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [showSelectedOnly, setShowSelectedOnly] = React.useState(false);
   const [familyCollectionName, setFamilyCollectionName] = React.useState<string | null>(null);
@@ -18,7 +16,11 @@ export function useProductSelection({}: UseProductSelectionProps = {}) {
     });
   }, []);
 
-  const getSelectedItems = React.useCallback((items: any[], fallbackIndex: number | null, previewId: string | null) => {
+  const getSelectedItems = React.useCallback((
+    items: GalleryItem[], 
+    fallbackIndex: number | null, 
+    previewId: string | null
+  ): GalleryItem[] => {
     const byId = new Map(items.map(x => [x.id, x]));
     
     // If we have an explicit previewId (from URL/State), prioritize it
@@ -28,7 +30,9 @@ export function useProductSelection({}: UseProductSelectionProps = {}) {
     }
 
     // Otherwise, use selected IDs
-    const picked = Array.from(selectedIds).map(id => byId.get(id)).filter(Boolean);
+    const picked = Array.from(selectedIds)
+      .map(id => byId.get(id))
+      .filter((x): x is GalleryItem => !!x);
     if (picked.length > 0) return picked;
 
     // Fallback to current preview index if nothing selected
@@ -40,11 +44,15 @@ export function useProductSelection({}: UseProductSelectionProps = {}) {
     return [];
   }, [selectedIds]);
 
-  const downloadSelected = React.useCallback(async (items: any[], fallbackIndex: number | null, previewId: string | null) => {
+  const downloadSelected = React.useCallback(async (
+    items: GalleryItem[], 
+    fallbackIndex: number | null, 
+    previewId: string | null
+  ) => {
     const selectedItems = getSelectedItems(items, fallbackIndex, previewId);
     if (selectedItems.length === 0) return;
 
-    logFrontendEvent('PRODUCT_DOWNLOAD', `Downloaded ${selectedItems.length} items: ${selectedItems.map((x: any) => x.code || x.title).join(', ')}`);
+    logFrontendEvent('PRODUCT_DOWNLOAD', `Downloaded ${selectedItems.length} items: ${selectedItems.map(x => x.code || x.title).join(', ')}`);
 
     for (const item of selectedItems) {
       try {
@@ -66,7 +74,11 @@ export function useProductSelection({}: UseProductSelectionProps = {}) {
     }
   }, [getSelectedItems]);
 
-  const shareSelected = React.useCallback(async (items: any[], fallbackIndex: number | null, previewId: string | null) => {
+  const shareSelected = React.useCallback(async (
+    items: GalleryItem[], 
+    fallbackIndex: number | null, 
+    previewId: string | null
+  ) => {
     const selectedItems = getSelectedItems(items, fallbackIndex, previewId);
     if (selectedItems.length === 0) return;
 
@@ -75,7 +87,7 @@ export function useProductSelection({}: UseProductSelectionProps = {}) {
       if (item.code) parts.push(`Code: ${item.code}`);
       if (item.variant) parts.push(`Variant: ${item.variant}`);
       if (item.price) parts.push(`Price: AED ${item.price}`);
-      if (item.rawUrl) parts.push(`Link: ${item.rawUrl}`);
+      if (item.originalUrl) parts.push(`Link: ${item.originalUrl}`);
       return parts.join('\n');
     }).join('\n\n---\n\n');
 

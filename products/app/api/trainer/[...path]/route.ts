@@ -40,24 +40,31 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
     }
   }
 
+  const headers = new Headers();
+  const reqContentType = req.headers.get('Content-Type');
+  const contentType = reqContentType ? reqContentType.split(',')[0].trim() : 'application/json';
+  
+  headers.set('Content-Type', contentType);
+  headers.set('Accept', 'application/json');
+  if (cookieHeader) headers.set('Cookie', cookieHeader);
+  if (authHeader) headers.set('Authorization', authHeader);
+
   const res = await fetch(targetUrl.toString(), {
     method,
     cache: 'no-store',
-    headers: {
-      'Content-Type': req.headers.get('Content-Type') || 'application/json',
-      accept: 'application/json',
-      ...(cookieHeader ? { cookie: cookieHeader } : {}),
-      ...(authHeader ? { authorization: authHeader } : {}),
-    },
+    headers,
     ...(body ? { body } : {}),
   });
 
   const resText = await res.text();
 
+  const resContentType = res.headers.get('Content-Type');
+  const finalContentType = resContentType ? resContentType.split(',')[0].trim() : 'application/json';
+
   const nextRes = new NextResponse(resText, {
     status: res.status,
     headers: {
-      'Content-Type': res.headers.get('Content-Type') || 'application/json',
+      'Content-Type': finalContentType,
     },
   });
 

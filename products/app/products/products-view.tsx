@@ -2,47 +2,36 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 import { SocialFeed } from './components/social-feed';
-import type { FeedVariant } from './components/social-feed/types';
 import { useProductFilters } from './hooks/use-product-filters';
 import { useProductSelection } from './hooks/use-product-selection';
 import { useProductSync } from './hooks/use-product-sync';
 import { useProductMutations } from './hooks/use-product-mutations';
 import { useProductDragDrop } from './hooks/use-product-drag-drop';
-
-async function logFrontendEvent(action: string, details: string = '', resourceId?: string) {
-  try {
-    await apiFetch('/admin/log-event', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, details, resource_id: resourceId }),
-    });
-  } catch (e) {
-    console.error('[Logging] Failed:', e);
-  }
-}
-
-
+import { logFrontendEvent } from './lib/product-service';
 
 import { 
   isVideoUrl, 
-  isImageUrl, 
   formatScalar, 
   extractUrls, 
   getDriveDirectLink, 
-  highlightMatches, 
-  formatPrice 
 } from './lib/product-utils';
 
 import { 
   getTagColorStyles,
   getTagMaterialStyles
 } from './lib/constants';
+
+import { HeaderToolbar } from './components/header-toolbar';
+import { LightboxViewer } from './components/lightbox-viewer';
+import { FieldEditPortal } from './components/field-edit-portal';
+import { LinkHoverPreview } from './components/link-hover-preview';
+import { useTheme } from './hooks/use-theme';
+import { useLightbox } from './hooks/use-lightbox';
 
 import { ActivityLogModal } from './components/activity-log-modal';
 import { TopProgressBar } from './components/top-progress-bar';
@@ -54,10 +43,11 @@ import { SelectionBar } from './components/selection-bar';
 import { CommandPalette } from './components/command-palette';
 import { GalleryCard } from './components/gallery-card';
 import { ListView } from './components/list-view';
-import { PhotoDeck } from './components/photo-deck';
 import type { AuthMe } from './types';
 
 
+
+import type { EditingUrlState, LinkHoverState, SwipeRefState, UserSession } from './types/shared-types';
 
 export function ProductsView({
   title = 'Products',
@@ -79,17 +69,16 @@ export function ProductsView({
 
   const [showCommandPalette, setShowCommandPalette] = React.useState(false);
   const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
-  const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
-  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
-  const [previewId, setPreviewId] = React.useState<string | null>(null);
   const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
-  const [user, setUser] = React.useState<{ role: string; is_admin: boolean } | null>(null);
-  const [editingUrl, setEditingUrl] = React.useState<{ id: string; value: string; originalValue?: string; column?: string; index?: number | null; mode?: 'replace' | 'append' | 'prepend'; rect?: { top: number; left: number; width: number; height: number } } | null>(null);
-  const [linkHoverState, setLinkHoverState] = React.useState<{ url: string; x: number; y: number; title: string; code: string; variant: string } | null>(null);
+  const [user, setUser] = React.useState<UserSession | null>(null);
+  const [editingUrl, setEditingUrl] = React.useState<EditingUrlState | null>(null);
+  const [linkHoverState, setLinkHoverState] = React.useState<LinkHoverState | null>(null);
   const linkHoverTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const swipeRef = React.useRef<SwipeRefState>({ pointerId: null, startX: 0, startY: 0, moved: false, swiped: false });
 
   // --- Specialized Hooks ---
+  const { theme, toggleTheme } = useTheme();
   const selection = useProductSelection();
   
   const filters = useProductFilters({
@@ -123,8 +112,15 @@ export function ProductsView({
     selectedColors, setSelectedColors, selectedSpaces, setSelectedSpaces, 
     selectedMaterials, setSelectedMaterials, activeFilterDropdown, 
     setActiveFilterDropdown, filteredRecords, sortedRecords,
-    categoryFieldName, colorFieldName, spaceFieldName, materialFieldName
+    categoryFieldName, colorFieldName, spaceFieldName, materialFieldName,
+    galleryItems
   } = filters;
+
+  const {
+    previewIndex, setPreviewIndex, previewId, setPreviewId,
+    openPreviewByUrl, closePreview, goPrev, goNext
+  } = useLightbox(galleryItems);
+
   const { selectedIds, setSelectedIds, showSelectedOnly, setShowSelectedOnly, familyCollectionName, setFamilyCollectionName } = selection;
 
   const getUniqueValues = React.useCallback((fieldName: string) => {
@@ -310,80 +306,7 @@ export function ProductsView({
 
 
 
-  const galleryItems = filters.galleryItems;
 
-  const openPreviewByUrl = React.useCallback(
-    (url: string) => {
-      if (!url) return;
-      // Try exact match first
-      let idx = galleryItems.findIndex((x: any) => x.url === url || x.originalUrl === url);
-      
-      // If no match, try by matching Drive IDs if applicable
-      if (idx === -1 && (url.includes('drive.google.com') || url.includes('lh3.googleusercontent.com'))) {
-        const inputId = getDriveDirectLink(url).match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
-        if (inputId) {
-          idx = galleryItems.findIndex((x: any) => x.driveId === inputId);
-        }
-      }
-
-      if (idx !== -1) {
-        setPreviewId(galleryItems[idx].id);
-        setPreviewIndex(idx);
-      }
-    },
-    [galleryItems]
-  );
-
-  const closePreview = React.useCallback(() => {
-    setPreviewIndex(null);
-    setPreviewId(null);
-    setLightboxDetailsCollapsed(true);
-    setFamilyCollectionName(null);
-  }, []);
-
-  const goPrev = React.useCallback(() => {
-    setPreviewIndex((i) => {
-      if (i === null) return i;
-      const n = galleryItems.length;
-      if (n <= 1) return i;
-      const nextIndex = (i - 1 + n) % n;
-      const next = galleryItems[nextIndex];
-      setPreviewId(next?.id ?? null);
-      // Auto-collapse table when navigating
-      setLightboxDetailsCollapsed(true);
-      return nextIndex;
-    });
-  }, [galleryItems]);
-
-  const allGalleryIdsString = React.useMemo(() => allGalleryItems.map((x: any) => x.id).join('|'), [allGalleryItems]);
-  const galleryIdsString = React.useMemo(() => galleryItems.map((x: any) => x.id).join('|'), [galleryItems]);
-
-  React.useEffect(() => {
-    if (previewIndex === null) return;
-    if (!previewId) return;
-
-    const idx = galleryItems.findIndex((x: any) => x.id === previewId);
-    if (idx >= 0) {
-      if (idx !== previewIndex) setPreviewIndex(idx);
-      return;
-    }
-
-    const prev = allGalleryItems.find((x: any) => x.id === previewId) ?? null;
-    const familyKey = (prev?.collectionNameNormalized || '').trim();
-    if (familyKey) {
-      const mappedIdx = galleryItems.findIndex((x: any) => x.collectionNameNormalized === familyKey);
-      if (mappedIdx >= 0) {
-        setPreviewIndex(mappedIdx);
-        setPreviewId(galleryItems[mappedIdx].id);
-        return;
-      }
-    }
-
-    if (galleryItems.length > 0) {
-      setPreviewIndex(0);
-      setPreviewId(galleryItems[0].id);
-    }
-  }, [previewId, previewIndex, allGalleryIdsString, galleryIdsString]);
 
   const toggleSelected = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -553,19 +476,7 @@ export function ProductsView({
     }
   }, [getSelectedItems, previewIndex]);
 
-  const goNext = React.useCallback(() => {
-    setPreviewIndex((i) => {
-      if (i === null) return i;
-      const n = galleryItems.length;
-      if (n <= 1) return i;
-      const nextIndex = (i + 1) % n;
-      const next = galleryItems[nextIndex];
-      setPreviewId(next?.id ?? null);
-      // Auto-collapse table when navigating
-      setLightboxDetailsCollapsed(true);
-      return nextIndex;
-    });
-  }, [galleryItems]);
+
 
   const toggleSort = React.useCallback(
     (key: string) => {
@@ -580,56 +491,9 @@ export function ProductsView({
   );
 
   React.useEffect(() => {
-    if (previewIndex === null) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Keys that should be blocked from affecting the background
-      const blockedKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
-      if (blockedKeys.includes(e.key)) {
-        e.preventDefault();
-      }
-
-      if (e.key === 'Escape') closePreview();
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goPrev();
-      }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        goNext();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [closePreview, goNext, goPrev, previewIndex]);
-
-  React.useEffect(() => {
     const v = window.localStorage.getItem('products_view_mode');
     if (v === 'list' || v === 'gallery') setViewMode(v);
   }, []);
-
-  React.useEffect(() => {
-    const stored = window.localStorage.getItem('products_theme');
-    if (stored === 'dark' || stored === 'light') setTheme(stored);
-  }, []);
-
-  React.useEffect(() => {
-    window.localStorage.setItem('products_theme', theme);
-    const el = document.documentElement;
-    if (theme === 'dark') el.classList.add('dark');
-    else el.classList.remove('dark');
-  }, [theme]);
-
-  // Lock body scroll when preview is open
-  React.useEffect(() => {
-    if (previewIndex !== null) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [previewIndex]);
 
   React.useEffect(() => {
     window.localStorage.setItem('products_view_mode', viewMode);
@@ -753,7 +617,7 @@ export function ProductsView({
   const themeToggleNode = (
     <button
       type="button"
-      onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+      onClick={toggleTheme}
       aria-pressed={theme === 'dark'}
       title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       className={
@@ -810,171 +674,23 @@ export function ProductsView({
     </button>
   );
 
-  // Portal dropdown for Space/Color/Material/Category editing
-  const fieldEditPortal = React.useMemo(() => {
-    if (typeof document === 'undefined') return null;
-    if (!editingUrl?.rect) return null;
-
-    const colName = (editingUrl.column || '').trim().toLowerCase();
-    const isSpace = colName === 'space';
-    const isCategory = colName === 'category';
-    const isColor = colName === 'color';
-    const isMaterial = colName === 'material';
-    if (!isSpace && !isCategory && !isColor && !isMaterial) return null;
-
-    const { top, left, width, height } = editingUrl.rect;
-    const isCheckbox = isSpace || isCategory || isColor || isMaterial;
-    const POPUP_W = 260;
-    const POPUP_H = isSpace || isCategory ? 430 : 260;
-    const spaceBelow = window.innerHeight - (top + height);
-    const spaceRight = window.innerWidth - left;
-    const popupLeft = spaceRight >= POPUP_W ? left : Math.max(8, left + width - POPUP_W);
-    const popupTop = spaceBelow >= POPUP_H ? top + height + 4 : Math.max(8, top - POPUP_H - 4);
-
-    const currentSet = new Set((editingUrl.value || '').split(',').map(s => s.trim()).filter(Boolean));
-    const col = colName;
-    const column = editingUrl.column || '';
-    const recordId = editingUrl.id;
-    const originalValue = editingUrl.originalValue ?? '';
-
-    const portal = (
-      <>
-        {/* Backdrop — click outside saves */}
-        <div
-          className="fixed inset-0 z-[998]"
-          onClick={doSaveTag}
-          onKeyDown={(e) => { 
-            if (e.key === 'Escape') { e.preventDefault(); doCancelTag(); }
-            else if (e.key === 'Enter') { e.preventDefault(); doSaveTag(); }
-          }}
-          tabIndex={-1}
-        />
-        {/* Dropdown */}
-        <div
-          ref={(el) => { if (el) el.focus(); }}
-          className="fixed z-[999] flex flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-zinc-900 outline-none"
-          style={{ top: popupTop, left: popupLeft, width: POPUP_W }}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          tabIndex={0}
-          onKeyDown={(e) => { 
-            if (e.key === 'Escape') { e.preventDefault(); doCancelTag(); }
-            else if (e.key === 'Enter') { e.preventDefault(); doSaveTag(); }
-          }}
-        >
-          {(isSpace || isCategory || isColor || isMaterial) ? (
-            <>
-              <div className="scrollbar-minimal overflow-y-auto p-2" style={{ maxHeight: 320 }}>
-                <div className="grid grid-cols-1 gap-1.5">
-                  {(isSpace ? uniqueSpaces : isColor ? uniqueColors : isMaterial ? uniqueMaterials : uniqueCategories).map(opt => {
-                    const sel = currentSet.has(opt);
-                    return (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => {
-                          const next = new Set(currentSet);
-                          if (sel) next.delete(opt); else next.add(opt);
-                          setEditingUrl({ ...editingUrl, value: Array.from(next).join(', ') });
-                        }}
-                        className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[12px] font-medium transition-all ${
-                          sel
-                            ? isColor 
-                              ? `${getTagColorStyles(opt)} shadow-sm border` 
-                              : isMaterial
-                                ? `${getTagMaterialStyles(opt)} shadow-sm border`
-                                : 'bg-emerald-600 text-white shadow-sm'
-                            : 'bg-black/[0.03] text-black/75 hover:bg-emerald-50 hover:text-emerald-800 dark:bg-white/5 dark:text-white/75 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300'
-                        }`}
-                      >
-                        <span className={`flex h-4 w-4 flex-none items-center justify-center transition-all rounded border-2 ${
-                          sel ? 'border-white/60 bg-white/25' : 'border-black/20 dark:border-white/25'
-                        }`}>
-                          {sel && <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                        </span>
-                        {opt}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </>
-    );
-
-    return createPortal(portal, document.body);
-  }, [editingUrl, isSaving, uniqueSpaces, uniqueColors, uniqueMaterials, uniqueCategories, doSaveTag, doCancelTag]);
-
   return (
     <main
       className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
     >
-      <style>{`
-        .scrollbar-minimal::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        .scrollbar-minimal::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .scrollbar-minimal::-webkit-scrollbar-thumb {
-          background: rgba(16, 185, 129, 0.2);
-          border-radius: 20px;
-          border: 1.5px solid transparent;
-          background-clip: content-box;
-        }
-        .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-          background: rgba(16, 185, 129, 0.45);
-          background-clip: content-box;
-        }
-        .dark .scrollbar-minimal::-webkit-scrollbar-thumb {
-          background: rgba(52, 211, 153, 0.2);
-        }
-        .dark .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-          background: rgba(52, 211, 153, 0.45);
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fadeIn 0.4s ease-out forwards;
-        }
-      `}</style>
+
       <TopProgressBar loading={loading} />
-      <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-black/80">
-        <div className="flex w-full items-center justify-between gap-2 sm:hidden">
-          {mobileTitleNode ?? <h1 className="min-w-0 flex-none truncate text-lg font-semibold">{title}</h1>}
-          <div className="flex flex-none items-center gap-2">
-            {searchGroupNode}
-            {familyToggleNode}
-            {viewToggleNode}
-            {maxModeToggleNode}
-            {themeToggleNode}
-            <AccountMenu onAuthChange={fetchUserSession} />
-          </div>
-        </div>
-
-        <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
-          <div>
-            {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
-            <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {searchGroupNode}
-            <div className="flex items-center gap-2 ml-2">
-              {familyToggleNode}
-              {viewToggleNode}
-              {maxModeToggleNode}
-              {themeToggleNode}
-              <AccountMenu onAuthChange={fetchUserSession} />
-            </div>
-          </div>
-        </div>
-      </div>
+      <HeaderToolbar
+        title={title}
+        titleNode={titleNode}
+        mobileTitleNode={mobileTitleNode}
+        searchGroupNode={searchGroupNode}
+        familyToggleNode={familyToggleNode}
+        viewToggleNode={viewToggleNode}
+        maxModeToggleNode={maxModeToggleNode}
+        themeToggleNode={themeToggleNode}
+        fetchUserSession={fetchUserSession}
+      />
 
       <ProductFilters
         data={data}
@@ -1109,238 +825,36 @@ export function ProductsView({
       )}
 
       {currentItem?.url && maxMode === 'classic' && (
-        <div
-          className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
-          role="dialog"
-          aria-modal="true"
-          onPointerDown={(e) => {
-            if (e.target === e.currentTarget) closePreview();
-          }}
-        >
-          {/* Top Controls */}
-          <div className="fixed left-3 top-3 z-[1010] flex items-center gap-2" onPointerDown={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white/70 text-black/80 shadow-lg backdrop-blur dark:border-white/10 dark:bg-black/35 dark:text-white/85 transition-colors hover:bg-white dark:hover:bg-black/50"
-              onClick={(e) => {
-                e.stopPropagation();
-                closePreview();
-              }}
-              title="Close"
-              aria-label="Close"
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            <div className="rounded-full border border-black/10 bg-white/70 px-3 py-1 text-xs font-semibold text-black/80 backdrop-blur-md dark:border-white/10 dark:bg-black/35 dark:text-white/85">
-              {(typeof currentIndex === 'number' ? currentIndex + 1 : 1)} / {galleryItems.length}
-            </div>
-          </div>
-
-          {/* Selection Status */}
-          {selectedIds.has(currentItem.id) && (
-            <div
-              className="fixed right-3 top-3 z-[1010] inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-300/70 bg-emerald-500/15 text-emerald-700 shadow-lg backdrop-blur dark:border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-50 animate-fade-in"
-              onPointerDown={(e) => e.stopPropagation()}
-              title="Selected"
-              aria-label="Selected"
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-                <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-          )}
-
-          {/* Media Container */}
-          <div
-            className="relative flex items-center justify-center overflow-hidden"
-            style={{ transform: 'translateY(-15%)' }}
-            onPointerDown={(e) => {
-              const isIframe = (e.target as HTMLElement).tagName === 'IFRAME';
-              if (isIframe) return; // Don't intercept pointer on iframe
-              
-              e.stopPropagation();
-              if (galleryItems.length <= 1) return;
-              swipeRef.current.pointerId = e.pointerId;
-              swipeRef.current.startX = e.clientX;
-              swipeRef.current.startY = e.clientY;
-              swipeRef.current.moved = false;
-              swipeRef.current.swiped = false;
-              try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-            }}
-            onPointerMove={(e) => {
-              if (swipeRef.current.pointerId !== e.pointerId) return;
-              const dx = e.clientX - swipeRef.current.startX;
-              const dy = e.clientY - swipeRef.current.startY;
-              if (!swipeRef.current.moved) {
-                if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-                swipeRef.current.moved = true;
-              }
-              if (swipeRef.current.swiped) return;
-              if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 40) {
-                swipeRef.current.swiped = true;
-                if (dx < 0) goNext(); else goPrev();
-              }
-            }}
-            onPointerUp={(e) => { if (swipeRef.current.pointerId === e.pointerId) swipeRef.current.pointerId = null; }}
-          >
-            {isVideoUrl(currentItem.originalUrl) ? (
-              currentItem.driveId ? (
-                <div className="relative h-[80vh] w-[90vw] max-w-4xl overflow-hidden rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 shadow-2xl transition-all">
-                  <iframe
-                    src={`https://drive.google.com/file/d/${currentItem.driveId}/preview`}
-                    className="absolute inset-0 h-full w-full border-0"
-                    allow="autoplay"
-                    allowFullScreen
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  {/* Invisible swipe bumper to allow gallery nav even if iframe is focused */}
-                  <div className="absolute inset-y-0 left-0 w-8 z-10 pointer-events-none" />
-                  <div className="absolute inset-y-0 right-0 w-8 z-10 pointer-events-none" />
-                </div>
-              ) : (
-                <video
-                  src={currentItem.originalUrl}
-                  controls
-                  autoPlay
-                  className="max-h-[85vh] w-auto max-w-[95vw] rounded-xl shadow-2xl"
-                  onPointerDown={(e) => e.stopPropagation()}
-                />
-              )
-            ) : (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={getDriveDirectLink(currentItem.url)}
-                alt={currentItem.title}
-                className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
-                draggable={false}
-                style={{ touchAction: 'pan-y' }}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  if (swipeRef.current.swiped) return;
-                  if (e.shiftKey || e.pointerType === 'mouse') {
-                    toggleSelected(currentItem.id);
-                  }
-                }}
-              />
-            )}
-          </div>
-
-          {/* Navigation Arrows */}
-          {galleryItems.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={goPrev}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="fixed left-0 top-0 flex h-full w-[60px] items-center justify-center bg-transparent group"
-                aria-label="Previous"
-              >
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition-all group-hover:bg-white dark:border-white/15 dark:bg-black/20 dark:text-white dark:group-hover:bg-black/40">
-                  ‹
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={goNext}
-                onPointerDown={(e) => e.stopPropagation()}
-                className="fixed right-0 top-0 flex h-full w-[60px] items-center justify-center bg-transparent group"
-                aria-label="Next"
-              >
-                <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 bg-white/55 text-lg font-semibold text-black shadow-sm backdrop-blur transition-all group-hover:bg-white dark:border-white/15 dark:bg-black/20 dark:text-white dark:group-hover:bg-black/40">
-                  ›
-                </span>
-              </button>
-            </>
-          )}
-
-          <ProductDetailsPanel
-            currentItem={currentItem}
-            currentCollectionVariants={currentCollectionVariants}
-            selectedIds={selectedIds}
-            toggleSelected={toggleSelected}
-            setFamilyCollectionName={setFamilyCollectionName}
-            setPreviewId={setPreviewId}
-            setPreviewIndex={setPreviewIndex}
-            lightboxDetailsCollapsed={lightboxDetailsCollapsed}
-            setLightboxDetailsCollapsed={setLightboxDetailsCollapsed}
-          />
-
-          {/* Lightbox Selection Bar */}
-          <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="mx-auto max-w-xl">
-              <SelectionBar
-                selectedCount={selectedCount}
-                onClear={() => setSelectedIds(new Set())}
-                onDownload={() => void downloadSelected()}
-                onShare={() => void shareSelected()}
-                onToggleView={() => {
-                  const key = (currentItem?.collectionNameNormalized || '').trim();
-                  if (familyCollectionName) setFamilyCollectionName(null);
-                  else if (key) setFamilyCollectionName(key);
-                }}
-                viewLabel={familyCollectionName ? 'ALL' : 'Collection'}
-                isViewActive={Boolean(familyCollectionName)}
-                theme="dark"
-              />
-            </div>
-          </div>
-        </div>
+        <LightboxViewer
+          currentItem={currentItem}
+          galleryItems={galleryItems as any}
+          currentIndex={currentIndex as number}
+          selectedIds={selectedIds}
+          toggleSelected={toggleSelected}
+          closePreview={closePreview}
+          goPrev={goPrev}
+          goNext={goNext}
+          swipeRef={swipeRef}
+          setFamilyCollectionName={setFamilyCollectionName}
+          setPreviewId={setPreviewId}
+          setPreviewIndex={setPreviewIndex}
+          lightboxDetailsCollapsed={lightboxDetailsCollapsed}
+          setLightboxDetailsCollapsed={setLightboxDetailsCollapsed}
+          currentCollectionVariants={currentCollectionVariants as any}
+        />
       )}
-      {linkHoverState && (
-        <div 
-          className="fixed z-[2000] pointer-events-none animate-fade-in"
-          style={{ 
-            left: Math.min(linkHoverState.x + 20, window.innerWidth - 225), 
-            top: Math.min(linkHoverState.y + 20, window.innerHeight - 245) 
-          }}
-        >
-          <div className="overflow-hidden rounded-xl border border-black/10 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/20 dark:bg-black/85">
-            <div className="relative h-[200px] w-[200px] overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
-              {isVideoUrl(linkHoverState.url) ? (
-                <div className="flex h-full w-full items-center justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={getDriveDirectLink(linkHoverState.url)} alt="Video Preview" className="h-full w-full object-cover opacity-50" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/30 backdrop-blur-md border border-white/50">
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img 
-                  src={getDriveDirectLink(linkHoverState.url)} 
-                  alt="Preview" 
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = linkHoverState.url;
-                  }}
-                />
-              )}
-            </div>
-            <div className="mt-1.5 px-1.5 pb-1">
-              <div className="truncate text-[11px] font-bold text-black/80 dark:text-white/90">
-                {linkHoverState.title}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-black/5 dark:bg-white/10 text-black/50 dark:text-white/50 uppercase tracking-tighter">
-                  Code: {linkHoverState.code}
-                </span>
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter">
-                  Var: {linkHoverState.variant}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {fieldEditPortal}
+      <LinkHoverPreview state={linkHoverState} />
+      
+      <FieldEditPortal
+        editingUrl={editingUrl}
+        setEditingUrl={setEditingUrl}
+        onSave={doSaveTag}
+        onCancel={doCancelTag}
+        uniqueSpaces={Array.from(uniqueSpaces)}
+        uniqueColors={Array.from(uniqueColors)}
+        uniqueMaterials={Array.from(uniqueMaterials)}
+        uniqueCategories={Array.from(uniqueCategories)}
+      />
       
       <CommandPalette
         isOpen={showCommandPalette}
@@ -1358,15 +872,7 @@ export function ProductsView({
       />
 
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
-      <style dangerouslySetInnerHTML={{ __html: `
-        .dnd-active {
-          background-color: rgb(16 185 129 / 0.2) !important;
-          box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.1) !important;
-          outline: 2px solid rgb(16 185 129) !important;
-          outline-offset: -2px;
-          z-index: 50 !important;
-        }
-      `}} />
+
     </main>
   );
 }

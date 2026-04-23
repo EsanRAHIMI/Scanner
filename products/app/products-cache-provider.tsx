@@ -4,14 +4,7 @@ import * as React from 'react';
 import useSWR from 'swr';
 
 import type { ProductsAssetsResponse } from '@/types/trainer';
-
-type ProductsCacheContextValue = {
-  data: ProductsAssetsResponse | null;
-  loading: boolean;
-  error: string | null;
-  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
-  mutate: () => Promise<void>;
-};
+import type { ProductsCacheContextValue } from './products/types/shared-types';
 
 const ProductsCacheContext = React.createContext<ProductsCacheContextValue | null>(null);
 
@@ -28,9 +21,10 @@ async function fetcher(url: string): Promise<ProductsAssetsResponse> {
   return JSON.parse(text) as ProductsAssetsResponse;
 }
 
+/** Delay (ms) before background revalidation after an optimistic update. */
+const REVALIDATION_DELAY_MS = 2500;
+
 export function ProductsCacheProvider({ children }: { children: React.ReactNode }) {
-  // SWR provides: automatic deduplication, stale-while-revalidate, keepPreviousData
-  // — so switching tabs or remounting won't trigger a new full fetch.
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
   const {
     data: swrData,
@@ -46,11 +40,21 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       keepPreviousData: true,
       shouldRetryOnError: true,
       errorRetryCount: 3,
-      dedupingInterval: 0,
+      dedupingInterval: 2000, // SWR default — prevents redundant requests on fast re-renders
     }
   );
 
   const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
+  const revalidationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup the revalidation timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (revalidationTimerRef.current) {
+        clearTimeout(revalidationTimerRef.current);
+      }
+    };
+  }, []);
 
   const data = localOverride ?? swrData ?? null;
   const loading = isLoading;
@@ -61,27 +65,31 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       data, 
       loading, 
       error, 
-      setData: (updater: any) => {
+      setData: (updater) => {
         setLocalOverride(prev => {
-          const base = prev ?? swrData;
+          const base = prev ?? swrData ?? null;
           const next = typeof updater === 'function' ? updater(base) : updater;
           return next;
         });
       },
       mutate: async (optimisticData?: ProductsAssetsResponse) => {
         if (optimisticData) {
-          // 1. Update local cache immediately and DON'T revalidate yet
+          // 1. Update SWR cache immediately without revalidation
           await swrMutate(optimisticData, {
             revalidate: false,
             populateCache: true,
           });
-          // 2. Clear our local state override
+          // 2. Clear local state override
           setLocalOverride(null);
           
-          // 3. Schedule a fetch from server after 2.5s delay to allow backend to commit
-          setTimeout(() => {
+          // 3. Cancel any pending revalidation and schedule a new one
+          if (revalidationTimerRef.current) {
+            clearTimeout(revalidationTimerRef.current);
+          }
+          revalidationTimerRef.current = setTimeout(() => {
             swrMutate();
-          }, 2500);
+            revalidationTimerRef.current = null;
+          }, REVALIDATION_DELAY_MS);
         } else {
           await swrMutate();
           setLocalOverride(null);
