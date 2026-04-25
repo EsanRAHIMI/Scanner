@@ -966,6 +966,215 @@ async def patch_product_asset(
   return {"id": doc["_id"], "fields": doc["fields"]}
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Admin Dashboard Endpoints
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Collections that can be backed up / restored
+_BACKUPABLE_COLLECTIONS = ["products", "dam_assets", "users", "content_calendar", "activity_logs"]
+
+
+@api.get("/admin/dashboard/stats")
+async def admin_dashboard_stats(
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """Return aggregated statistics for the admin dashboard."""
+
+  # Count documents in key collections
+  products_count = await db["products"].count_documents({})
+  dam_count = await db["dam_assets"].count_documents({})
+  users_count = await db["users"].count_documents({})
+  logs_count = await db["activity_logs"].count_documents({})
+  calendar_count = await db["content_calendar"].count_documents({})
+
+  # Category breakdown from products
+  category_counts: dict[str, int] = {}
+  color_counts: dict[str, int] = {}
+  space_counts: dict[str, int] = {}
+  material_counts: dict[str, int] = {}
+
+  cursor = db["products"].find({}, {"fields.Category": 1, "fields.Color": 1, "fields.Space": 1, "fields.Material": 1})
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    for field_name, counts_dict in [
+      ("Category", category_counts),
+      ("Color", color_counts),
+      ("Space", space_counts),
+      ("Material", material_counts),
+    ]:
+      val = fields.get(field_name)
+      if isinstance(val, str) and val.strip():
+        for part in val.split(","):
+          p = part.strip()
+          if p:
+            counts_dict[p] = counts_dict.get(p, 0) + 1
+
+  # Recent activity logs (last 10)
+  recent_logs: list[dict[str, Any]] = []
+  log_cursor = db["activity_logs"].find({}).sort("timestamp", -1).limit(10)
+  async for doc in log_cursor:
+    doc["id"] = str(doc.pop("_id"))
+    recent_logs.append(doc)
+
+  # Recent edits (last 5 product edits)
+  recent_edits: list[dict[str, Any]] = []
+  edit_cursor = db["activity_logs"].find({"action": "PRODUCT_EDIT"}).sort("timestamp", -1).limit(5)
+  async for doc in edit_cursor:
+    doc["id"] = str(doc.pop("_id"))
+    recent_edits.append(doc)
+
+  # MongoDB connection status
+  db_status = "connected"
+  try:
+    await db.client.admin.command("ping")
+  except Exception:
+    db_status = "disconnected"
+
+  return {
+    "products_count": products_count,
+    "dam_count": dam_count,
+    "users_count": users_count,
+    "logs_count": logs_count,
+    "calendar_count": calendar_count,
+    "category_counts": category_counts,
+    "color_counts": color_counts,
+    "space_counts": space_counts,
+    "material_counts": material_counts,
+    "recent_logs": recent_logs,
+    "recent_edits": recent_edits,
+    "db_status": db_status,
+    "backupable_collections": _BACKUPABLE_COLLECTIONS,
+  }
+
+
+@api.get("/admin/backups")
+async def admin_list_backups(
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """List all backup collections in the database."""
+  all_collections = await db.list_collection_names()
+  backups: list[dict[str, Any]] = []
+  for name in sorted(all_collections):
+    if "_backup_" not in name:
+      continue
+    parts = name.split("_backup_", 1)
+    original = parts[0]
+    timestamp_str = parts[1] if len(parts) > 1 else ""
+    count = await db[name].count_documents({})
+    backups.append({
+      "name": name,
+      "original_collection": original,
+      "timestamp": timestamp_str,
+      "record_count": count,
+    })
+  return {"backups": backups}
+
+
+@api.post("/admin/backup/{collection_name}")
+async def admin_create_backup(
+  collection_name: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """Create a backup of a collection by duplicating it."""
+  if collection_name not in _BACKUPABLE_COLLECTIONS:
+    raise HTTPException(status_code=400, detail=f"Collection '{collection_name}' is not backupable. Allowed: {_BACKUPABLE_COLLECTIONS}")
+
+  now = datetime.now(timezone.utc)
+  ts = now.strftime("%Y%m%d_%H%M%S")
+  backup_name = f"{collection_name}_backup_{ts}"
+
+  # Check if backup already exists
+  existing = await db.list_collection_names()
+  if backup_name in existing:
+    raise HTTPException(status_code=409, detail=f"Backup '{backup_name}' already exists")
+
+  # Copy all documents
+  count = 0
+  batch: list[dict[str, Any]] = []
+  async for doc in db[collection_name].find({}):
+    batch.append(doc)
+    if len(batch) >= 500:
+      await db[backup_name].insert_many(batch)
+      count += len(batch)
+      batch = []
+  if batch:
+    await db[backup_name].insert_many(batch)
+    count += len(batch)
+
+  await log_activity(req, "BACKUP_CREATE", details=f"Created backup: {backup_name} ({count} records)", user=user, db=db)
+
+  return {"backup_name": backup_name, "record_count": count, "created_at": now.isoformat()}
+
+
+@api.post("/admin/restore/{backup_name}")
+async def admin_restore_backup(
+  backup_name: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """Restore a backup by replacing the original collection's documents."""
+  if "_backup_" not in backup_name:
+    raise HTTPException(status_code=400, detail="Invalid backup name format")
+
+  original_name = backup_name.split("_backup_", 1)[0]
+  if original_name not in _BACKUPABLE_COLLECTIONS:
+    raise HTTPException(status_code=400, detail=f"Cannot restore to '{original_name}'")
+
+  # Check backup exists
+  existing = await db.list_collection_names()
+  if backup_name not in existing:
+    raise HTTPException(status_code=404, detail=f"Backup '{backup_name}' not found")
+
+  # Read backup documents
+  backup_docs: list[dict[str, Any]] = []
+  async for doc in db[backup_name].find({}):
+    backup_docs.append(doc)
+
+  if not backup_docs:
+    raise HTTPException(status_code=400, detail="Backup is empty")
+
+  # Drop original and re-insert
+  await db[original_name].drop()
+  batch: list[dict[str, Any]] = []
+  for doc in backup_docs:
+    batch.append(doc)
+    if len(batch) >= 500:
+      await db[original_name].insert_many(batch)
+      batch = []
+  if batch:
+    await db[original_name].insert_many(batch)
+
+  await log_activity(req, "BACKUP_RESTORE", details=f"Restored '{original_name}' from '{backup_name}' ({len(backup_docs)} records)", user=user, db=db)
+
+  return {"ok": True, "restored_collection": original_name, "record_count": len(backup_docs)}
+
+
+@api.delete("/admin/backup/{backup_name}")
+async def admin_delete_backup(
+  backup_name: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """Delete a backup collection."""
+  if "_backup_" not in backup_name:
+    raise HTTPException(status_code=400, detail="Invalid backup name format")
+
+  existing = await db.list_collection_names()
+  if backup_name not in existing:
+    raise HTTPException(status_code=404, detail=f"Backup '{backup_name}' not found")
+
+  await db[backup_name].drop()
+  await log_activity(req, "BACKUP_DELETE", details=f"Deleted backup: {backup_name}", user=user, db=db)
+
+  return {"ok": True, "deleted": backup_name}
+
+
 @api.get("/products/assets")
 async def products_assets(
   _: dict[str, Any] = Depends(_get_current_user), 

@@ -690,6 +690,7 @@ export function ProductsView({
         maxModeToggleNode={maxModeToggleNode}
         themeToggleNode={themeToggleNode}
         fetchUserSession={fetchUserSession}
+        isAdmin={user?.is_admin}
       />
 
       <ProductFilters

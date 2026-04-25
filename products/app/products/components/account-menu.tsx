@@ -177,6 +177,13 @@ export function AccountMenu({ onAuthChange }: AccountMenuProps) {
                   >
                     Manage users
                   </a>
+                  <a
+                    href="/dashboard"
+                    className="block w-full rounded-md border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-center text-sm font-bold text-emerald-600 hover:bg-emerald-500 hover:text-white dark:border-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500 dark:hover:text-white"
+                    role="menuitem"
+                  >
+                    System Dashboard
+                  </a>
                   <button
                     onClick={() => { (window as any)._toggleActivityLogs?.(); setOpen(false); }}
                     className="mt-2 block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
