@@ -32,6 +32,9 @@ from email_validator import EmailNotValidError, validate_email
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 
+CLASSES_COLLECTION = "trainer_classes"
+QUEUE_COLLECTION = "trainer_queue"
+
 class ClassItem(TypedDict):
   id: str
   name: str
@@ -339,6 +342,17 @@ async def _require_admin(user: dict[str, Any] = Depends(_get_current_user)) -> d
     return user
   raise HTTPException(status_code=403, detail="ADMIN_ONLY")
 
+
+def _require_role(user: dict[str, Any], allowed_roles: set[str]) -> dict[str, Any]:
+  role = _normalize_role(user.get("role"))
+  if role in allowed_roles:
+    return user
+  raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
+
+
+async def _require_operator(user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+  return _require_role(user, {"admin", "sales"})
+
 api.add_middleware(
   CORSMiddleware,
   allow_origins=[
@@ -415,6 +429,16 @@ async def _startup_mongo_after_env_loaded():
     print("[MongoDB] ✓ Indexes ensured on 'users' collection.", flush=True)
   except Exception as e:
     print(f"[MongoDB] ⚠  Could not create indexes: {e}", flush=True)
+
+  try:
+    await app.state.mongo_db[CLASSES_COLLECTION].create_index("name")
+    await app.state.mongo_db[QUEUE_COLLECTION].create_index("created_at")
+    await app.state.mongo_db[QUEUE_COLLECTION].create_index("status")
+    await _migrate_classes_json_to_mongo_if_needed(app.state.mongo_db)
+    await _migrate_queue_json_to_mongo_if_needed(app.state.mongo_db)
+    print("[MongoDB] ✓ Queue/classes collections are ready.", flush=True)
+  except Exception as e:
+    print(f"[MongoDB] ⚠  Queue/classes setup failed: {e}", flush=True)
 
   admin_email_norm = _admin_email_norm()
   try:
@@ -1092,18 +1116,42 @@ async def admin_create_backup(
   if backup_name in existing:
     raise HTTPException(status_code=409, detail=f"Backup '{backup_name}' already exists")
 
-  # Copy all documents
   count = 0
-  batch: list[dict[str, Any]] = []
-  async for doc in db[collection_name].find({}):
-    batch.append(doc)
-    if len(batch) >= 500:
-      await db[backup_name].insert_many(batch)
+  stage_name = f"{backup_name}_staging_{uuid.uuid4().hex[:8]}"
+  try:
+    batch: list[dict[str, Any]] = []
+    async for doc in db[collection_name].find({}):
+      batch.append(doc)
+      if len(batch) >= 500:
+        await db[stage_name].insert_many(batch, ordered=False)
+        count += len(batch)
+        batch = []
+    if batch:
+      await db[stage_name].insert_many(batch, ordered=False)
       count += len(batch)
-      batch = []
-  if batch:
-    await db[backup_name].insert_many(batch)
-    count += len(batch)
+
+    async for idx in db[collection_name].list_indexes():
+      key = idx.get("key")
+      if key == {"_id": 1}:
+        continue
+      keys = list(key.items()) if isinstance(key, dict) else key
+      if not keys:
+        continue
+      opts = {k: v for k, v in idx.items() if k not in {"v", "ns", "key"}}
+      await db[stage_name].create_index(keys, **opts)
+
+    await db.client.admin.command(
+      "renameCollection",
+      f"{db.name}.{stage_name}",
+      to=f"{db.name}.{backup_name}",
+      dropTarget=False,
+    )
+  except Exception:
+    try:
+      await db[stage_name].drop()
+    except Exception:
+      pass
+    raise
 
   await log_activity(req, "BACKUP_CREATE", details=f"Created backup: {backup_name} ({count} records)", user=user, db=db)
 
@@ -1130,28 +1178,72 @@ async def admin_restore_backup(
   if backup_name not in existing:
     raise HTTPException(status_code=404, detail=f"Backup '{backup_name}' not found")
 
-  # Read backup documents
-  backup_docs: list[dict[str, Any]] = []
-  async for doc in db[backup_name].find({}):
-    backup_docs.append(doc)
-
-  if not backup_docs:
+  backup_count = await db[backup_name].count_documents({})
+  if backup_count == 0:
     raise HTTPException(status_code=400, detail="Backup is empty")
+  stage_name = f"{original_name}_restore_stage_{uuid.uuid4().hex[:8]}"
+  archived_name = f"{original_name}_pre_restore_{uuid.uuid4().hex[:8]}"
+  original_renamed = False
+  try:
+    batch: list[dict[str, Any]] = []
+    async for doc in db[backup_name].find({}):
+      batch.append(doc)
+      if len(batch) >= 500:
+        await db[stage_name].insert_many(batch, ordered=False)
+        batch = []
+    if batch:
+      await db[stage_name].insert_many(batch, ordered=False)
 
-  # Drop original and re-insert
-  await db[original_name].drop()
-  batch: list[dict[str, Any]] = []
-  for doc in backup_docs:
-    batch.append(doc)
-    if len(batch) >= 500:
-      await db[original_name].insert_many(batch)
-      batch = []
-  if batch:
-    await db[original_name].insert_many(batch)
+    async for idx in db[backup_name].list_indexes():
+      key = idx.get("key")
+      if key == {"_id": 1}:
+        continue
+      keys = list(key.items()) if isinstance(key, dict) else key
+      if not keys:
+        continue
+      opts = {k: v for k, v in idx.items() if k not in {"v", "ns", "key"}}
+      await db[stage_name].create_index(keys, **opts)
 
-  await log_activity(req, "BACKUP_RESTORE", details=f"Restored '{original_name}' from '{backup_name}' ({len(backup_docs)} records)", user=user, db=db)
+    if original_name in existing:
+      await db.client.admin.command(
+        "renameCollection",
+        f"{db.name}.{original_name}",
+        to=f"{db.name}.{archived_name}",
+        dropTarget=False,
+      )
+      original_renamed = True
 
-  return {"ok": True, "restored_collection": original_name, "record_count": len(backup_docs)}
+    await db.client.admin.command(
+      "renameCollection",
+      f"{db.name}.{stage_name}",
+      to=f"{db.name}.{original_name}",
+      dropTarget=False,
+    )
+
+    if original_renamed:
+      await db[archived_name].drop()
+  except Exception as exc:
+    if original_renamed:
+      try:
+        names_after = await db.list_collection_names()
+        if original_name not in names_after and archived_name in names_after:
+          await db.client.admin.command(
+            "renameCollection",
+            f"{db.name}.{archived_name}",
+            to=f"{db.name}.{original_name}",
+            dropTarget=False,
+          )
+      except Exception:
+        pass
+    try:
+      await db[stage_name].drop()
+    except Exception:
+      pass
+    raise HTTPException(status_code=500, detail=f"RESTORE_FAILED: {exc}")
+
+  await log_activity(req, "BACKUP_RESTORE", details=f"Restored '{original_name}' from '{backup_name}' ({backup_count} records)", user=user, db=db)
+
+  return {"ok": True, "restored_collection": original_name, "record_count": backup_count}
 
 
 @api.delete("/admin/backup/{backup_name}")
@@ -1258,9 +1350,36 @@ def _save_classes(items: list[ClassItem]) -> None:
   _safe_write_json(CLASSES_PATH, items)
 
 
+async def _load_classes_from_db(db: Any) -> list[ClassItem]:
+  out: list[ClassItem] = []
+  async for doc in db[CLASSES_COLLECTION].find({}, {"_id": 1, "name": 1}).sort("_id", 1):
+    cid = doc.get("_id")
+    name = doc.get("name")
+    if isinstance(cid, str) and isinstance(name, str):
+      out.append({"id": cid, "name": name})
+  return out
+
+
+async def _migrate_classes_json_to_mongo_if_needed(db: Any) -> None:
+  count = await db[CLASSES_COLLECTION].count_documents({})
+  if count > 0:
+    return
+  file_items = _load_classes()
+  if not file_items:
+    return
+  docs = []
+  now = _utc_now_iso()
+  for item in file_items:
+    docs.append({"_id": item["id"], "name": item["name"], "created_at": now, "updated_at": now})
+  try:
+    await db[CLASSES_COLLECTION].insert_many(docs, ordered=False)
+  except Exception:
+    pass
+
+
 @api.get("/classes")
-def get_classes():
-  return _load_classes()
+async def get_classes(_: dict[str, Any] = Depends(_require_operator), db: Any = Depends(_get_db)):
+  return await _load_classes_from_db(db)
 
 
 class _CreateClassBody(TypedDict):
@@ -1270,18 +1389,18 @@ class _CreateClassBody(TypedDict):
 
 @api.post("/classes")
 async def create_class(req: FastAPIRequest, body: _CreateClassBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   cid = body.get("id")
   name = body.get("name")
   if not isinstance(cid, str) or not isinstance(name, str):
     raise HTTPException(status_code=400, detail="INVALID_BODY")
   _validate_class_id(cid)
 
-  items = _load_classes()
-  if any(c["id"] == cid for c in items):
+  exists = await db[CLASSES_COLLECTION].find_one({"_id": cid})
+  if exists is not None:
     raise HTTPException(status_code=409, detail="CLASS_EXISTS")
 
-  items.append({"id": cid, "name": name})
-  _save_classes(items)
+  await db[CLASSES_COLLECTION].insert_one({"_id": cid, "name": name, "created_at": _utc_now_iso(), "updated_at": _utc_now_iso()})
   await log_activity(req, "CLASS_CREATE", details=f"Created class: {name} ({cid})", resource_id=cid, user=user, db=db)
   return {"created": True}
 
@@ -1292,33 +1411,25 @@ class _RenameClassBody(TypedDict):
 
 @api.put("/classes/{class_id}")
 async def rename_class(class_id: str, req: FastAPIRequest, body: _RenameClassBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   name = body.get("name")
   if not isinstance(name, str) or not name:
     raise HTTPException(status_code=400, detail="INVALID_BODY")
 
-  items = _load_classes()
-  found = False
-  for c in items:
-    if c["id"] == class_id:
-      c["name"] = name
-      found = True
-      break
-
-  if not found:
+  res = await db[CLASSES_COLLECTION].update_one({"_id": class_id}, {"$set": {"name": name, "updated_at": _utc_now_iso()}})
+  if res.matched_count == 0:
     raise HTTPException(status_code=404, detail="CLASS_NOT_FOUND")
 
-  _save_classes(items)
   await log_activity(req, "CLASS_RENAME", details=f"Renamed class {class_id} to: {name}", resource_id=class_id, user=user, db=db)
   return {"updated": True}
 
 
 @api.delete("/classes/{class_id}")
 async def delete_class(class_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
-  items = _load_classes()
-  new_items = [c for c in items if c["id"] != class_id]
-  if len(new_items) == len(items):
+  _require_role(user, {"admin", "sales"})
+  res = await db[CLASSES_COLLECTION].delete_one({"_id": class_id})
+  if res.deleted_count == 0:
     raise HTTPException(status_code=404, detail="CLASS_NOT_FOUND")
-  _save_classes(new_items)
   await log_activity(req, "CLASS_DELETE", details=f"Deleted class: {class_id}", resource_id=class_id, user=user, db=db)
   return {"deleted": True}
 
@@ -1359,6 +1470,62 @@ def _save_queue(items: list[QueueItem]) -> None:
   _safe_write_json(QUEUE_PATH, items)
 
 
+def _queue_doc_to_item(doc: dict[str, Any]) -> QueueItem | None:
+  item_id = doc.get("_id")
+  filename = doc.get("filename")
+  status = doc.get("status")
+  created_at = doc.get("created_at")
+  annotation = doc.get("annotation")
+
+  if not isinstance(item_id, str) or not isinstance(filename, str):
+    return None
+  if status not in ("pending", "labeled"):
+    status = "pending"
+
+  qi: QueueItem = {
+    "item_id": item_id,
+    "filename": filename,
+    "status": status,
+    "created_at": created_at if isinstance(created_at, str) else _utc_now_iso(),
+  }
+  if isinstance(annotation, dict):
+    qi["annotation"] = annotation  # type: ignore[assignment]
+  return qi
+
+
+async def _load_queue_from_db(db: Any) -> list[QueueItem]:
+  out: list[QueueItem] = []
+  async for doc in db[QUEUE_COLLECTION].find({}).sort("created_at", -1):
+    qi = _queue_doc_to_item(doc)
+    if qi is not None:
+      out.append(qi)
+  return out
+
+
+async def _migrate_queue_json_to_mongo_if_needed(db: Any) -> None:
+  count = await db[QUEUE_COLLECTION].count_documents({})
+  if count > 0:
+    return
+  file_items = _load_queue()
+  if not file_items:
+    return
+  docs: list[dict[str, Any]] = []
+  for item in file_items:
+    doc: dict[str, Any] = {
+      "_id": item["item_id"],
+      "filename": item["filename"],
+      "status": item.get("status", "pending"),
+      "created_at": item.get("created_at", _utc_now_iso()),
+    }
+    if isinstance(item.get("annotation"), dict):
+      doc["annotation"] = item["annotation"]
+    docs.append(doc)
+  try:
+    await db[QUEUE_COLLECTION].insert_many(docs, ordered=False)
+  except Exception:
+    pass
+
+
 def _unlink_if_exists(p: Path) -> None:
   try:
     if p.exists():
@@ -1369,6 +1536,7 @@ def _unlink_if_exists(p: Path) -> None:
 
 @api.post("/uploads")
 async def upload_image(req: FastAPIRequest, file: UploadFile = File(...), user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   if not file.content_type or not file.content_type.startswith("image/"):
     raise HTTPException(status_code=400, detail="INVALID_IMAGE")
 
@@ -1383,17 +1551,14 @@ async def upload_image(req: FastAPIRequest, file: UploadFile = File(...), user: 
   path = UPLOADS_DIR / filename
   img.save(path, format="JPEG", quality=92)
 
-  queue = _load_queue()
-  queue.insert(
-    0,
+  await db[QUEUE_COLLECTION].insert_one(
     {
-      "item_id": item_id,
+      "_id": item_id,
       "filename": filename,
       "status": "pending",
       "created_at": _utc_now_iso(),
-    },
+    }
   )
-  _save_queue(queue)
 
   await log_activity(req, "IMAGE_UPLOAD", details=f"Uploaded image: {filename}", resource_id=item_id, user=user, db=db)
 
@@ -1404,38 +1569,30 @@ async def upload_image(req: FastAPIRequest, file: UploadFile = File(...), user: 
 
 
 @api.get("/queue")
-def get_queue():
-  items = _load_queue()
+async def get_queue(_: dict[str, Any] = Depends(_require_operator), db: Any = Depends(_get_db)):
+  items = await _load_queue_from_db(db)
   for item in items:
     item["image_url"] = f"/files/uploads/{item['filename']}"
   return items
 
 
 @api.get("/queue/{item_id}")
-def get_queue_item(item_id: str):
-  items = _load_queue()
-  for item in items:
-    if item["item_id"] == item_id:
-      item["image_url"] = f"/files/uploads/{item['filename']}"
-      return item
+async def get_queue_item(item_id: str, _: dict[str, Any] = Depends(_require_operator), db: Any = Depends(_get_db)):
+  doc = await db[QUEUE_COLLECTION].find_one({"_id": item_id})
+  item = _queue_doc_to_item(doc) if isinstance(doc, dict) else None
+  if item is not None:
+    item["image_url"] = f"/files/uploads/{item['filename']}"
+    return item
   raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
 
 
 @api.delete("/queue/{item_id}")
 async def delete_queue_item(item_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
-  items = _load_queue()
-  target: QueueItem | None = None
-  new_items: list[QueueItem] = []
-  for it in items:
-    if it.get("item_id") == item_id:
-      target = it
-      continue
-    new_items.append(it)
-
+  _require_role(user, {"admin", "sales"})
+  target = await db[QUEUE_COLLECTION].find_one({"_id": item_id})
   if target is None:
     raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
-
-  _save_queue(new_items)
+  await db[QUEUE_COLLECTION].delete_one({"_id": item_id})
 
   filename = target.get("filename")
   if isinstance(filename, str) and filename:
@@ -1475,6 +1632,7 @@ def _validate_bbox(b: NormalizedBBox) -> None:
 
 @api.post("/queue/{item_id}/annotation")
 async def save_annotation(item_id: str, req: FastAPIRequest, body: _SaveAnnotationBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   class_id = body.get("class_id")
   bbox = body.get("bbox")
   if not isinstance(class_id, str) or not isinstance(bbox, dict):
@@ -1482,23 +1640,16 @@ async def save_annotation(item_id: str, req: FastAPIRequest, body: _SaveAnnotati
 
   _validate_bbox(bbox)  # type: ignore[arg-type]
 
-  classes = _load_classes()
+  classes = await _load_classes_from_db(db)
   if not any(c["id"] == class_id for c in classes):
     raise HTTPException(status_code=400, detail="UNKNOWN_CLASS")
 
-  items = _load_queue()
-  found = False
-  for it in items:
-    if it["item_id"] == item_id:
-      it["annotation"] = {"class_id": class_id, "bbox": bbox}
-      it["status"] = "labeled"
-      found = True
-      break
-
-  if not found:
+  res = await db[QUEUE_COLLECTION].update_one(
+    {"_id": item_id},
+    {"$set": {"annotation": {"class_id": class_id, "bbox": bbox}, "status": "labeled"}},
+  )
+  if res.matched_count == 0:
     raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
-
-  _save_queue(items)
   return {"saved": True}
 
 
@@ -1508,6 +1659,7 @@ def _dataset_dir() -> Path:
 
 @api.post("/export")
 async def export_dataset(req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   ds_dir = _dataset_dir()
   images_train = ds_dir / "images" / "train"
   images_val = ds_dir / "images" / "val"
@@ -1517,12 +1669,12 @@ async def export_dataset(req: FastAPIRequest, user: dict[str, Any] = Depends(_ge
   for d in (images_train, images_val, labels_train, labels_val):
     d.mkdir(parents=True, exist_ok=True)
 
-  classes = _load_classes()
+  classes = await _load_classes_from_db(db)
   class_to_index = {c["id"]: i for i, c in enumerate(classes)}
   if not classes:
     raise HTTPException(status_code=400, detail="NO_CLASSES")
 
-  queue = _load_queue()
+  queue = await _load_queue_from_db(db)
   labeled = [q for q in queue if q.get("status") == "labeled" and isinstance(q.get("annotation"), dict)]
   if not labeled:
     raise HTTPException(status_code=400, detail="NO_LABELED_ITEMS")
@@ -1647,6 +1799,7 @@ class _TrainBody(TypedDict, total=False):
 
 @api.post("/train")
 async def start_train(req: FastAPIRequest, body: _TrainBody, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   ds_dir = _dataset_dir()
   data_yaml = ds_dir / "data.yaml"
   if not data_yaml.exists():
@@ -1742,7 +1895,7 @@ def _read_metrics(run_dir: Path) -> dict[str, Any] | None:
 
 
 @api.get("/train/{job_id}")
-def get_train_status(job_id: str, lines: int = 120):
+async def get_train_status(job_id: str, lines: int = 120, _: dict[str, Any] = Depends(_require_operator)):
   meta = _read_job_meta(job_id)
   if meta is None:
     raise HTTPException(status_code=404, detail="JOB_NOT_FOUND")
@@ -1764,6 +1917,7 @@ def get_train_status(job_id: str, lines: int = 120):
 
 @api.post("/train/{job_id}/publish")
 async def publish(job_id: str, req: FastAPIRequest, user: dict[str, Any] = Depends(_get_current_user), db: Any = Depends(_get_db)):
+  _require_role(user, {"admin", "sales"})
   meta = _read_job_meta(job_id)
   if meta is None:
     raise HTTPException(status_code=404, detail="JOB_NOT_FOUND")

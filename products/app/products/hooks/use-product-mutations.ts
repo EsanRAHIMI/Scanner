@@ -23,19 +23,12 @@ function getCollectionKey(fields: Record<string, unknown> | undefined): string {
 export function useProductMutations({ setData, mutate, columns }: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
-  /** Applies an optimistic update and schedules SWR cache sync via queueMicrotask. */
-  const optimisticUpdate = React.useCallback(
-    (updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse) => {
-      setData(prev => {
-        if (!prev) return prev;
-        const next = updater(prev);
-        // Use queueMicrotask instead of setTimeout(0) to avoid race conditions
-        queueMicrotask(() => void mutate(next));
-        return next;
-      });
-    },
-    [setData, mutate]
-  );
+  const applyRollback = React.useCallback(async (snapshot: ProductsAssetsResponse | null) => {
+    if (snapshot) {
+      setData(snapshot);
+    }
+    await mutate();
+  }, [setData, mutate]);
 
   const handleUpdateVariant = React.useCallback(async (
     id: string, 
@@ -61,12 +54,19 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
 
     // Optimistic UI update
     const updateSet = new Set(idsToUpdate);
-    optimisticUpdate(prev => ({
-      ...prev,
-      records: prev.records.map(r => 
-        updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r
-      )
-    }));
+    let snapshot: ProductsAssetsResponse | null = null;
+    setData(prev => {
+      if (!prev) return prev;
+      snapshot = prev;
+      const next = {
+        ...prev,
+        records: prev.records.map(r =>
+          updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r
+        )
+      };
+      queueMicrotask(() => void mutate(next));
+      return next;
+    });
 
     setIsSaving(true);
     try {
@@ -86,17 +86,21 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
           `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, 
           id
         );
+      } else {
+        throw new Error('Update variant API failed');
       }
     } catch (e) {
       console.error('Update failed', e);
+      await applyRollback(snapshot);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, optimisticUpdate]);
+  }, [isSaving, setData, mutate, applyRollback]);
 
   const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
     if (isSaving) return;
     setIsSaving(true);
+    let snapshot: ProductsAssetsResponse | null = null;
     try {
       const targetRecord = records.find(r => r.id === recordId);
       if (!targetRecord) return;
@@ -106,30 +110,40 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
         .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
         .map(r => r.id);
 
-      optimisticUpdate(prev => ({
-        ...prev,
-        records: prev.records.map(r => {
-          if (r.id === recordId) return { ...r, fields: { ...r.fields, Main: true } };
-          if (getCollectionKey(r.fields) === groupKey) return { ...r, fields: { ...r.fields, Main: false } };
-          return r;
-        })
-      }));
+      setData(prev => {
+        if (!prev) return prev;
+        snapshot = prev;
+        const next = {
+          ...prev,
+          records: prev.records.map(r => {
+            if (r.id === recordId) return { ...r, fields: { ...r.fields, Main: true } };
+            if (getCollectionKey(r.fields) === groupKey) return { ...r, fields: { ...r.fields, Main: false } };
+            return r;
+          })
+        };
+        queueMicrotask(() => void mutate(next));
+        return next;
+      });
 
       const updates = [
         { id: recordId, fields: { Main: true } }, 
         ...otherMainIds.map(oid => ({ id: oid, fields: { Main: false } }))
       ];
-      await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
+      const responses = await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
         method: 'PATCH', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields: u.fields }) 
       })));
+      if (!responses.every(res => res.ok)) {
+        throw new Error('Toggle Main API failed');
+      }
     } catch (err) {
       console.error('Toggle Main failed', err);
+      await applyRollback(snapshot);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, optimisticUpdate]);
+  }, [isSaving, setData, mutate, applyRollback]);
 
   const handleSaveField = React.useCallback(async (
     recordId: string, 
@@ -137,25 +151,37 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     newValue: unknown, 
     records: ProductsRecord[]
   ) => {
+    let snapshot: ProductsAssetsResponse | null = null;
     try {
       const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
       
-      optimisticUpdate(prev => ({
-        ...prev,
-        records: prev.records.map(r => 
-          r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r
-        )
-      }));
+      setData(prev => {
+        if (!prev) return prev;
+        snapshot = prev;
+        const next = {
+          ...prev,
+          records: prev.records.map(r => 
+            r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r
+          )
+        };
+        queueMicrotask(() => void mutate(next));
+        return next;
+      });
 
-      await apiFetch(`/products/assets/${recordId}`, {
+      const res = await apiFetch(`/products/assets/${recordId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields: { [exactFieldName]: newValue } })
       });
+      if (!res.ok) {
+        throw new Error('Save field API failed');
+      }
     } catch (err) {
       console.error('Save field failed', err);
+      await applyRollback(snapshot);
+      throw err;
     }
-  }, [optimisticUpdate, columns]);
+  }, [setData, mutate, columns, applyRollback]);
 
   const handleAddMediaToVariant = React.useCallback(async (
     variantId: string, 
@@ -164,6 +190,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
   ) => {
     if (!newUrl || isSaving) return;
     setIsSaving(true);
+    let snapshot: ProductsAssetsResponse | null = null;
     try {
       const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
       const record = records.find(r => r.id === variantId);
@@ -172,24 +199,34 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
       const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
 
-      optimisticUpdate(prev => ({
-        ...prev,
-        records: prev.records.map(r => 
-          r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r
-        )
-      }));
+      setData(prev => {
+        if (!prev) return prev;
+        snapshot = prev;
+        const next = {
+          ...prev,
+          records: prev.records.map(r => 
+            r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r
+          )
+        };
+        queueMicrotask(() => void mutate(next));
+        return next;
+      });
 
-      await apiFetch(`/products/assets/${variantId}`, {
+      const res = await apiFetch(`/products/assets/${variantId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields: { [urlFieldName]: finalValueToSave } }),
       });
+      if (!res.ok) {
+        throw new Error('Add media API failed');
+      }
     } catch (err) {
       console.error('Add media failed', err);
+      await applyRollback(snapshot);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, optimisticUpdate, columns]);
+  }, [isSaving, setData, mutate, columns, applyRollback]);
 
   return {
     isSaving,

@@ -28,15 +28,23 @@ export function useProductDragDrop({ handleSaveField, records, columns }: UsePro
     const targetRecord = records.find(r => r.id === toId);
     if (!sourceRecord || !targetRecord) return;
 
-    // Remove from source
-    const sourceUrls = extractUrls(sourceRecord.fields[urlFieldName]).filter(u => u !== url);
-    await handleSaveField(fromId, urlFieldName, sourceUrls.join('\n'), records);
-
-    // Add to target
     const targetUrls = extractUrls(targetRecord.fields[urlFieldName]);
-    if (!targetUrls.includes(finalUrlToMove)) {
-      targetUrls.push(finalUrlToMove);
-      await handleSaveField(toId, urlFieldName, targetUrls.join('\n'), records);
+    const sourceUrls = extractUrls(sourceRecord.fields[urlFieldName]).filter(u => u !== url);
+
+    const hadTargetUrl = targetUrls.includes(finalUrlToMove);
+    if (!hadTargetUrl) {
+      const targetNext = [...targetUrls, finalUrlToMove];
+      await handleSaveField(toId, urlFieldName, targetNext.join('\n'), records);
+    }
+
+    try {
+      await handleSaveField(fromId, urlFieldName, sourceUrls.join('\n'), records);
+    } catch (err) {
+      if (!hadTargetUrl) {
+        const rollbackTargetUrls = targetUrls.join('\n');
+        await handleSaveField(toId, urlFieldName, rollbackTargetUrls, records);
+      }
+      throw err;
     }
   }, [columns, records, handleSaveField]);
 
