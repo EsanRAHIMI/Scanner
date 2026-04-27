@@ -34,6 +34,114 @@ from passlib.context import CryptContext
 
 CLASSES_COLLECTION = "trainer_classes"
 QUEUE_COLLECTION = "trainer_queue"
+PRODUCT_FIELD_OPTIONS_COLLECTION = "product_field_options"
+PRODUCT_FIELD_OPTIONS_DOC_ID = "selectable_fields"
+PRODUCT_SELECTABLE_FIELDS = ("Category", "Space", "Color", "Material")
+DEFAULT_PRODUCT_FIELD_OPTIONS: dict[str, list[str]] = {
+  "Category": [
+    "Chandeliers",
+    "Pendant",
+    "Cascade Light",
+    "Floor Lamps",
+    "Long Chandeliers",
+    "Ring Chandeliers",
+    "Wall Light",
+    "Table Lamps",
+    "Accessories",
+    "Sofa & Seating",
+    "Table",
+    "Wall Decoration",
+  ],
+  "Space": [
+    "Corner",
+    "Corridor",
+    "Entrance",
+    "Staircase",
+    "Living Room",
+    "Dining Room",
+    "Bedroom",
+    "Kitchen",
+    "Commercial",
+    "Bathroom",
+  ],
+  "Color": ["Transparent", "Chrome", "White", "Black", "Bronze", "Blue", "Gold", "Pink"],
+  "Material": ["Stone", "Fabric", "Metal", "Glass", "Wood"],
+}
+
+
+def _normalize_product_field_options_payload(raw_options: Any) -> dict[str, list[str]]:
+  if not isinstance(raw_options, dict):
+    raise HTTPException(status_code=400, detail="INVALID_OPTIONS_PAYLOAD")
+
+  out: dict[str, list[str]] = {}
+  for field_name in PRODUCT_SELECTABLE_FIELDS:
+    raw_values = raw_options.get(field_name, [])
+    if not isinstance(raw_values, list):
+      raise HTTPException(status_code=400, detail=f"INVALID_OPTIONS_FOR_{field_name.upper()}")
+
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for item in raw_values:
+      if not isinstance(item, str):
+        continue
+      value = item.strip()
+      key = value.casefold()
+      if not value or key in seen:
+        continue
+      seen.add(key)
+      cleaned.append(value)
+
+    out[field_name] = cleaned
+
+  return out
+
+
+async def _derive_product_field_options(db: Any) -> dict[str, list[str]]:
+  options: dict[str, set[str]] = {field_name: set() for field_name in PRODUCT_SELECTABLE_FIELDS}
+  projection = {f"fields.{field_name}": 1 for field_name in PRODUCT_SELECTABLE_FIELDS}
+  cursor = db["products"].find({}, projection).limit(2000)
+
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    for field_name in PRODUCT_SELECTABLE_FIELDS:
+      val = fields.get(field_name)
+      values: list[str] = []
+      if isinstance(val, str):
+        values = [part.strip() for part in val.split(",")]
+      elif isinstance(val, list):
+        values = [part.strip() for part in val if isinstance(part, str)]
+
+      for value in values:
+        if value:
+          options[field_name].add(value)
+
+  return {
+    field_name: sorted(values, key=lambda x: x.casefold())
+    for field_name, values in options.items()
+  }
+
+
+async def _get_product_field_options(db: Any) -> dict[str, list[str]]:
+  doc = await db[PRODUCT_FIELD_OPTIONS_COLLECTION].find_one({"_id": PRODUCT_FIELD_OPTIONS_DOC_ID})
+  stored_options = doc.get("options") if isinstance(doc, dict) else None
+
+  if isinstance(stored_options, dict):
+    return _normalize_product_field_options_payload(stored_options)
+
+  derived_options = await _derive_product_field_options(db)
+  initial_options: dict[str, list[str]] = {}
+  for field_name in PRODUCT_SELECTABLE_FIELDS:
+    seen: set[str] = set()
+    values: list[str] = []
+    for value in [*DEFAULT_PRODUCT_FIELD_OPTIONS.get(field_name, []), *derived_options.get(field_name, [])]:
+      key = value.casefold()
+      if key in seen:
+        continue
+      seen.add(key)
+      values.append(value)
+    initial_options[field_name] = values
+
+  return initial_options
 
 class ClassItem(TypedDict):
   id: str
@@ -947,6 +1055,11 @@ async def public_products_assets(db=Depends(_get_db)):
   return {"columns": columns, "records": records, "count": len(records)}
 
 
+@api.get("/public/products/field-options")
+async def public_product_field_options(db=Depends(_get_db)):
+  return {"options": await _get_product_field_options(db)}
+
+
 
 
 
@@ -995,7 +1108,7 @@ async def patch_product_asset(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Collections that can be backed up / restored
-_BACKUPABLE_COLLECTIONS = ["products", "dam_assets", "users", "content_calendar", "activity_logs"]
+_BACKUPABLE_COLLECTIONS = ["products", "dam_assets", "users", "content_calendar", "activity_logs", PRODUCT_FIELD_OPTIONS_COLLECTION]
 
 
 @api.get("/admin/dashboard/stats")
@@ -1070,6 +1183,48 @@ async def admin_dashboard_stats(
     "db_status": db_status,
     "backupable_collections": _BACKUPABLE_COLLECTIONS,
   }
+
+
+@api.get("/admin/products/field-options")
+async def admin_get_product_field_options(
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  return {"options": await _get_product_field_options(db)}
+
+
+@api.put("/admin/products/field-options")
+async def admin_update_product_field_options(
+  payload: dict[str, Any],
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  options = _normalize_product_field_options_payload(payload.get("options"))
+  now = _utc_now_iso()
+
+  await db[PRODUCT_FIELD_OPTIONS_COLLECTION].update_one(
+    {"_id": PRODUCT_FIELD_OPTIONS_DOC_ID},
+    {
+      "$set": {
+        "options": options,
+        "updated_at": now,
+        "updated_by": user.get("_id"),
+      },
+      "$setOnInsert": {"created_at": now},
+    },
+    upsert=True,
+  )
+
+  await log_activity(
+    req,
+    "PRODUCT_FIELD_OPTIONS_UPDATE",
+    details="Updated selectable fields: Category, Space, Color, Material",
+    user=user,
+    db=db,
+  )
+
+  return {"options": options, "updated_at": now}
 
 
 @api.get("/admin/backups")

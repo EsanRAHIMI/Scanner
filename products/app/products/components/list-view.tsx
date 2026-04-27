@@ -42,6 +42,32 @@ export function ListView({
   editingUrl,
   isSaving,
 }: ListViewProps) {
+  const recordById = React.useMemo(() => {
+    const map = new Map<string, ProductsRecord>();
+    for (const r of records) map.set(r.id, r);
+    return map;
+  }, [records]);
+
+  const getCollectionKey = React.useCallback((rec: ProductsRecord) => {
+    return (
+      formatScalar(rec.fields?.['Colecction Name']) ||
+      formatScalar(rec.fields?.Name) ||
+      formatScalar(rec.fields?.['Collection Name']) ||
+      ''
+    ).trim();
+  }, []);
+
+  const rowGroupMeta = React.useMemo(() => {
+    const keys = visibleRecords.map(getCollectionKey);
+    return keys.map((currentKey, i) => {
+      const prevKey = i > 0 ? keys[i - 1] : null;
+      const nextKey = i < keys.length - 1 ? keys[i + 1] : null;
+      const isGroupStart = currentKey !== '' && currentKey !== prevKey && currentKey === nextKey;
+      const isGroupEnd = currentKey !== '' && currentKey !== nextKey && currentKey === prevKey;
+      const isInGroup = currentKey !== '' && (currentKey === prevKey || currentKey === nextKey);
+      return { isGroupStart, isGroupEnd, isInGroup };
+    });
+  }, [visibleRecords, getCollectionKey]);
 
   const renderCell = React.useCallback(
     (column: string, value: unknown, recordId: string) => {
@@ -142,7 +168,7 @@ export function ListView({
               onMouseEnter={(url, e) => {
                 if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
                 (linkHoverTimerRef as any).current = setTimeout(() => {
-                  const r = records.find(x => x.id === recordId);
+                  const r = recordById.get(recordId);
                   if (r) {
                     setLinkHoverState({
                       url,
@@ -319,7 +345,7 @@ export function ListView({
                         onMouseEnter={(e) => {
                           if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
                           (linkHoverTimerRef as any).current = setTimeout(() => {
-                            const r = records.find(x => x.id === recordId);
+                            const r = recordById.get(recordId);
                             if (r) {
                               setLinkHoverState({
                                 url: u,
@@ -341,8 +367,17 @@ export function ListView({
                           href={getDriveDirectLink(u)}
                           target="_blank"
                           rel="noreferrer"
+                          draggable
                           className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-black/80 hover:text-emerald-600 dark:text-white/80 dark:hover:text-emerald-400"
                           onClick={(e) => e.stopPropagation()}
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            setDraggedUrlInfo({ url: u, sourceId: recordId, sourceColumn: column });
+                          }}
+                          onDragEnd={(e) => {
+                            e.stopPropagation();
+                            setDraggedUrlInfo(null);
+                          }}
                         >
                           <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold tracking-tight uppercase">
                             {isVideoUrl(u) ? (
@@ -491,7 +526,7 @@ export function ListView({
       if (scalar) {
         const colLower = column.trim().toLowerCase();
         if (familyMode === 'main' && (colLower === 'num' || colLower === 'variant number')) {
-          const rec = records.find(r => r.id === recordId);
+          const rec = recordById.get(recordId);
           const key = (formatScalar(rec?.fields?.['Colecction Name']) || formatScalar(rec?.fields?.Name) || 
                       formatScalar(rec?.fields?.['Collection Name']) || '').trim();
           const count = variantCounts[key] || 0;
@@ -519,7 +554,7 @@ export function ListView({
 
       return String(value ?? '');
     },
-    [records, search, familyMode, variantCounts, setEditingUrl, handleSaveUrl, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState]
+    [recordById, search, familyMode, variantCounts, setEditingUrl, handleSaveUrl, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState]
   );
 
   return (
@@ -562,20 +597,11 @@ export function ListView({
             <ProductsSkeleton viewMode="list" rowsOnly />
           ) : (
             visibleRecords.map((r, i) => {
-              const getCollectionKey = (rec: any) => {
-                return (formatScalar(rec.fields?.['Colecction Name']) || 
-                        formatScalar(rec.fields?.Name) || 
-                        formatScalar(rec.fields?.['Collection Name']) || 
-                        '').trim();
+              const { isGroupStart, isGroupEnd, isInGroup } = rowGroupMeta[i] ?? {
+                isGroupStart: false,
+                isGroupEnd: false,
+                isInGroup: false,
               };
-              const currentKey = getCollectionKey(r);
-              const prevKey = i > 0 ? getCollectionKey(visibleRecords[i-1]) : null;
-              const nextKey = i < visibleRecords.length - 1 ? getCollectionKey(visibleRecords[i+1]) : null;
-
-              const isGroupStart = currentKey !== '' && currentKey !== prevKey && currentKey === nextKey;
-              const isGroupEnd = currentKey !== '' && currentKey !== nextKey && currentKey === prevKey;
-              const isInGroup = currentKey !== '' && (currentKey === prevKey || currentKey === nextKey);
-
               const groupBorderClass = 'border-emerald-500/30 dark:border-emerald-400/25';
               
               return (

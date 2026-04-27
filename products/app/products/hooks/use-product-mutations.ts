@@ -23,12 +23,34 @@ function getCollectionKey(fields: Record<string, unknown> | undefined): string {
 export function useProductMutations({ setData, mutate, columns }: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
-  const applyRollback = React.useCallback(async (snapshot: ProductsAssetsResponse | null) => {
-    if (snapshot) {
-      setData(snapshot);
-    }
-    await mutate();
-  }, [setData, mutate]);
+  const rollbackRecords = React.useCallback(
+    async (previousFieldsById: Record<string, Record<string, unknown> | undefined>) => {
+      const ids = new Set(Object.keys(previousFieldsById));
+      if (ids.size === 0) return;
+      setData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          records: prev.records.map(r =>
+            ids.has(r.id) ? { ...r, fields: previousFieldsById[r.id] ?? r.fields } : r
+          )
+        };
+      });
+      await mutate();
+    },
+    [setData, mutate]
+  );
+
+  const mergeServerRecord = React.useCallback((serverRecord: { id?: string; fields?: Record<string, unknown> } | null | undefined) => {
+    if (!serverRecord?.id || !serverRecord.fields) return;
+    setData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        records: prev.records.map(r => (r.id === serverRecord.id ? { ...r, fields: serverRecord.fields ?? r.fields } : r))
+      };
+    });
+  }, [setData]);
 
   const handleUpdateVariant = React.useCallback(async (
     id: string, 
@@ -54,10 +76,14 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
 
     // Optimistic UI update
     const updateSet = new Set(idsToUpdate);
-    let snapshot: ProductsAssetsResponse | null = null;
+    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     setData(prev => {
       if (!prev) return prev;
-      snapshot = prev;
+      for (const r of prev.records) {
+        if (updateSet.has(r.id)) {
+          previousFieldsById[r.id] = r.fields;
+        }
+      }
       const next = {
         ...prev,
         records: prev.records.map(r =>
@@ -91,16 +117,16 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       }
     } catch (e) {
       console.error('Update failed', e);
-      await applyRollback(snapshot);
+      await rollbackRecords(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, applyRollback]);
+  }, [isSaving, setData, mutate, rollbackRecords]);
 
   const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
     if (isSaving) return;
     setIsSaving(true);
-    let snapshot: ProductsAssetsResponse | null = null;
+    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
       const targetRecord = records.find(r => r.id === recordId);
       if (!targetRecord) return;
@@ -112,7 +138,11 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
 
       setData(prev => {
         if (!prev) return prev;
-        snapshot = prev;
+        for (const r of prev.records) {
+          if (r.id === recordId || getCollectionKey(r.fields) === groupKey) {
+            previousFieldsById[r.id] = r.fields;
+          }
+        }
         const next = {
           ...prev,
           records: prev.records.map(r => {
@@ -139,11 +169,11 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       }
     } catch (err) {
       console.error('Toggle Main failed', err);
-      await applyRollback(snapshot);
+      await rollbackRecords(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, applyRollback]);
+  }, [isSaving, setData, mutate, rollbackRecords]);
 
   const handleSaveField = React.useCallback(async (
     recordId: string, 
@@ -151,13 +181,16 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     newValue: unknown, 
     records: ProductsRecord[]
   ) => {
-    let snapshot: ProductsAssetsResponse | null = null;
+    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
       const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
       
       setData(prev => {
         if (!prev) return prev;
-        snapshot = prev;
+        const existing = prev.records.find(r => r.id === recordId);
+        if (existing) {
+          previousFieldsById[recordId] = existing.fields;
+        }
         const next = {
           ...prev,
           records: prev.records.map(r => 
@@ -176,12 +209,18 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       if (!res.ok) {
         throw new Error('Save field API failed');
       }
+      try {
+        const json = await res.json() as { id?: string; fields?: Record<string, unknown> };
+        mergeServerRecord(json);
+      } catch {
+        // keep optimistic state if response body is missing/invalid
+      }
     } catch (err) {
       console.error('Save field failed', err);
-      await applyRollback(snapshot);
+      await rollbackRecords(previousFieldsById);
       throw err;
     }
-  }, [setData, mutate, columns, applyRollback]);
+  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord]);
 
   const handleAddMediaToVariant = React.useCallback(async (
     variantId: string, 
@@ -190,7 +229,7 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
   ) => {
     if (!newUrl || isSaving) return;
     setIsSaving(true);
-    let snapshot: ProductsAssetsResponse | null = null;
+    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
       const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
       const record = records.find(r => r.id === variantId);
@@ -201,7 +240,10 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
 
       setData(prev => {
         if (!prev) return prev;
-        snapshot = prev;
+        const existing = prev.records.find(r => r.id === variantId);
+        if (existing) {
+          previousFieldsById[variantId] = existing.fields;
+        }
         const next = {
           ...prev,
           records: prev.records.map(r => 
@@ -222,11 +264,11 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
       }
     } catch (err) {
       console.error('Add media failed', err);
-      await applyRollback(snapshot);
+      await rollbackRecords(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, columns, applyRollback]);
+  }, [isSaving, setData, mutate, columns, rollbackRecords]);
 
   return {
     isSaving,

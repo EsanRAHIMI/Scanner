@@ -7,6 +7,7 @@ import { StatCard } from './components/stat-card';
 import { CategoryCharts } from './components/category-charts';
 import { ActivityTimeline } from './components/activity-timeline';
 import { BackupManager } from './components/backup-manager';
+import { FieldOptionsManager } from './components/field-options-manager';
 import Link from 'next/link';
 
 const fetcher = (url: string) => apiFetch(url).then(res => res.json());
@@ -124,6 +125,8 @@ export function DashboardView() {
               loading={statsLoading}
             />
           </div>
+
+          <FieldOptionsManager />
 
           <BackupManager 
             backupableCollections={stats?.backupable_collections || []} 

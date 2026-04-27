@@ -51,7 +51,12 @@ export function FieldEditPortal({
   const popupTop = spaceBelow >= POPUP_H ? top + height + 4 : Math.max(8, top - POPUP_H - 4);
 
   const currentSet = new Set((editingUrl.value || '').split(',').map(s => s.trim()).filter(Boolean));
-  const options = isSpace ? uniqueSpaces : isColor ? uniqueColors : isMaterial ? uniqueMaterials : uniqueCategories;
+  const baseOptions = isSpace ? uniqueSpaces : isColor ? uniqueColors : isMaterial ? uniqueMaterials : uniqueCategories;
+  const optionKeys = new Set(baseOptions.map(opt => opt.toLowerCase()));
+  const options = [
+    ...baseOptions,
+    ...Array.from(currentSet).filter(opt => !optionKeys.has(opt.toLowerCase())),
+  ];
 
   return createPortal(
     <>

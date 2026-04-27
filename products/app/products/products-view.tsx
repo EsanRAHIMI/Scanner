@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import useSWR from 'swr';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../products-cache-provider';
@@ -49,6 +50,18 @@ import type { AuthMe } from './types';
 
 import type { EditingUrlState, LinkHoverState, SwipeRefState, UserSession } from './types/shared-types';
 
+type SelectableField = 'Category' | 'Space' | 'Color' | 'Material';
+type ProductFieldOptionsResponse = {
+  options?: Partial<Record<SelectableField, string[]>>;
+};
+
+const productFieldOptionsFetcher = async (url: string): Promise<ProductFieldOptionsResponse> => {
+  const res = await apiFetch(url);
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
+  return JSON.parse(text) as ProductFieldOptionsResponse;
+};
+
 export function ProductsView({
   title = 'Products',
   titleNode,
@@ -58,12 +71,20 @@ export function ProductsView({
   titleNode?: React.ReactNode;
   mobileTitleNode?: React.ReactNode;
 }) {
+  const LIST_INITIAL_RENDER_COUNT = 120;
+  const GALLERY_INITIAL_RENDER_COUNT = 180;
+  const LOAD_MORE_STEP = 120;
+
   const [showActivityLogs, setShowActivityLogs] = React.useState(false);
   React.useEffect(() => {
     (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
   }, []);
 
   const { data, loading, error, setData, mutate } = useProductsCache();
+  const { data: fieldOptionsData } = useSWR('/public/products/field-options', productFieldOptionsFetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
+  });
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
 
@@ -150,6 +171,10 @@ export function ProductsView({
   const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
   const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
   const uniqueMaterials = React.useMemo(() => getUniqueValues(materialFieldName), [getUniqueValues, materialFieldName]);
+  const editableCategories = fieldOptionsData?.options?.Category ?? uniqueCategories;
+  const editableColors = fieldOptionsData?.options?.Color ?? uniqueColors;
+  const editableSpaces = fieldOptionsData?.options?.Space ?? uniqueSpaces;
+  const editableMaterials = fieldOptionsData?.options?.Material ?? uniqueMaterials;
   const { recentSearches, addToRecent } = sync;
   const { isSaving } = mutations;
   const { draggedUrlInfo, setDraggedUrlInfo, activeDropTargetRef } = dnd;
@@ -301,6 +326,32 @@ export function ProductsView({
   const baseGalleryItems = filters.baseGalleryItems;
   const allGalleryItems = filters.allGalleryItems;
   const variantCounts = filters.variantCounts;
+
+  const [renderLimit, setRenderLimit] = React.useState<number>(GALLERY_INITIAL_RENDER_COUNT);
+
+  React.useEffect(() => {
+    setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
+  }, [
+    viewMode,
+    debouncedSearch,
+    selectedCategories,
+    selectedColors,
+    selectedSpaces,
+    selectedMaterials,
+    familyCollectionName,
+    showSelectedOnly,
+    familyMode,
+  ]);
+
+  const renderedRecords = React.useMemo(
+    () => visibleRecords.slice(0, Math.max(1, renderLimit)),
+    [visibleRecords, renderLimit]
+  );
+  const remainingRecordsCount = Math.max(0, visibleRecords.length - renderedRecords.length);
+
+  const loadMoreRecords = React.useCallback(() => {
+    setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, visibleRecords.length));
+  }, [visibleRecords.length]);
 
 
 
@@ -696,16 +747,16 @@ export function ProductsView({
       <ProductFilters
         data={data}
         visibleCount={visibleRecords.length}
-        uniqueCategories={uniqueCategories}
+        uniqueCategories={editableCategories}
         selectedCategories={selectedCategories}
         setSelectedCategories={setSelectedCategories}
-        uniqueColors={uniqueColors}
+        uniqueColors={editableColors}
         selectedColors={selectedColors}
         setSelectedColors={setSelectedColors}
-        uniqueSpaces={uniqueSpaces}
+        uniqueSpaces={editableSpaces}
         selectedSpaces={selectedSpaces}
         setSelectedSpaces={setSelectedSpaces}
-        uniqueMaterials={uniqueMaterials}
+        uniqueMaterials={editableMaterials}
         selectedMaterials={selectedMaterials}
         setSelectedMaterials={setSelectedMaterials}
         activeFilterDropdown={activeFilterDropdown}
@@ -719,39 +770,52 @@ export function ProductsView({
       ) : null}
 
       {viewMode === 'list' ? (
-        <ListView
-          loading={loading}
-          records={records}
-          visibleRecords={visibleRecords}
-          displayedColumns={displayedColumns}
-          selectedIds={selectedIds}
-          toggleSelected={toggleSelected}
-          toggleSort={toggleSort}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          openPreviewByUrl={openPreviewByUrl}
-          setEditingUrl={setEditingUrl}
-          handleMoveUrl={handleMoveUrl}
-          draggedUrlInfo={draggedUrlInfo}
-          setDraggedUrlInfo={setDraggedUrlInfo}
-          activeDropTargetRef={activeDropTargetRef}
-          linkHoverTimerRef={linkHoverTimerRef}
-          familyMode={familyMode}
-          variantCounts={variantCounts}
-          search={search}
-          setLinkHoverState={setLinkHoverState}
-          canEdit={canEdit}
-          handleSaveUrl={handleSaveUrl}
-          editingUrl={editingUrl}
-          isSaving={isSaving}
-        />
+        <>
+          <ListView
+            loading={loading}
+            records={records}
+            visibleRecords={renderedRecords}
+            displayedColumns={displayedColumns}
+            selectedIds={selectedIds}
+            toggleSelected={toggleSelected}
+            toggleSort={toggleSort}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            openPreviewByUrl={openPreviewByUrl}
+            setEditingUrl={setEditingUrl}
+            handleMoveUrl={handleMoveUrl}
+            draggedUrlInfo={draggedUrlInfo}
+            setDraggedUrlInfo={setDraggedUrlInfo}
+            activeDropTargetRef={activeDropTargetRef}
+            linkHoverTimerRef={linkHoverTimerRef}
+            familyMode={familyMode}
+            variantCounts={variantCounts}
+            search={search}
+            setLinkHoverState={setLinkHoverState}
+            canEdit={canEdit}
+            handleSaveUrl={handleSaveUrl}
+            editingUrl={editingUrl}
+            isSaving={isSaving}
+          />
+          {!loading && remainingRecordsCount > 0 && (
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={loadMoreRecords}
+                className="rounded-full border border-black/10 bg-white px-5 py-2 text-xs font-semibold text-black/70 shadow-sm transition hover:bg-black/5 dark:border-white/15 dark:bg-black/30 dark:text-white/80 dark:hover:bg-white/10"
+              >
+                Load more ({remainingRecordsCount})
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {loading && records.length === 0 ? (
               <ProductsSkeleton viewMode="gallery" />
             ) : (
-              visibleRecords.map((r) => (
+              renderedRecords.map((r) => (
                 <GalleryCard
                   key={r.id}
                   record={r}
@@ -779,6 +843,18 @@ export function ProductsView({
                >
                  Reset All
                </button>
+            </div>
+          )}
+
+          {!loading && remainingRecordsCount > 0 && (
+            <div className="mt-4 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={loadMoreRecords}
+                className="rounded-full border border-black/10 bg-white px-5 py-2 text-xs font-semibold text-black/70 shadow-sm transition hover:bg-black/5 dark:border-white/15 dark:bg-black/30 dark:text-white/80 dark:hover:bg-white/10"
+              >
+                Load more ({remainingRecordsCount})
+              </button>
             </div>
           )}
         </div>
@@ -851,10 +927,10 @@ export function ProductsView({
         setEditingUrl={setEditingUrl}
         onSave={doSaveTag}
         onCancel={doCancelTag}
-        uniqueSpaces={Array.from(uniqueSpaces)}
-        uniqueColors={Array.from(uniqueColors)}
-        uniqueMaterials={Array.from(uniqueMaterials)}
-        uniqueCategories={Array.from(uniqueCategories)}
+        uniqueSpaces={editableSpaces}
+        uniqueColors={editableColors}
+        uniqueMaterials={editableMaterials}
+        uniqueCategories={editableCategories}
       />
       
       <CommandPalette
