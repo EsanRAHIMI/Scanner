@@ -31,10 +31,11 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
   const cookieHeader = req.headers.get('cookie');
   const authHeader = req.headers.get('authorization');
 
-  let body: any = null;
+  let body: BodyInit | null = null;
   if (method !== 'GET' && method !== 'HEAD') {
     try {
-      body = await req.text();
+      const rawBody = await req.arrayBuffer();
+      body = rawBody.byteLength > 0 ? rawBody : null;
     } catch (e) {
       // ignore
     }
@@ -42,7 +43,7 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
 
   const headers = new Headers();
   const reqContentType = req.headers.get('Content-Type');
-  const contentType = reqContentType ? reqContentType.split(',')[0].trim() : 'application/json';
+  const contentType = reqContentType ? reqContentType.trim() : 'application/json';
   
   headers.set('Content-Type', contentType);
   headers.set('Accept', 'application/json');

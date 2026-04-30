@@ -47,6 +47,12 @@ export function DashboardView() {
           >
             Go to Products
           </Link>
+          <Link
+            href="/products/imports"
+            className="flex h-10 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-6 text-xs font-black uppercase tracking-widest text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white active:scale-95 dark:text-emerald-300"
+          >
+            Excel Imports
+          </Link>
         </div>
       </div>
 

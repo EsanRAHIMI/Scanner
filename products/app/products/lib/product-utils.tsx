@@ -112,16 +112,19 @@ export function getDriveDirectLink(url: string | null | undefined): string {
  * Formats a price value with locale-aware number formatting.
  */
 export function formatPrice(value: unknown): string | null {
+  const formatter = new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 0,
+  });
   if (value === null || value === undefined) return null;
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Intl.NumberFormat('en-US').format(value);
+    return formatter.format(value);
   }
   if (typeof value === 'string') {
     const raw = value.trim();
     if (!raw) return null;
     const cleaned = raw.replace(/,/g, '');
     const n = Number(cleaned);
-    if (Number.isFinite(n)) return new Intl.NumberFormat('en-US').format(n);
+    if (Number.isFinite(n)) return formatter.format(n);
   }
   return null;
 }

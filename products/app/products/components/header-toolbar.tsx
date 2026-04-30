@@ -50,12 +50,20 @@ export function HeaderToolbar({
           </div>
           
           {isAdmin && (
-            <a
-              href="/dashboard"
-              className="flex h-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-500 hover:text-white dark:text-emerald-400 dark:hover:bg-emerald-500 dark:hover:text-white transition-all shadow-sm"
-            >
-              Dashboard
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href="/dashboard"
+                className="flex h-8 items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:bg-emerald-500 hover:text-white dark:text-emerald-400 dark:hover:bg-emerald-500 dark:hover:text-white transition-all shadow-sm"
+              >
+                Dashboard
+              </a>
+              <a
+                href="/products/imports"
+                className="flex h-8 items-center justify-center rounded-full border border-black/10 bg-black/[0.03] px-4 text-[10px] font-black uppercase tracking-widest text-black/50 transition-all hover:bg-black hover:text-white dark:border-white/10 dark:bg-white/[0.06] dark:text-white/50 dark:hover:bg-white dark:hover:text-black"
+              >
+                Imports
+              </a>
+            </div>
           )}
         </div>
 

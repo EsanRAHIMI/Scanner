@@ -5,6 +5,7 @@ import random
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -36,7 +37,88 @@ CLASSES_COLLECTION = "trainer_classes"
 QUEUE_COLLECTION = "trainer_queue"
 PRODUCT_FIELD_OPTIONS_COLLECTION = "product_field_options"
 PRODUCT_FIELD_OPTIONS_DOC_ID = "selectable_fields"
+PRODUCT_IMPORT_BATCHES_COLLECTION = "product_import_batches"
+PRODUCT_IMPORT_ROWS_COLLECTION = "product_import_rows"
 PRODUCT_SELECTABLE_FIELDS = ("Category", "Space", "Color", "Material")
+PRODUCT_IMPORT_CANONICAL_COLUMNS = [
+  "Image",
+  "DAM",
+  "Video",
+  "Price",
+  "URL",
+  "Colecction Name",
+  "Colecction Code",
+  "Factory Code",
+  "Variant Number",
+  "Category",
+  "Space",
+  "Color",
+  "Material",
+  "DIMENSION (mm)",
+  "Note",
+  "CODE NUMBER",
+  "L000",
+  "Num",
+  "Main",
+  "Content Calendar",
+]
+PRODUCT_IMPORT_HEADER_ALIASES: dict[str, str] = {
+  "image": "Image",
+  "images": "Image",
+  "photo": "Image",
+  "photos": "Image",
+  "picture": "Image",
+  "dam": "DAM",
+  "dam link": "DAM",
+  "asset": "DAM",
+  "asset url": "DAM",
+  "video": "Video",
+  "video url": "Video",
+  "price": "Price",
+  "قیمت": "Price",
+  "amount": "Price",
+  "cost": "Price",
+  "url": "URL",
+  "link": "URL",
+  "links": "URL",
+  "collection": "Colecction Name",
+  "collection name": "Colecction Name",
+  "colecction name": "Colecction Name",
+  "product name": "Colecction Name",
+  "name": "Colecction Name",
+  "نام": "Colecction Name",
+  "collection code": "Colecction Code",
+  "colecction code": "Colecction Code",
+  "code": "Colecction Code",
+  "factory code": "Factory Code",
+  "factory": "Factory Code",
+  "factorycode": "Factory Code",
+  "variant": "Variant Number",
+  "variant number": "Variant Number",
+  "variant no": "Variant Number",
+  "variant #": "Variant Number",
+  "category": "Category",
+  "space": "Space",
+  "room": "Space",
+  "color": "Color",
+  "colour": "Color",
+  "material": "Material",
+  "dimension": "DIMENSION (mm)",
+  "dimensions": "DIMENSION (mm)",
+  "dimension mm": "DIMENSION (mm)",
+  "size": "DIMENSION (mm)",
+  "note": "Note",
+  "notes": "Note",
+  "description": "Note",
+  "code number": "CODE NUMBER",
+  "code no": "CODE NUMBER",
+  "l000": "L000",
+  "num": "Num",
+  "number": "Num",
+  "main": "Main",
+  "main variant": "Main",
+  "content calendar": "Content Calendar",
+}
 DEFAULT_PRODUCT_FIELD_OPTIONS: dict[str, list[str]] = {
   "Category": [
     "Chandeliers",
@@ -142,6 +224,418 @@ async def _get_product_field_options(db: Any) -> dict[str, list[str]]:
     initial_options[field_name] = values
 
   return initial_options
+
+
+def _normalize_import_header(value: Any) -> str:
+  text = str(value or "").strip().casefold()
+  text = re.sub(r"[_\-/:(){}\[\]#]+", " ", text)
+  text = re.sub(r"\s+", " ", text)
+  return text.strip()
+
+
+def _canonical_import_column(header: Any, fallback: str) -> str:
+  normalized = _normalize_import_header(header)
+  if not normalized:
+    return fallback
+  return PRODUCT_IMPORT_HEADER_ALIASES.get(normalized) or str(header).strip()
+
+
+def _serialize_excel_value(value: Any) -> Any:
+  if value is None:
+    return ""
+  if isinstance(value, datetime):
+    return value.isoformat()
+  if isinstance(value, str):
+    return value.strip()
+  if isinstance(value, (int, float, bool)):
+    return value
+  return str(value).strip()
+
+
+def _is_empty_excel_value(value: Any) -> bool:
+  if value is None:
+    return True
+  if isinstance(value, str):
+    return value.strip() == ""
+  return False
+
+
+def _score_import_header_row(values: tuple[Any, ...]) -> int:
+  non_empty = 0
+  alias_hits = 0
+  for value in values:
+    if _is_empty_excel_value(value):
+      continue
+    non_empty += 1
+    if _normalize_import_header(value) in PRODUCT_IMPORT_HEADER_ALIASES:
+      alias_hits += 1
+  return alias_hits * 10 + min(non_empty, 8)
+
+
+def _detect_import_header_row(rows: list[tuple[Any, ...]]) -> int:
+  best_index = 0
+  best_score = -1
+  for idx, row in enumerate(rows[:30]):
+    score = _score_import_header_row(row)
+    if score > best_score:
+      best_score = score
+      best_index = idx
+  return best_index
+
+
+def _parse_import_price(value: Any) -> tuple[Any, str | None]:
+  if value is None or value == "":
+    return "", None
+  if isinstance(value, (int, float)) and not isinstance(value, bool):
+    return int(value) if float(value).is_integer() else value, None
+
+  raw = str(value).strip()
+  cleaned = re.sub(r"(?i)\b(aed|dirham|درهم)\b", "", raw)
+  cleaned = cleaned.replace(",", "").strip()
+  if re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
+    number = float(cleaned)
+    return int(number) if number.is_integer() else number, None
+  return raw, "Price could not be parsed as a clean number"
+
+
+def _parse_import_bool(value: Any) -> Any:
+  if isinstance(value, bool):
+    return value
+  if isinstance(value, (int, float)) and value in (0, 1):
+    return bool(value)
+  if isinstance(value, str):
+    normalized = value.strip().casefold()
+    if normalized in {"yes", "true", "1", "main", "y"}:
+      return True
+    if normalized in {"no", "false", "0", "n"}:
+      return False
+  return value
+
+
+def _clean_import_field(column: str, value: Any) -> tuple[Any, str | None]:
+  serialized = _serialize_excel_value(value)
+  if column == "Price":
+    return _parse_import_price(serialized)
+  if column == "Main":
+    return _parse_import_bool(serialized), None
+  return serialized, None
+
+
+def _merge_import_value(previous: Any, next_value: Any) -> Any:
+  if previous in (None, ""):
+    return next_value
+  if next_value in (None, ""):
+    return previous
+  if previous == next_value:
+    return previous
+  return f"{previous}\n{next_value}"
+
+
+def _import_value_to_text(value: Any) -> str:
+  if value is None:
+    return ""
+  if isinstance(value, bool):
+    return "true" if value else "false"
+  if isinstance(value, (int, float)):
+    return str(int(value)) if float(value).is_integer() else str(value)
+  return str(value).strip()
+
+
+def _trim_variant_fragment(value: str) -> str:
+  return re.sub(r"^[\s\-_/\\|:.#]+|[\s\-_/\\|:.#]+$", "", value).strip()
+
+
+def _normalized_fragment_positions(value: str) -> tuple[str, list[int]]:
+  chars: list[str] = []
+  positions: list[int] = []
+  for idx, char in enumerate(value):
+    if char.isalnum():
+      chars.append(char.casefold())
+      positions.append(idx)
+  return "".join(chars), positions
+
+
+def _find_subsequence_positions(value: str, fragment: str) -> list[int] | None:
+  positions: list[int] = []
+  search_from = 0
+  for char in fragment:
+    found_at = value.find(char, search_from)
+    if found_at < 0:
+      return None
+    positions.append(found_at)
+    search_from = found_at + 1
+  return positions
+
+
+def _derive_variant_number_from_code_number(code_number: Any, collection_code: Any) -> str | None:
+  full_code = _import_value_to_text(code_number)
+  base_code = _import_value_to_text(collection_code)
+  if not full_code or not base_code:
+    return None
+
+  full_folded = full_code.casefold()
+  base_folded = base_code.casefold()
+
+  if full_folded.startswith(base_folded):
+    candidate = _trim_variant_fragment(full_code[len(base_code):])
+    return candidate or None
+
+  base_match = re.search(re.escape(base_code), full_code, flags=re.IGNORECASE)
+  if base_match:
+    candidate = _trim_variant_fragment(full_code[:base_match.start()] + full_code[base_match.end():])
+    return candidate or None
+
+  normalized_full, full_positions = _normalized_fragment_positions(full_code)
+  normalized_base, base_positions = _normalized_fragment_positions(base_code)
+  if not normalized_full or not normalized_base or not base_positions:
+    return None
+
+  match_index = normalized_full.find(normalized_base)
+  if match_index < 0:
+    subsequence_positions = _find_subsequence_positions(normalized_full, normalized_base)
+    if not subsequence_positions:
+      return None
+
+    original_positions_to_remove = {full_positions[idx] for idx in subsequence_positions}
+    candidate = "".join(
+      char for idx, char in enumerate(full_code)
+      if idx not in original_positions_to_remove
+    )
+    candidate = _trim_variant_fragment(candidate)
+    return candidate or None
+
+  start = full_positions[match_index]
+  end = full_positions[match_index + len(normalized_base) - 1] + 1
+  candidate = _trim_variant_fragment(full_code[:start] + full_code[end:])
+  return candidate or None
+
+
+def _fill_collection_code_from_fallbacks(fields: dict[str, Any]) -> None:
+  collection_code = _import_value_to_text(fields.get("Colecction Code"))
+  if collection_code:
+    return
+
+  code_number = _import_value_to_text(fields.get("CODE NUMBER"))
+  if code_number:
+    fields["Colecction Code"] = code_number
+    return
+
+  factory_code = _import_value_to_text(fields.get("Factory Code"))
+  if factory_code:
+    fields["Colecction Code"] = factory_code
+
+
+def _split_variant_from_collection_name(fields: dict[str, Any]) -> None:
+  collection_name = _import_value_to_text(fields.get("Colecction Name"))
+  if "/" not in collection_name:
+    return
+
+  name_part, variant_part = collection_name.rsplit("/", 1)
+  clean_name = name_part.strip()
+  clean_variant = _trim_variant_fragment(variant_part)
+  if clean_name:
+    fields["Colecction Name"] = clean_name
+  if clean_variant:
+    fields["Variant Number"] = clean_variant
+
+
+def _normalize_import_row(headers: list[str], values: tuple[Any, ...]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+  fields: dict[str, Any] = {}
+  raw_fields: dict[str, Any] = {}
+  warnings: list[str] = []
+
+  for idx, header in enumerate(headers):
+    value = values[idx] if idx < len(values) else None
+    serialized = _serialize_excel_value(value)
+    if serialized == "":
+      continue
+
+    raw_fields[header] = _merge_import_value(raw_fields.get(header), serialized)
+    cleaned_value, warning = _clean_import_field(header, serialized)
+    fields[header] = _merge_import_value(fields.get(header), cleaned_value)
+    if warning:
+      warnings.append(f"{header}: {warning}")
+
+  _fill_collection_code_from_fallbacks(fields)
+
+  derived_variant = _derive_variant_number_from_code_number(
+    fields.get("CODE NUMBER"),
+    fields.get("Colecction Code"),
+  )
+  if derived_variant:
+    fields["Variant Number"] = derived_variant
+
+  _split_variant_from_collection_name(fields)
+
+  return fields, raw_fields, warnings
+
+
+def _safe_import_filename(filename: str, default: str) -> str:
+  name = Path(filename or default).name
+  name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .")
+  return name or default
+
+
+def _run_numbers_conversion_with_libreoffice(input_path: Path, output_dir: Path) -> bytes | None:
+  converter = shutil.which("soffice") or shutil.which("libreoffice")
+  if not converter:
+    return None
+
+  result = subprocess.run(
+    [
+      converter,
+      "--headless",
+      "--convert-to",
+      "xlsx",
+      "--outdir",
+      str(output_dir),
+      str(input_path),
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+    timeout=120,
+  )
+  if result.returncode != 0:
+    raise HTTPException(status_code=400, detail=f"NUMBERS_CONVERSION_FAILED: {result.stderr or result.stdout}")
+
+  candidates = sorted(output_dir.glob("*.xlsx"))
+  if not candidates:
+    raise HTTPException(status_code=400, detail="NUMBERS_CONVERSION_FAILED: converted xlsx not found")
+  return candidates[0].read_bytes()
+
+
+def _run_numbers_conversion_with_macos_numbers(input_path: Path, output_path: Path) -> bytes | None:
+  osascript = shutil.which("osascript")
+  if not osascript:
+    return None
+
+  script = """
+on run argv
+  set inputPath to POSIX file (item 1 of argv)
+  set outputPath to POSIX file (item 2 of argv)
+  tell application "Numbers"
+    set theDoc to open inputPath
+    export theDoc to outputPath as Microsoft Excel
+    close theDoc saving no
+  end tell
+end run
+"""
+  result = subprocess.run(
+    [osascript, "-e", script, str(input_path), str(output_path)],
+    check=False,
+    capture_output=True,
+    text=True,
+    timeout=120,
+  )
+  if result.returncode != 0:
+    raise HTTPException(status_code=400, detail=f"NUMBERS_CONVERSION_FAILED: {result.stderr or result.stdout}")
+  if not output_path.exists():
+    raise HTTPException(status_code=400, detail="NUMBERS_CONVERSION_FAILED: converted xlsx not found")
+  return output_path.read_bytes()
+
+
+def _convert_numbers_to_xlsx_content(content: bytes, filename: str) -> bytes:
+  with tempfile.TemporaryDirectory(prefix="product-import-") as tmp_dir:
+    tmp_path = Path(tmp_dir)
+    input_path = tmp_path / _safe_import_filename(filename, "products-import.numbers")
+    if input_path.suffix.lower() != ".numbers":
+      input_path = input_path.with_suffix(".numbers")
+    input_path.write_bytes(content)
+
+    output_dir = tmp_path / "converted"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    converted = _run_numbers_conversion_with_libreoffice(input_path, output_dir)
+    if converted is not None:
+      return converted
+
+    converted = _run_numbers_conversion_with_macos_numbers(input_path, output_dir / "converted.xlsx")
+    if converted is not None:
+      return converted
+
+  raise HTTPException(
+    status_code=400,
+    detail="NUMBERS_CONVERSION_UNAVAILABLE: install LibreOffice or run the server on macOS with Numbers available",
+  )
+
+
+def _parse_product_import_workbook(content: bytes, filename: str) -> dict[str, Any]:
+  try:
+    from openpyxl import load_workbook
+  except ImportError as exc:
+    raise HTTPException(status_code=500, detail="OPENPYXL_NOT_INSTALLED") from exc
+
+  workbook_content = _convert_numbers_to_xlsx_content(content, filename) if filename.lower().endswith(".numbers") else content
+
+  try:
+    workbook = load_workbook(io.BytesIO(workbook_content), read_only=True, data_only=True)
+  except Exception as exc:
+    raise HTTPException(status_code=400, detail=f"INVALID_EXCEL_FILE: {exc}") from exc
+
+  rows_to_insert: list[dict[str, Any]] = []
+  columns_seen: set[str] = set(PRODUCT_IMPORT_CANONICAL_COLUMNS)
+  sheets: list[dict[str, Any]] = []
+
+  for worksheet in workbook.worksheets:
+    sheet_rows = list(worksheet.iter_rows(values_only=True))
+    if not sheet_rows:
+      continue
+
+    header_index = _detect_import_header_row(sheet_rows)
+    header_values = sheet_rows[header_index]
+    headers: list[str] = []
+    used_headers: dict[str, int] = {}
+
+    for idx, value in enumerate(header_values):
+      fallback = f"Column {idx + 1}"
+      header = _canonical_import_column(value, fallback)
+      if header in used_headers:
+        used_headers[header] += 1
+        header = f"{header} {used_headers[header]}"
+      else:
+        used_headers[header] = 1
+      headers.append(header)
+
+    sheet_count = 0
+    for row_offset, values in enumerate(sheet_rows[header_index + 1:], start=header_index + 2):
+      if all(_is_empty_excel_value(value) for value in values):
+        continue
+
+      fields, raw_fields, warnings = _normalize_import_row(headers, values)
+      if not fields:
+        continue
+
+      for key in fields.keys():
+        columns_seen.add(key)
+
+      rows_to_insert.append({
+        "_id": uuid.uuid4().hex,
+        "source_sheet": worksheet.title,
+        "source_row_number": row_offset,
+        "fields": fields,
+        "raw_fields": raw_fields,
+        "warnings": warnings,
+        "status": "staged",
+      })
+      sheet_count += 1
+
+    sheets.append({
+      "name": worksheet.title,
+      "header_row": header_index + 1,
+      "row_count": sheet_count,
+    })
+
+  ordered_columns = [
+    *[column for column in PRODUCT_IMPORT_CANONICAL_COLUMNS if column in columns_seen],
+    *sorted((column for column in columns_seen if column not in PRODUCT_IMPORT_CANONICAL_COLUMNS), key=lambda x: x.casefold()),
+  ]
+
+  return {
+    "columns": ordered_columns,
+    "rows": rows_to_insert,
+    "sheets": sheets,
+  }
 
 class ClassItem(TypedDict):
   id: str
@@ -1108,7 +1602,16 @@ async def patch_product_asset(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Collections that can be backed up / restored
-_BACKUPABLE_COLLECTIONS = ["products", "dam_assets", "users", "content_calendar", "activity_logs", PRODUCT_FIELD_OPTIONS_COLLECTION]
+_BACKUPABLE_COLLECTIONS = [
+  "products",
+  "dam_assets",
+  "users",
+  "content_calendar",
+  "activity_logs",
+  PRODUCT_FIELD_OPTIONS_COLLECTION,
+  PRODUCT_IMPORT_BATCHES_COLLECTION,
+  PRODUCT_IMPORT_ROWS_COLLECTION,
+]
 
 
 @api.get("/admin/dashboard/stats")
@@ -1225,6 +1728,237 @@ async def admin_update_product_field_options(
   )
 
   return {"options": options, "updated_at": now}
+
+
+@api.get("/admin/products/imports")
+async def admin_list_product_imports(
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  imports: list[dict[str, Any]] = []
+  cursor = db[PRODUCT_IMPORT_BATCHES_COLLECTION].find({}).sort("created_at", -1).limit(50)
+  async for doc in cursor:
+    doc["id"] = str(doc.pop("_id"))
+    imports.append(doc)
+  return {"imports": imports}
+
+
+@api.post("/admin/products/imports/upload")
+async def admin_upload_product_import(
+  req: FastAPIRequest,
+  file: UploadFile = File(...),
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  filename = file.filename or "products-import.xlsx"
+  if not filename.lower().endswith((".xlsx", ".xlsm", ".numbers")):
+    raise HTTPException(status_code=400, detail="ONLY_XLSX_XLSM_OR_NUMBERS_SUPPORTED")
+
+  content = await file.read()
+  if not content:
+    raise HTTPException(status_code=400, detail="EMPTY_FILE")
+
+  parsed = _parse_product_import_workbook(content, filename)
+  rows = parsed["rows"]
+  if not rows:
+    raise HTTPException(status_code=400, detail="NO_PRODUCT_ROWS_FOUND")
+
+  now = _utc_now_iso()
+  import_id = uuid.uuid4().hex
+  columns = parsed["columns"]
+  warnings_count = sum(1 for row in rows if row.get("warnings"))
+
+  for row in rows:
+    row["import_id"] = import_id
+    row["created_at"] = now
+    row["updated_at"] = now
+
+  batch_doc = {
+    "_id": import_id,
+    "filename": filename,
+    "status": "staged",
+    "columns": columns,
+    "sheets": parsed["sheets"],
+    "row_count": len(rows),
+    "warnings_count": warnings_count,
+    "created_at": now,
+    "updated_at": now,
+    "created_by": user.get("_id"),
+  }
+
+  await db[PRODUCT_IMPORT_BATCHES_COLLECTION].insert_one(batch_doc)
+  await db[PRODUCT_IMPORT_ROWS_COLLECTION].insert_many(rows)
+
+  await log_activity(
+    req,
+    "PRODUCT_IMPORT_UPLOAD",
+    details=f"Uploaded product import: {filename}. Rows: {len(rows)}",
+    resource_id=import_id,
+    user=user,
+    db=db,
+  )
+
+  return {
+    "import": {**batch_doc, "id": import_id},
+    "preview": [
+      {
+        "id": row["_id"],
+        "fields": row["fields"],
+        "warnings": row["warnings"],
+        "source_sheet": row["source_sheet"],
+        "source_row_number": row["source_row_number"],
+      }
+      for row in rows[:25]
+    ],
+  }
+
+
+@api.get("/admin/products/imports/{import_id}/rows")
+async def admin_get_product_import_rows(
+  import_id: str,
+  skip: int = 0,
+  limit: int = 5000,
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  batch = await db[PRODUCT_IMPORT_BATCHES_COLLECTION].find_one({"_id": import_id})
+  if not batch:
+    raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
+
+  safe_limit = max(1, min(limit, 5000))
+  safe_skip = max(0, skip)
+  total = await db[PRODUCT_IMPORT_ROWS_COLLECTION].count_documents({"import_id": import_id})
+  records: list[dict[str, Any]] = []
+  cursor = (
+    db[PRODUCT_IMPORT_ROWS_COLLECTION]
+    .find({"import_id": import_id})
+    .sort([("source_sheet", 1), ("source_row_number", 1)])
+    .skip(safe_skip)
+    .limit(safe_limit)
+  )
+  async for doc in cursor:
+    records.append({
+      "id": str(doc.get("_id")),
+      "fields": doc.get("fields") or {},
+      "raw_fields": doc.get("raw_fields") or {},
+      "warnings": doc.get("warnings") or [],
+      "status": doc.get("status") or "staged",
+      "source_sheet": doc.get("source_sheet"),
+      "source_row_number": doc.get("source_row_number"),
+    })
+
+  batch["id"] = str(batch.pop("_id"))
+  return {
+    "import": batch,
+    "columns": batch.get("columns") or [],
+    "records": records,
+    "count": total,
+    "skip": safe_skip,
+    "limit": safe_limit,
+  }
+
+
+@api.patch("/admin/products/imports/{import_id}/rows/{row_id}")
+async def admin_update_product_import_row(
+  import_id: str,
+  row_id: str,
+  payload: dict[str, Any],
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  field_name = payload.get("field")
+  if not isinstance(field_name, str) or not field_name.strip():
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+
+  field_name = field_name.strip()
+  if "." in field_name or field_name.startswith("$"):
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+
+  row = await db[PRODUCT_IMPORT_ROWS_COLLECTION].find_one({"_id": row_id, "import_id": import_id})
+  if not row:
+    raise HTTPException(status_code=404, detail="IMPORT_ROW_NOT_FOUND")
+
+  fields = dict(row.get("fields") or {})
+  raw_fields = dict(row.get("raw_fields") or {})
+  warnings = [item for item in row.get("warnings") or [] if isinstance(item, str) and not item.startswith(f"{field_name}:")]
+
+  cleaned_value, warning = _clean_import_field(field_name, payload.get("value"))
+  if cleaned_value == "":
+    fields.pop(field_name, None)
+    raw_fields.pop(field_name, None)
+  else:
+    fields[field_name] = cleaned_value
+    raw_fields[field_name] = _serialize_excel_value(payload.get("value"))
+    if warning:
+      warnings.append(f"{field_name}: {warning}")
+
+  _fill_collection_code_from_fallbacks(fields)
+  derived_variant = _derive_variant_number_from_code_number(
+    fields.get("CODE NUMBER"),
+    fields.get("Colecction Code"),
+  )
+  if derived_variant:
+    fields["Variant Number"] = derived_variant
+  _split_variant_from_collection_name(fields)
+
+  now = _utc_now_iso()
+  await db[PRODUCT_IMPORT_ROWS_COLLECTION].update_one(
+    {"_id": row_id, "import_id": import_id},
+    {
+      "$set": {
+        "fields": fields,
+        "raw_fields": raw_fields,
+        "warnings": warnings,
+        "updated_at": now,
+      }
+    },
+  )
+
+  await log_activity(
+    req,
+    "PRODUCT_IMPORT_ROW_EDIT",
+    details=f"Edited staged import row field: {field_name}",
+    resource_id=row_id,
+    user=user,
+    db=db,
+  )
+
+  return {
+    "id": row_id,
+    "fields": fields,
+    "raw_fields": raw_fields,
+    "warnings": warnings,
+    "status": row.get("status") or "staged",
+    "source_sheet": row.get("source_sheet"),
+    "source_row_number": row.get("source_row_number"),
+  }
+
+
+@api.delete("/admin/products/imports/{import_id}")
+async def admin_delete_product_import(
+  import_id: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  batch = await db[PRODUCT_IMPORT_BATCHES_COLLECTION].find_one({"_id": import_id})
+  if not batch:
+    raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
+
+  rows_result = await db[PRODUCT_IMPORT_ROWS_COLLECTION].delete_many({"import_id": import_id})
+  await db[PRODUCT_IMPORT_BATCHES_COLLECTION].delete_one({"_id": import_id})
+
+  await log_activity(
+    req,
+    "PRODUCT_IMPORT_DELETE",
+    details=f"Deleted product import: {batch.get('filename')}. Rows: {rows_result.deleted_count}",
+    resource_id=import_id,
+    user=user,
+    db=db,
+  )
+
+  return {"ok": True, "deleted_rows": rows_result.deleted_count}
 
 
 @api.get("/admin/backups")
