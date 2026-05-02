@@ -40,6 +40,20 @@ type ImportRowsResponse = {
   count: number;
 };
 
+type ApplyImportResponse = {
+  ok: boolean;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  changed_cells_count: number;
+};
+
+type ReprocessImportResponse = {
+  ok: boolean;
+  processed_count: number;
+  changed_count: number;
+};
+
 type EditingCell = {
   rowId: string;
   column: string;
@@ -73,6 +87,19 @@ function renderCell(value: unknown, column?: string) {
   if (value === false) return 'No';
   if (Array.isArray(value)) return value.map(formatScalar).filter(Boolean).join(', ');
   return formatScalar(value) || '—';
+}
+
+function isImageColumn(column: string) {
+  const normalized = column.trim().toLowerCase();
+  return normalized === 'image1' || normalized === 'image' || normalized.startsWith('image ');
+}
+
+function resolveImportAssetUrl(value: unknown) {
+  const raw = formatScalar(value).trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('/api/trainer/')) return raw;
+  if (raw.startsWith('/files/')) return `/api/trainer${raw}`;
+  return raw;
 }
 
 function normalizeComparable(value: unknown) {
@@ -164,8 +191,12 @@ export default function ProductImportsPage() {
   const [message, setMessage] = React.useState<string | null>(null);
   const [editingCell, setEditingCell] = React.useState<EditingCell | null>(null);
   const [savingCellKey, setSavingCellKey] = React.useState<string | null>(null);
+  const [isApplying, setIsApplying] = React.useState(false);
+  const [isReprocessing, setIsReprocessing] = React.useState(false);
+  const [selectedTransferColumns, setSelectedTransferColumns] = React.useState<Set<string>>(new Set());
+  const initializedTransferColumnsForImportRef = React.useRef<string | null>(null);
   const saveInFlightRef = React.useRef(false);
-  const { data: productsData } = useProductsCache();
+  const { data: productsData, mutate: mutateProducts } = useProductsCache();
 
   const {
     data: importsData,
@@ -175,7 +206,10 @@ export default function ProductImportsPage() {
   } = useSWR<ImportsResponse>('/admin/products/imports', fetchJson);
 
   const imports = importsData?.imports ?? [];
-  const activeImportId = selectedImportId ?? imports[0]?.id ?? null;
+  const selectedImportExists = selectedImportId
+    ? imports.some(item => item.id === selectedImportId)
+    : false;
+  const activeImportId = selectedImportExists ? selectedImportId : imports[0]?.id ?? null;
 
   const {
     data: rowsData,
@@ -188,7 +222,11 @@ export default function ProductImportsPage() {
   );
 
   React.useEffect(() => {
-    if (!selectedImportId && imports[0]?.id) {
+    if (imports.length === 0) {
+      if (selectedImportId) setSelectedImportId(null);
+      return;
+    }
+    if (!selectedImportId || !imports.some(item => item.id === selectedImportId)) {
       setSelectedImportId(imports[0].id);
     }
   }, [imports, selectedImportId]);
@@ -299,6 +337,62 @@ export default function ProductImportsPage() {
     }
   }, [activeImportId, editingCell, mutateRows, rowsData]);
 
+  const applyImportToProducts = React.useCallback(async () => {
+    if (!activeImportId || isApplying) return;
+    const selectedColumns = Array.from(selectedTransferColumns);
+    if (selectedColumns.length === 0) {
+      setMessage('حداقل یک ستون را برای انتقال به Products انتخاب کن.');
+      return;
+    }
+    const ok = window.confirm(
+      `این import به جدول اصلی Products منتقل شود؟ فقط ${selectedColumns.length} ستون انتخاب‌شده منتقل می‌شوند.`
+    );
+    if (!ok) return;
+
+    setIsApplying(true);
+    setMessage(null);
+    try {
+      const res = await apiFetch(`/admin/products/imports/${activeImportId}/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: selectedColumns }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || 'Apply import failed');
+      const result = JSON.parse(text) as ApplyImportResponse;
+      await mutateRows();
+      await mutateImports();
+      await mutateProducts();
+      setMessage(
+        `انتقال انجام شد: ${result.created_count} محصول جدید، ${result.updated_count} محصول آپدیت، ${result.changed_cells_count} سلول تغییرکرده، ${result.unchanged_count} ردیف بدون تغییر.`
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Apply import failed');
+    } finally {
+      setIsApplying(false);
+    }
+  }, [activeImportId, isApplying, mutateImports, mutateProducts, mutateRows, selectedTransferColumns]);
+
+  const reprocessImportRows = React.useCallback(async () => {
+    if (!activeImportId || isReprocessing) return;
+    setIsReprocessing(true);
+    setMessage(null);
+    try {
+      const res = await apiFetch(`/admin/products/imports/${activeImportId}/reprocess`, {
+        method: 'POST',
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || 'Refresh formulas failed');
+      const result = JSON.parse(text) as ReprocessImportResponse;
+      await mutateRows();
+      setMessage(`فرمول‌ها دوباره چک شدند: ${result.changed_count} ردیف از ${result.processed_count} ردیف اصلاح شد.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Refresh formulas failed');
+    } finally {
+      setIsReprocessing(false);
+    }
+  }, [activeImportId, isReprocessing, mutateRows]);
+
   const columns = rowsData?.columns ?? [];
   const existingProductIndex = React.useMemo(
     () => buildExistingProductIndex(productsData?.records ?? []),
@@ -310,6 +404,8 @@ export default function ProductImportsPage() {
   }, [existingProductIndex, rowsData]);
   const visibleColumns = React.useMemo(() => {
     const preferred = [
+      'Row',
+      'Image1',
       'Image',
       'DAM',
       'Video',
@@ -324,6 +420,7 @@ export default function ProductImportsPage() {
       'Material',
       'DIMENSION (mm)',
       'Note',
+      'Details',
       'CODE NUMBER',
       'L000',
       'Num',
@@ -335,6 +432,22 @@ export default function ProductImportsPage() {
       ...columns.filter(column => !preferred.includes(column)),
     ];
   }, [columns]);
+
+  React.useEffect(() => {
+    if (!activeImportId || visibleColumns.length === 0) return;
+    if (initializedTransferColumnsForImportRef.current === activeImportId) return;
+    initializedTransferColumnsForImportRef.current = activeImportId;
+    setSelectedTransferColumns(new Set());
+  }, [activeImportId, visibleColumns]);
+
+  const toggleTransferColumn = React.useCallback((column: string) => {
+    setSelectedTransferColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(column)) next.delete(column);
+      else next.add(column);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden animate-fade-in">
@@ -454,17 +567,25 @@ export default function ProductImportsPage() {
                 Staged Product List
               </h2>
               <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-                {rowsData ? `${rowsData.records.length} of ${rowsData.count} row(s) shown from ${rowsData.import.filename} • ${matchedRowsCount} matched old product(s)` : 'یک import را انتخاب کن.'}
+                {rowsData ? `${rowsData.records.length} of ${rowsData.count} row(s) shown from ${rowsData.import.filename} • ${matchedRowsCount} matched old product(s) • ${selectedTransferColumns.size} column(s) selected for transfer` : 'یک import را انتخاب کن.'}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={!activeImportId}
-                onClick={() => void mutateRows()}
+                disabled={!activeImportId || isReprocessing}
+                onClick={() => void reprocessImportRows()}
                 className="rounded-full border border-black/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-black/60 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/10"
               >
-                Refresh
+                {isReprocessing ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                type="button"
+                disabled={!activeImportId || isApplying}
+                onClick={() => void applyImportToProducts()}
+                className="rounded-full bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
+              >
+                {isApplying ? 'Applying...' : 'Apply to Products'}
               </button>
               <button
                 type="button"
@@ -503,9 +624,20 @@ export default function ProductImportsPage() {
                     {visibleColumns.map(column => (
                       <th
                         key={column}
-                        className="max-w-[180px] whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40"
+                        className="max-w-[180px] whitespace-nowrap border-b border-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40"
                       >
-                        {column}
+                        <label className="flex cursor-pointer select-none flex-col gap-1">
+                          <span>{column}</span>
+                          <span className="inline-flex items-center gap-1 text-[9px] font-black normal-case tracking-normal text-black/45 dark:text-white/45">
+                            <input
+                              type="checkbox"
+                              checked={selectedTransferColumns.has(column)}
+                              onChange={() => toggleTransferColumn(column)}
+                              className="h-3 w-3 accent-emerald-600"
+                            />
+                            Transfer
+                          </span>
+                        </label>
                       </th>
                     ))}
                     <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
@@ -546,6 +678,8 @@ export default function ProductImportsPage() {
                             ? fieldMatchesExisting(row.fields[column], existingProduct.fields ?? {}, column)
                             : false;
                           const isPriceColumn = column.trim().toLowerCase() === 'price';
+                          const isImageLikeColumn = isImageColumn(column);
+                          const imageUrl = isImageLikeColumn ? resolveImportAssetUrl(row.fields[column]) : '';
                           const isEditingThisCell = editingCell?.rowId === row.id && editingCell.column === column;
                           const cellKey = `${row.id}:${column}`;
                           const isSavingThisCell = savingCellKey === cellKey;
@@ -554,7 +688,8 @@ export default function ProductImportsPage() {
                             <td
                               key={`${row.id}-${column}`}
                               className={
-                                'relative max-w-[220px] border-b p-0 align-top ' +
+                                'relative border-b p-0 align-top ' +
+                                (isImageLikeColumn ? 'w-[96px] min-w-[96px] max-w-[96px] ' : 'max-w-[220px] ') +
                                 (isMatchingCell
                                   ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200'
                                   : 'border-black/5 text-black/70 dark:border-white/5 dark:text-white/70') +
@@ -563,7 +698,7 @@ export default function ProductImportsPage() {
                               title={renderCell(row.fields[column], column)}
                             >
                               {isEditingThisCell ? (
-                                <div className="relative min-h-[38px] w-full">
+                                <div className={(isImageLikeColumn ? 'min-h-[76px] ' : 'min-h-[38px] ') + 'relative w-full'}>
                                   <span className="invisible block min-h-[38px] px-3 py-2 text-xs font-semibold">
                                     {renderCell(row.fields[column], column)}
                                   </span>
@@ -594,11 +729,32 @@ export default function ProductImportsPage() {
                                     startEditingCell(row, column);
                                   }}
                                   className={
-                                    'block min-h-[38px] w-full px-3 py-2 text-left text-xs transition hover:bg-emerald-500/10 disabled:cursor-wait disabled:opacity-60 ' +
+                                    'block w-full px-3 py-2 text-left text-xs transition hover:bg-emerald-500/10 disabled:cursor-wait disabled:opacity-60 ' +
+                                    (isImageLikeColumn ? 'min-h-[76px] ' : 'min-h-[38px] ') +
                                     (isPriceColumn ? 'font-bold' : 'font-medium')
                                   }
                                 >
-                                  <span className="line-clamp-3 whitespace-pre-line">{isSavingThisCell ? 'Saving...' : renderCell(row.fields[column], column)}</span>
+                                  {isSavingThisCell ? (
+                                    <span className="line-clamp-3 whitespace-pre-line">Saving...</span>
+                                  ) : isImageLikeColumn && imageUrl ? (
+                                    <span className="flex flex-col gap-1">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={imageUrl}
+                                        alt=""
+                                        loading="lazy"
+                                        className="h-14 w-16 rounded-md border border-black/10 object-cover dark:border-white/10"
+                                        onError={(event) => {
+                                          event.currentTarget.style.display = 'none';
+                                        }}
+                                      />
+                                      <span className="truncate text-[9px] font-bold text-black/35 dark:text-white/35">
+                                        Edit URL
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <span className="line-clamp-3 whitespace-pre-line">{renderCell(row.fields[column], column)}</span>
+                                  )}
                                 </button>
                               )}
                             </td>

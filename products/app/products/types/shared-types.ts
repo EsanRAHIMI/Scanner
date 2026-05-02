@@ -83,4 +83,6 @@ export interface ProductsCacheContextValue {
   error: string | null;
   setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
+  /** Call synchronously before optimistic delete so pending-delete survives stale refetches. */
+  notePendingDelete: (recordId: string) => void;
 }

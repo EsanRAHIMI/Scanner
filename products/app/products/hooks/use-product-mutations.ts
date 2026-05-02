@@ -7,6 +7,7 @@ import { formatScalar } from '../lib/product-utils';
 interface UseProductMutationsProps {
   setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
+  notePendingDelete: (recordId: string) => void;
   columns: string[];
 }
 
@@ -20,7 +21,7 @@ function getCollectionKey(fields: Record<string, unknown> | undefined): string {
   ).trim();
 }
 
-export function useProductMutations({ setData, mutate, columns }: UseProductMutationsProps) {
+export function useProductMutations({ setData, mutate, notePendingDelete, columns }: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
   const rollbackRecords = React.useCallback(
@@ -270,11 +271,117 @@ export function useProductMutations({ setData, mutate, columns }: UseProductMuta
     }
   }, [isSaving, setData, mutate, columns, rollbackRecords]);
 
+  const handleDeleteProduct = React.useCallback(async (
+    recordId: string,
+    records: ProductsRecord[]
+  ) => {
+    if (isSaving) return;
+    const targetRecord = records.find(r => r.id === recordId);
+    if (!targetRecord) return;
+
+    notePendingDelete(recordId);
+
+    let previousData: ProductsAssetsResponse | null = null;
+    setData(prev => {
+      if (!prev) return prev;
+      previousData = prev;
+      const next = {
+        ...prev,
+        records: prev.records.filter(r => r.id !== recordId),
+        count: Math.max(0, prev.count - 1),
+      };
+      queueMicrotask(() => void mutate(next));
+      return next;
+    });
+
+    setIsSaving(true);
+    try {
+      const res = await apiFetch(`/products/assets/${recordId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        throw new Error('Delete product API failed');
+      }
+      logFrontendEvent(
+        'PRODUCT_DELETE',
+        `Deleted product: ${formatScalar(targetRecord.fields?.['Colecction Name']) || formatScalar(targetRecord.fields?.Name) || recordId}`,
+        recordId
+      );
+    } catch (err) {
+      console.error('Delete product failed', err);
+      if (previousData) {
+        setData(previousData);
+        await mutate(previousData);
+      } else {
+        await mutate();
+      }
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, setData, mutate, notePendingDelete]);
+
+  const DELETE_CHUNK = 6;
+
+  const handleBulkDeleteProducts = React.useCallback(async (recordIds: string[]) => {
+    const ids = [...new Set(recordIds)].filter(Boolean);
+    if (isSaving || ids.length === 0) return;
+
+    const idSet = new Set(ids);
+    for (const id of ids) {
+      notePendingDelete(id);
+    }
+
+    let previousData: ProductsAssetsResponse | null = null;
+    setData(prev => {
+      if (!prev) return prev;
+      previousData = prev;
+      const next = {
+        ...prev,
+        records: prev.records.filter(r => !idSet.has(r.id)),
+        count: Math.max(0, prev.count - ids.length),
+      };
+      queueMicrotask(() => void mutate(next));
+      return next;
+    });
+
+    setIsSaving(true);
+    try {
+      for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+        const chunk = ids.slice(i, i + DELETE_CHUNK);
+        const results = await Promise.all(
+          chunk.map(id => apiFetch(`/products/assets/${id}`, { method: 'DELETE' }))
+        );
+        if (results.some(res => !res.ok)) {
+          throw new Error('Bulk delete API failed');
+        }
+      }
+      logFrontendEvent(
+        'PRODUCT_BULK_DELETE',
+        `Bulk deleted ${ids.length} product rows`,
+        ids[0] ?? ''
+      );
+    } catch (err) {
+      console.error('Bulk delete failed', err);
+      if (previousData) {
+        setData(previousData);
+        await mutate(previousData);
+      } else {
+        await mutate();
+      }
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, setData, mutate, notePendingDelete]);
+
   return {
     isSaving,
     handleUpdateVariant,
     handleToggleMain,
     handleSaveField,
-    handleAddMediaToVariant
+    handleAddMediaToVariant,
+    handleDeleteProduct,
+    handleBulkDeleteProducts,
   };
 }

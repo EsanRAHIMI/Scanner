@@ -24,9 +24,15 @@ export interface ListViewProps {
   search: string;
   setLinkHoverState: (state: { url: string; x: number; y: number; title: string; code: string; variant: string } | null) => void;
   canEdit: boolean | undefined;
+  canDelete?: boolean;
+  handleDeleteProduct?: (id: string) => void;
+  handleToggleMain?: (id: string) => void;
+  handleSaveField?: (id: string, field: string, value: unknown) => void;
   handleSaveUrl: () => void;
   editingUrl: EditingUrlState | null;
   isSaving: boolean;
+  /** Rendered inside the list scroll area (e.g. infinite-scroll sentinel). */
+  scrollFooter?: React.ReactNode;
 }
 
 export interface GalleryCardProps {

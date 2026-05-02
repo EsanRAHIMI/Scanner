@@ -20,6 +20,9 @@ interface ProductFiltersProps {
   setSelectedMaterials: (val: Set<string>) => void;
   activeFilterDropdown: string | null;
   setActiveFilterDropdown: (val: string | null) => void;
+  /** Admin: bulk-delete rows where only `Num` is filled. */
+  onPurgeNumOnlyStubs?: () => void;
+  purgeNumOnlyDisabled?: boolean;
 }
 
 export function ProductFilters({
@@ -39,6 +42,8 @@ export function ProductFilters({
   setSelectedMaterials,
   activeFilterDropdown,
   setActiveFilterDropdown,
+  onPurgeNumOnlyStubs,
+  purgeNumOnlyDisabled,
 }: ProductFiltersProps) {
   const hasActiveFilters = 
     selectedCategories.size > 0 || 
@@ -69,7 +74,22 @@ export function ProductFilters({
         ) : (
           <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
         )}
-        
+
+        {onPurgeNumOnlyStubs ? (
+          <>
+            <span className="mx-2 text-black/25 dark:text-white/20">|</span>
+            <button
+              type="button"
+              disabled={purgeNumOnlyDisabled}
+              onClick={onPurgeNumOnlyStubs}
+              title="Bulk-delete rows where only Num is filled"
+              className="rounded px-0.5 text-[11px] font-medium text-black/40 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-white/38 dark:hover:text-red-400"
+            >
+              Delete Num-only
+            </button>
+          </>
+        ) : null}
+
         <span className="mx-2 text-black/25 dark:text-white/20">|</span>
         <div className="inline-flex items-center gap-2">
           <div className="inline-flex items-center gap-2">

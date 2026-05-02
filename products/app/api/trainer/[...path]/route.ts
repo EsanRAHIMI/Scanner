@@ -43,10 +43,10 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
 
   const headers = new Headers();
   const reqContentType = req.headers.get('Content-Type');
-  const contentType = reqContentType ? reqContentType.trim() : 'application/json';
+  const reqAccept = req.headers.get('Accept');
   
-  headers.set('Content-Type', contentType);
-  headers.set('Accept', 'application/json');
+  if (reqContentType) headers.set('Content-Type', reqContentType.trim());
+  headers.set('Accept', reqAccept ?? '*/*');
   if (cookieHeader) headers.set('Cookie', cookieHeader);
   if (authHeader) headers.set('Authorization', authHeader);
 
@@ -57,12 +57,12 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
     ...(body ? { body } : {}),
   });
 
-  const resText = await res.text();
+  const resBody = await res.arrayBuffer();
 
   const resContentType = res.headers.get('Content-Type');
-  const finalContentType = resContentType ? resContentType.split(',')[0].trim() : 'application/json';
+  const finalContentType = resContentType ? resContentType.trim() : 'application/octet-stream';
 
-  const nextRes = new NextResponse(resText, {
+  const nextRes = new NextResponse(resBody, {
     status: res.status,
     headers: {
       'Content-Type': finalContentType,

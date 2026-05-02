@@ -1,5 +1,7 @@
 import * as React from 'react';
 
+import type { ProductsRecord } from '@/types/trainer';
+
 /**
  * Checks if a URL points to a video file.
  */
@@ -43,21 +45,22 @@ export function formatScalar(value: unknown): string {
  * Extracts URLs from various input formats (string, array, objects).
  */
 export function extractUrls(v: unknown): string[] {
+  const isSupportedUrl = (value: string) => /^(https?:\/\/|\/)/i.test(value);
   if (typeof v === 'string') {
     const parts = v.split(/[\s,\n]+/).map((s) => s.trim()).filter(Boolean);
-    return parts.filter((s) => /^https?:\/\//i.test(s));
+    return parts.filter(isSupportedUrl);
   }
   if (Array.isArray(v)) {
     const out: string[] = [];
     for (const item of v) {
       if (typeof item === 'string') {
         const s = item.trim();
-        if (/^https?:\/\//i.test(s)) out.push(s);
+        if (isSupportedUrl(s)) out.push(s);
       } else if (item && typeof item === 'object') {
         const maybe = (item as Record<string, unknown>).url;
         if (typeof maybe === 'string') {
           const s = maybe.trim();
-          if (/^https?:\/\//i.test(s)) out.push(s);
+          if (isSupportedUrl(s)) out.push(s);
         }
       }
     }
@@ -67,10 +70,63 @@ export function extractUrls(v: unknown): string[] {
     const maybe = (v as Record<string, unknown>).url;
     if (typeof maybe === 'string') {
       const s = maybe.trim();
-      return /^https?:\/\//i.test(s) ? [s] : [];
+      return isSupportedUrl(s) ? [s] : [];
     }
   }
   return [];
+}
+
+/** Whether a cell value is treated as empty for "Num-only stub" bulk cleanup. */
+export function isEmptyProductValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === 'boolean') return value !== true;
+  if (typeof value === 'number') return !Number.isFinite(value);
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return true;
+    for (const item of value) {
+      if (typeof item === 'string' && item.trim()) return false;
+      if (typeof item === 'number' && Number.isFinite(item)) return false;
+      if (typeof item === 'boolean' && item) return false;
+      if (item && typeof item === 'object') {
+        if (extractUrls(item).length > 0) return false;
+        const o = item as Record<string, unknown>;
+        if (typeof o.filename === 'string' && o.filename.trim()) return false;
+        if (typeof o.url === 'string' && o.url.trim()) return false;
+      }
+    }
+    return true;
+  }
+  if (typeof value === 'object') {
+    if (extractUrls(value).length > 0) return false;
+    return Object.keys(value as object).length === 0;
+  }
+  return false;
+}
+
+/**
+ * Row has a filled Num field and every other field is empty (stubs / placeholders).
+ */
+export function isNumOnlyStubRow(
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): boolean {
+  if (!fields) return false;
+  const numKey =
+    columns.find(c => c.trim().toLowerCase() === 'num') ??
+    Object.keys(fields).find(k => k.trim().toLowerCase() === 'num') ??
+    null;
+  if (!numKey || !(numKey in fields)) return false;
+  if (isEmptyProductValue(fields[numKey])) return false;
+  for (const [k, v] of Object.entries(fields)) {
+    if (k === numKey) continue;
+    if (!isEmptyProductValue(v)) return false;
+  }
+  return true;
+}
+
+export function collectNumOnlyStubIds(records: ProductsRecord[], columns: string[]): string[] {
+  return records.filter(r => isNumOnlyStubRow(r.fields, columns)).map(r => r.id);
 }
 
 /**

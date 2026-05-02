@@ -24,6 +24,21 @@ async function fetcher(url: string): Promise<ProductsAssetsResponse> {
 /** Delay (ms) before background revalidation after an optimistic update. */
 const REVALIDATION_DELAY_MS = 2500;
 
+const PENDING_DELETES_STORAGE_KEY = 'products_pending_delete_ids_v1';
+
+function persistPendingDeleteIds(ids: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (ids.size === 0) {
+      window.sessionStorage.removeItem(PENDING_DELETES_STORAGE_KEY);
+    } else {
+      window.sessionStorage.setItem(PENDING_DELETES_STORAGE_KEY, JSON.stringify([...ids]));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 type PendingFieldValues = Record<string, Record<string, unknown>>;
 
 function valuesEqual(a: unknown, b: unknown) {
@@ -37,6 +52,56 @@ function valuesEqual(a: unknown, b: unknown) {
 
 function hasPendingFieldValues(pending: PendingFieldValues) {
   return Object.values(pending).some(fields => Object.keys(fields).length > 0);
+}
+
+function collectPendingDeletions(
+  pendingDeleted: Set<string>,
+  pendingFields: PendingFieldValues,
+  previousData: ProductsAssetsResponse | null,
+  nextData: ProductsAssetsResponse
+) {
+  const nextIds = new Set(nextData.records.map(r => r.id));
+  for (const r of previousData?.records ?? []) {
+    if (!nextIds.has(r.id)) {
+      pendingDeleted.add(r.id);
+      delete pendingFields[r.id];
+    }
+  }
+  // Rollback (e.g. failed DELETE): record is present again in the next optimistic snapshot.
+  for (const id of [...pendingDeleted]) {
+    if (nextIds.has(id)) {
+      pendingDeleted.delete(id);
+    }
+  }
+}
+
+function reconcilePendingDeletions(pendingDeleted: Set<string>, freshData: ProductsAssetsResponse) {
+  for (const id of [...pendingDeleted]) {
+    const stillThere = freshData.records.some(r => r.id === id);
+    if (!stillThere) {
+      pendingDeleted.delete(id);
+    }
+  }
+}
+
+function applyPendingDeletes(
+  data: ProductsAssetsResponse,
+  pendingDeleted: Set<string>
+): ProductsAssetsResponse {
+  if (pendingDeleted.size === 0) return data;
+  const records = data.records.filter(r => !pendingDeleted.has(r.id));
+  return {
+    ...data,
+    records,
+    count: records.length,
+  };
+}
+
+function hasAnyPending(
+  pendingFields: PendingFieldValues,
+  pendingDeleted: Set<string>
+) {
+  return hasPendingFieldValues(pendingFields) || pendingDeleted.size > 0;
 }
 
 function collectPendingFieldValues(
@@ -124,6 +189,25 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     }
   }, []);
 
+  React.useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(PENDING_DELETES_STORAGE_KEY);
+      if (!raw) return;
+      const ids = JSON.parse(raw) as unknown;
+      if (!Array.isArray(ids)) return;
+      let added = false;
+      for (const id of ids) {
+        if (typeof id === 'string' && id.length > 0) {
+          pendingDeletedIdsRef.current.add(id);
+          added = true;
+        }
+      }
+      if (added) setPendingDeletedRenderTick(t => t + 1);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const {
     data: swrData,
     error: swrError,
@@ -155,8 +239,16 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
   const revalidationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFieldValuesRef = React.useRef<PendingFieldValues>({});
+  const pendingDeletedIdsRef = React.useRef<Set<string>>(new Set());
+  const [pendingDeletedRenderTick, setPendingDeletedRenderTick] = React.useState(0);
 
-  const data = localOverride ?? swrData ?? null;
+  const rawData = localOverride ?? swrData ?? null;
+  const data = React.useMemo(() => {
+    if (!rawData) return null;
+    if (pendingDeletedIdsRef.current.size === 0) return rawData;
+    return applyPendingDeletes(rawData, pendingDeletedIdsRef.current);
+  }, [rawData, pendingDeletedRenderTick]);
+
   const dataRef = React.useRef<ProductsAssetsResponse | null>(data);
 
   React.useEffect(() => {
@@ -175,11 +267,24 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const runRevalidation = React.useCallback(async () => {
     const freshData = await fetcher(cacheKey);
     reconcilePendingFieldValues(pendingFieldValuesRef.current, freshData);
+    const deletedSizeBefore = pendingDeletedIdsRef.current.size;
+    reconcilePendingDeletions(pendingDeletedIdsRef.current, freshData);
+    if (pendingDeletedIdsRef.current.size !== deletedSizeBefore) {
+      persistPendingDeleteIds(pendingDeletedIdsRef.current);
+      setPendingDeletedRenderTick(t => t + 1);
+    }
 
-    const hasPending = hasPendingFieldValues(pendingFieldValuesRef.current);
-    const nextData = hasPending
-      ? applyPendingFieldValues(freshData, pendingFieldValuesRef.current)
-      : freshData;
+    const hasPending = hasAnyPending(
+      pendingFieldValuesRef.current,
+      pendingDeletedIdsRef.current
+    );
+    let nextData = freshData;
+    if (hasPendingFieldValues(pendingFieldValuesRef.current)) {
+      nextData = applyPendingFieldValues(nextData, pendingFieldValuesRef.current);
+    }
+    if (pendingDeletedIdsRef.current.size > 0) {
+      nextData = applyPendingDeletes(nextData, pendingDeletedIdsRef.current);
+    }
 
     await swrMutate(nextData, {
       revalidate: false,
@@ -210,11 +315,20 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const loading = isLoading;
   const error = swrError ? (swrError instanceof Error ? swrError.message : 'Failed to load Products') : null;
 
+  const notePendingDelete = React.useCallback((recordId: string) => {
+    if (pendingDeletedIdsRef.current.has(recordId)) return;
+    pendingDeletedIdsRef.current.add(recordId);
+    delete pendingFieldValuesRef.current[recordId];
+    persistPendingDeleteIds(pendingDeletedIdsRef.current);
+    setPendingDeletedRenderTick(t => t + 1);
+  }, []);
+
   const value = React.useMemo<ProductsCacheContextValue>(
     () => ({ 
       data, 
       loading, 
       error, 
+      notePendingDelete,
       setData: (updater) => {
         setLocalOverride(prev => {
           const base = prev ?? swrData ?? null;
@@ -225,6 +339,17 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       mutate: async (optimisticData?: ProductsAssetsResponse) => {
         if (optimisticData) {
           collectPendingFieldValues(pendingFieldValuesRef.current, dataRef.current, optimisticData);
+          const deletedBeforeCollect = pendingDeletedIdsRef.current.size;
+          collectPendingDeletions(
+            pendingDeletedIdsRef.current,
+            pendingFieldValuesRef.current,
+            dataRef.current,
+            optimisticData
+          );
+          if (pendingDeletedIdsRef.current.size !== deletedBeforeCollect) {
+            persistPendingDeleteIds(pendingDeletedIdsRef.current);
+            setPendingDeletedRenderTick(t => t + 1);
+          }
           dataRef.current = optimisticData;
 
           // Keep a stable local source of truth during rapid edits to avoid
@@ -242,6 +367,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
           scheduleRevalidation();
         } else {
           pendingFieldValuesRef.current = {};
+          pendingDeletedIdsRef.current.clear();
+          persistPendingDeleteIds(pendingDeletedIdsRef.current);
+          setPendingDeletedRenderTick(t => t + 1);
           if (revalidationTimerRef.current) {
             clearTimeout(revalidationTimerRef.current);
             revalidationTimerRef.current = null;
@@ -252,7 +380,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         }
       }
     }),
-    [data, error, loading, scheduleRevalidation, swrMutate, swrData]
+    [data, error, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData]
   );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;

@@ -38,9 +38,14 @@ export function ListView({
   search,
   setLinkHoverState,
   canEdit,
+  canDelete,
+  handleDeleteProduct,
+  handleToggleMain,
+  handleSaveField,
   handleSaveUrl,
   editingUrl,
   isSaving,
+  scrollFooter,
 }: ListViewProps) {
   const recordById = React.useMemo(() => {
     const map = new Map<string, ProductsRecord>();
@@ -56,6 +61,87 @@ export function ListView({
       ''
     ).trim();
   }, []);
+
+  const getUrlFieldValue = React.useCallback((fields: Record<string, unknown> | undefined) => {
+    const urlEntry = Object.entries(fields || {}).find(([k]) => {
+      const kl = k.trim().toLowerCase();
+      return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+    });
+    return urlEntry?.[1];
+  }, []);
+
+  const mergeUrlValues = React.useCallback((...values: unknown[]) => {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    for (const value of values) {
+      for (const url of extractUrls(value)) {
+        const key = url.trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        urls.push(key);
+      }
+    }
+    return urls.join('\n');
+  }, []);
+
+  const getUrlSourceBadge = React.useCallback((url: string) => {
+    const lower = url.trim().toLowerCase();
+    if (lower.includes('drive.google.com') || lower.includes('googleusercontent.com')) {
+      return {
+        kind: 'google',
+        title: 'Google Drive image',
+      };
+    }
+    if (lower.includes('trainer.ehsanrahimi.com/api/static/product_images/')) {
+      return {
+        kind: 'trainer',
+        title: 'Trainer static image',
+      };
+    }
+    if (
+      lower.startsWith('/api/trainer/files/') ||
+      lower.startsWith('/files/') ||
+      lower.includes('/api/trainer/files/') ||
+      lower.includes('/files/')
+    ) {
+      return {
+        kind: 'local',
+        title: 'Hosted product image',
+      };
+    }
+    return null;
+  }, []);
+
+  const getColumnLabel = React.useCallback((column: string) => {
+    const normalized = column.trim().toLowerCase();
+    if (normalized === 'colecction name' || normalized === 'collection name') return 'Name';
+    if (normalized === 'code number') return 'Code Number';
+    if (normalized === 'dimension (mm)' || normalized === 'dimension') return 'Dimension (mm)';
+    return column;
+  }, []);
+
+  const isInlineEditableColumn = React.useCallback((column: string) => {
+    const normalized = getColumnLabel(column).trim().toLowerCase();
+    return [
+      'code number',
+      'name',
+      'price',
+      'colecction code',
+      'variant number',
+      'dimension (mm)',
+      'note',
+      'factory code',
+      'details',
+      'h',
+      'l',
+      'w',
+    ].includes(normalized);
+  }, [getColumnLabel]);
+
+  const startInlineEdit = React.useCallback((recordId: string, column: string, value: unknown) => {
+    const displayValue = formatScalar(value);
+    setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column });
+  }, [setEditingUrl]);
 
   const rowGroupMeta = React.useMemo(() => {
     const keys = visibleRecords.map(getCollectionKey);
@@ -88,7 +174,7 @@ export function ListView({
             : allUrls;
 
         if (urls.length === 0) {
-          if ((isDAM || isVideoCol) && canEdit) {
+          if ((col === 'image' || isDAM || isVideoCol) && canEdit) {
             if (editingUrl?.id === recordId && editingUrl.column === column) {
               return (
                 <div className="absolute inset-0 z-10 bg-white dark:bg-black p-1">
@@ -296,6 +382,7 @@ export function ListView({
                   )}
                   {urls.map((u, i) => {
                     const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
+                    const sourceBadge = getUrlSourceBadge(u);
                     if (isBeingEdited) {
                       return (
                         <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
@@ -384,6 +471,25 @@ export function ListView({
                               <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
                                 <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
+                            ) : sourceBadge?.kind === 'google' ? (
+                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" aria-label={sourceBadge.title}>
+                                <path d="M8.15 3.5h7.7l6.15 10.66h-7.68L8.15 3.5z" fill="#34A853" />
+                                <path d="M2 14.16 8.15 3.5l3.84 6.66-6.14 10.65L2 14.16z" fill="#FBBC04" />
+                                <path d="M5.85 20.81 9.68 14.16H22l-3.84 6.65H5.85z" fill="#4285F4" />
+                              </svg>
+                            ) : sourceBadge?.kind === 'local' ? (
+                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none text-emerald-600 dark:text-emerald-300" fill="none" stroke="currentColor" strokeWidth="2.4" aria-label={sourceBadge.title}>
+                                <path d="M5 4h14l2 6v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8l2-6z" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M3 10h18" strokeLinecap="round" />
+                                <circle cx="17" cy="16" r="1.2" fill="currentColor" stroke="none" />
+                              </svg>
+                            ) : sourceBadge?.kind === 'trainer' ? (
+                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none text-amber-600 dark:text-amber-300" fill="none" stroke="currentColor" strokeWidth="2.3" aria-label={sourceBadge.title}>
+                                <rect x="4" y="4" width="16" height="5" rx="1.5" />
+                                <rect x="4" y="10" width="16" height="5" rx="1.5" />
+                                <rect x="4" y="16" width="16" height="4" rx="1.5" />
+                                <path d="M7 6.5h.01M7 12.5h.01M7 18h.01" strokeLinecap="round" />
+                              </svg>
                             ) : (
                               <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
                                 <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
@@ -415,6 +521,92 @@ export function ListView({
               )}
             </div>
           </>
+        );
+      }
+
+      if (col === 'main') {
+        const checked = value === true || String(value).trim().toLowerCase() === 'true';
+        return (
+          <div className="flex min-h-[36px] items-center justify-center">
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={!canEdit || isSaving}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => {
+                event.stopPropagation();
+                if (!checked) handleToggleMain?.(recordId);
+              }}
+              className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+              title={checked ? 'Main variant' : 'Set as main variant'}
+            />
+          </div>
+        );
+      }
+
+      if (canEdit && isInlineEditableColumn(column)) {
+        const displayValue = formatScalar(value);
+        const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
+        const formattedPrice = col === 'price' ? formatPrice(value) : null;
+        if (isActiveEdit) {
+          return (
+            <input
+              className="absolute inset-0 h-full w-full bg-white px-3 py-2 text-xs font-semibold text-black outline outline-2 -outline-offset-2 outline-emerald-500 dark:bg-zinc-950 dark:text-white"
+              value={editingUrl.value}
+              autoFocus
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => setEditingUrl({ ...editingUrl, value: event.target.value })}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => {
+                handleSaveField?.(recordId, column, editingUrl.value);
+                setEditingUrl(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleSaveField?.(recordId, column, editingUrl.value);
+                  setEditingUrl(null);
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setEditingUrl(null);
+                }
+              }}
+            />
+          );
+        }
+
+        return (
+          <button
+            type="button"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              startInlineEdit(recordId, column, value);
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              startInlineEdit(recordId, column, value);
+            }}
+            className="block min-h-[34px] w-full text-left hover:text-emerald-700 dark:hover:text-emerald-300"
+            title="Edit"
+          >
+            {formattedPrice ? (
+              <span className="inline-flex items-center gap-1.5 font-bold text-black dark:text-white">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/fonts/Dirham%20Currency%20Symbol%20-%20Black.svg"
+                  alt="AED"
+                  className="h-3 w-auto opacity-70 dark:invert"
+                />
+                <span>{formattedPrice}</span>
+              </span>
+            ) : displayValue ? (
+              highlightMatches(displayValue, search)
+            ) : (
+              <span className="text-black/25 dark:text-white/25">-</span>
+            )}
+          </button>
         );
       }
 
@@ -554,7 +746,7 @@ export function ListView({
 
       return String(value ?? '');
     },
-    [recordById, search, familyMode, variantCounts, setEditingUrl, handleSaveUrl, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState]
+    [recordById, search, familyMode, variantCounts, setEditingUrl, handleSaveUrl, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
   );
 
   return (
@@ -582,7 +774,7 @@ export function ListView({
                     className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
                     title="Sort"
                   >
-                    <span>{c}</span>
+                    <span>{getColumnLabel(c)}</span>
                     {sortKey === c ? (
                       <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
                     ) : null}
@@ -590,6 +782,11 @@ export function ListView({
                 </th>
               );
             })}
+            {canDelete ? (
+              <th className="sticky top-0 z-20 w-[92px] min-w-[92px] bg-white/95 px-3 py-3 text-left shadow-sm backdrop-blur-md dark:bg-black/85">
+                Actions
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -626,14 +823,15 @@ export function ListView({
                     const isVideoCol = normalizedCol === 'video';
                     const isURL = normalizedCol === 'url';
                     const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
-                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name';
+                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name' || normalizedCol === 'name' || normalizedCol === 'code number';
                     let cellValue = r.fields?.[c];
-                    if (isDAM || isVideoCol) {
-                      const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
-                        const kl = k.trim().toLowerCase();
-                        return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
-                      });
-                      cellValue = urlEntry?.[1];
+                    const urlFieldValue = getUrlFieldValue(r.fields);
+                    if (normalizedCol === 'image') {
+                      cellValue = mergeUrlValues(r.fields?.[c], urlFieldValue, r.fields?.DAM);
+                    } else if (isURL) {
+                      cellValue = mergeUrlValues(urlFieldValue, r.fields?.Image, r.fields?.DAM);
+                    } else if (isDAM || isVideoCol) {
+                      cellValue = urlFieldValue;
                     }
                     
                     const isFirstCol = idx === 0;
@@ -666,7 +864,7 @@ export function ListView({
                                   : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80'))))
                         }
                         onDragOver={(e) => {
-                          if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
+                          if (draggedUrlInfo && (isURL || isDAM || isVideoCol || normalizedCol === 'image')) {
                             e.preventDefault();
                             const target = e.currentTarget;
                             if (activeDropTargetRef.current !== target) {
@@ -684,7 +882,7 @@ export function ListView({
                           }
                         }}
                         onDrop={(e) => {
-                          if (draggedUrlInfo && (isURL || isDAM || isVideoCol)) {
+                          if (draggedUrlInfo && (isURL || isDAM || isVideoCol || normalizedCol === 'image')) {
                             e.preventDefault();
                             e.currentTarget.classList.remove('dnd-active');
                             activeDropTargetRef.current = null;
@@ -707,13 +905,36 @@ export function ListView({
                       </td>
                     );
                   })}
+                  {canDelete ? (
+                    <td className={
+                      'w-[92px] min-w-[92px] border-l border-black/5 px-2 py-2 dark:border-white/5 ' +
+                      (selectedIds.has(r.id)
+                        ? 'bg-emerald-50 dark:bg-emerald-900/30'
+                        : isInGroup
+                          ? 'bg-emerald-50/40 dark:bg-emerald-900/10'
+                          : 'bg-white dark:bg-black/10')
+                    }>
+                      <button
+                        type="button"
+                        disabled={isSaving}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteProduct?.(r.id);
+                        }}
+                        className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-600 transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-300"
+                        title="Delete product row"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })
           )}
           {visibleRecords.length === 0 && !loading ? (
             <tr>
-              <td className="px-4 py-32 text-center" colSpan={displayedColumns.length}>
+              <td className="px-4 py-32 text-center" colSpan={displayedColumns.length + (canDelete ? 1 : 0)}>
                 <div className="flex flex-col items-center justify-center animate-fade-in">
                    <div className="h-16 w-16 items-center justify-center rounded-full bg-black/5 dark:bg-white/5 flex mb-4 text-black/20 dark:text-white/20">
                       <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
@@ -726,6 +947,7 @@ export function ListView({
           ) : null}
         </tbody>
       </table>
+      {scrollFooter}
     </div>
   );
 }

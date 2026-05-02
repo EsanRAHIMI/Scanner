@@ -49,41 +49,56 @@ export function useProductFilters({
 
   // Derived: Displayed Columns
   const displayedColumns = React.useMemo(() => {
-    const isAdmin = user?.is_admin === true || user?.role === 'admin';
+    const pickColumn = (candidates: string[]) => {
+      const normalized = new Map(columns.map(column => [column.trim().toLowerCase(), column]));
+      for (const candidate of candidates) {
+        const found = normalized.get(candidate.trim().toLowerCase());
+        if (found) return found;
+      }
+      return null;
+    };
+
     const ordered = [
-      'Image', 'DAM', 'Video', 'Price', 'URL', 'Colecction Name', 'Colecction Code', 
-      'Variant Number', 'Category', 'Space', 'Color', 'Material', 'DIMENSION (mm)', 
-      'Note', 'CODE NUMBER', 'L000', 'Num'
-    ] as const;
+      pickColumn(['Image']) ?? 'Image',
+      pickColumn(['Code Number', 'CODE NUMBER']),
+      pickColumn(['Name', 'Colecction Name', 'Collection Name']),
+      pickColumn(['Price']),
+      pickColumn(['Colecction Code', 'Collection Code', 'Code']),
+      pickColumn(['Variant Number', 'Variant']),
+      pickColumn(['Dimension (mm)', 'DIMENSION (mm)', 'DIMENSION', 'Dimension']),
+      pickColumn(['Note']),
+      pickColumn(['Category']),
+      pickColumn(['Material']),
+      pickColumn(['Color']),
+      pickColumn(['Space']),
+      pickColumn(['Factory Code']),
+      pickColumn(['Details']),
+      pickColumn(['h', 'H']),
+      pickColumn(['l', 'L']),
+      pickColumn(['w', 'W']),
+      'Video',
+      'URL',
+      'Main',
+      pickColumn(['Num']),
+    ].filter(Boolean) as string[];
 
     if (columns.length === 0 && loading) {
-      return ['Image', 'DAM', 'Video', 'Price', 'Colecction Name', 'Variant Number', 'Category'];
+      return ['Image', 'CODE NUMBER', 'Colecction Name', 'Price', 'Video', 'URL', 'Main', 'Num'];
     }
 
-    const orderedSet = new Set<string>(ordered as readonly string[]);
     const out: string[] = [];
 
     for (const key of ordered) {
-      if (key === 'URL') continue;
-      if (columns.includes(key) || key === 'DAM' || key === 'Video') {
+      if (!out.includes(key) && (columns.includes(key) || key === 'Image' || key === 'Video' || key === 'URL' || key === 'Main')) {
         out.push(key);
-        if (key === 'DAM' && isAdmin && columns.includes('URL')) {
-          out.push('URL');
-        }
       }
     }
 
+    const orderedSet = new Set(out);
     const extras = columns
-      .filter((c) => !orderedSet.has(c) && c !== 'URL' && c !== 'Main' && c !== 'Content Calendar')
+      .filter((c) => !orderedSet.has(c) && c !== 'DAM' && c !== 'URL' && c !== 'Main' && c !== 'Content Calendar' && c !== 'Video' && c !== 'L000')
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
-
-    if (columns.includes('URL') && !isAdmin) {
-      if (!out.includes('Main')) out.push('Main');
-      out.push('URL');
-    } else {
-      if (!out.includes('Main')) out.push('Main');
-    }
 
     return out;
   }, [columns, loading, user]);

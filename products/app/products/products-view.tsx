@@ -19,7 +19,8 @@ import {
   isVideoUrl, 
   formatScalar, 
   extractUrls, 
-  getDriveDirectLink, 
+  getDriveDirectLink,
+  collectNumOnlyStubIds,
 } from './lib/product-utils';
 
 import { 
@@ -71,16 +72,17 @@ export function ProductsView({
   titleNode?: React.ReactNode;
   mobileTitleNode?: React.ReactNode;
 }) {
-  const LIST_INITIAL_RENDER_COUNT = 120;
-  const GALLERY_INITIAL_RENDER_COUNT = 180;
-  const LOAD_MORE_STEP = 120;
+  /** Smaller batches + infinite scroll reduce main-thread spikes when many rows exist. */
+  const LIST_INITIAL_RENDER_COUNT = 72;
+  const GALLERY_INITIAL_RENDER_COUNT = 120;
+  const LOAD_MORE_STEP = 96;
 
   const [showActivityLogs, setShowActivityLogs] = React.useState(false);
   React.useEffect(() => {
     (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
   }, []);
 
-  const { data, loading, error, setData, mutate } = useProductsCache();
+  const { data, loading, error, setData, mutate, notePendingDelete } = useProductsCache();
   const { data: fieldOptionsData } = useSWR('/public/products/field-options', productFieldOptionsFetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
@@ -119,7 +121,7 @@ export function ProductsView({
     setShowCommandPalette
   });
 
-  const mutations = useProductMutations({ setData, mutate, columns });
+  const mutations = useProductMutations({ setData, mutate, notePendingDelete, columns });
   const dnd = useProductDragDrop({ 
     handleSaveField: mutations.handleSaveField, 
     records, 
@@ -224,6 +226,17 @@ export function ProductsView({
   const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
   const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
   const handleUpdateVariant = (id: string, fields: any) => mutations.handleUpdateVariant(id, fields, records);
+  const handleDeleteProduct = (id: string) => {
+    const record = records.find(r => r.id === id);
+    const titleText =
+      formatScalar(record?.fields?.['Colecction Name']) ||
+      formatScalar(record?.fields?.Name) ||
+      formatScalar(record?.fields?.['Collection Name']) ||
+      id;
+    const ok = window.confirm(`Delete this product row?\n\n${titleText}`);
+    if (!ok) return;
+    void mutations.handleDeleteProduct(id, records);
+  };
 
   const fetchUserSession = React.useCallback(async () => {
     try {
@@ -286,6 +299,24 @@ export function ProductsView({
   }, [data, loading, records, setData]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
+  const canDelete = user?.is_admin || user?.role === 'admin';
+
+  const handleBulkDeleteNumOnlyStubs = React.useCallback(() => {
+    if (!canDelete || mutations.isSaving) return;
+    const ids = collectNumOnlyStubIds(records, columns);
+    if (ids.length === 0) {
+      window.alert('هیچ ردیفی با فقط فیلد «Num» (بقیه خالی) در لیست بارگذاری‌شده پیدا نشد.');
+      return;
+    }
+    const ok = window.confirm(
+      `${ids.length} ردیف که تنها فیلد Num آن‌ها پر است از سرور حذف شود؟\n\n` +
+        '(ردیف‌هایی که هر فیلد دیگری—even یک کاراکتر یا تصویر—دارند حذف نمی‌شوند.)'
+    );
+    if (!ok) return;
+    void mutations.handleBulkDeleteProducts(ids).catch(() => {
+      window.alert('حذف دسته‌ای با خطا مواجه شد؛ لیست در صورت نیاز با رفرش همگام می‌شود.');
+    });
+  }, [canDelete, columns, mutations, records]);
 
   const handleSaveUrl = async () => {
     if (!editingUrl || isSaving) return;
@@ -328,6 +359,9 @@ export function ProductsView({
   const variantCounts = filters.variantCounts;
 
   const [renderLimit, setRenderLimit] = React.useState<number>(GALLERY_INITIAL_RENDER_COUNT);
+  const [isLoadMorePending, startLoadMoreTransition] = React.useTransition();
+  const loadMoreSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const loadMoreThrottleRef = React.useRef(0);
 
   React.useEffect(() => {
     setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
@@ -350,8 +384,31 @@ export function ProductsView({
   const remainingRecordsCount = Math.max(0, visibleRecords.length - renderedRecords.length);
 
   const loadMoreRecords = React.useCallback(() => {
-    setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, visibleRecords.length));
-  }, [visibleRecords.length]);
+    startLoadMoreTransition(() => {
+      setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, visibleRecords.length));
+    });
+  }, [visibleRecords.length, startLoadMoreTransition]);
+
+  React.useEffect(() => {
+    if (loading || remainingRecordsCount <= 0) return;
+    const target = loadMoreSentinelRef.current;
+    if (!target) return;
+
+    const obs = new IntersectionObserver(
+      entries => {
+        const e = entries[0];
+        if (!e?.isIntersecting) return;
+        const now = Date.now();
+        if (now - loadMoreThrottleRef.current < 160) return;
+        loadMoreThrottleRef.current = now;
+        loadMoreRecords();
+      },
+      { root: null, rootMargin: '320px 0px', threshold: 0 }
+    );
+
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [loading, remainingRecordsCount, loadMoreRecords, renderLimit, viewMode, visibleRecords.length]);
 
 
 
@@ -761,6 +818,8 @@ export function ProductsView({
         setSelectedMaterials={setSelectedMaterials}
         activeFilterDropdown={activeFilterDropdown}
         setActiveFilterDropdown={setActiveFilterDropdown}
+        onPurgeNumOnlyStubs={canDelete ? handleBulkDeleteNumOnlyStubs : undefined}
+        purgeNumOnlyDisabled={mutations.isSaving || loading}
       />
 
       {error ? (
@@ -793,21 +852,37 @@ export function ProductsView({
             search={search}
             setLinkHoverState={setLinkHoverState}
             canEdit={canEdit}
+            canDelete={canDelete}
+            handleDeleteProduct={handleDeleteProduct}
+            handleToggleMain={handleToggleMain}
+            handleSaveField={handleSaveField}
             handleSaveUrl={handleSaveUrl}
             editingUrl={editingUrl}
             isSaving={isSaving}
+            scrollFooter={
+              !loading && remainingRecordsCount > 0 ? (
+                <div className="border-t border-black/5 bg-zinc-50/80 px-4 py-3 dark:border-white/10 dark:bg-zinc-950/40">
+                  <div
+                    ref={loadMoreSentinelRef}
+                    className="mx-auto h-2 w-full max-w-md shrink-0"
+                    aria-hidden
+                  />
+                  <p className="mt-1.5 text-center text-[10px] leading-snug text-black/45 dark:text-white/40">
+                    {isLoadMorePending ? (
+                      <span className="inline-flex items-center justify-center gap-2">
+                        <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                        Loading more rows…
+                      </span>
+                    ) : (
+                      <>
+                        Scroll for more · {remainingRecordsCount.toLocaleString()} not shown
+                      </>
+                    )}
+                  </p>
+                </div>
+              ) : null
+            }
           />
-          {!loading && remainingRecordsCount > 0 && (
-            <div className="flex items-center justify-center">
-              <button
-                type="button"
-                onClick={loadMoreRecords}
-                className="rounded-full border border-black/10 bg-white px-5 py-2 text-xs font-semibold text-black/70 shadow-sm transition hover:bg-black/5 dark:border-white/15 dark:bg-black/30 dark:text-white/80 dark:hover:bg-white/10"
-              >
-                Load more ({remainingRecordsCount})
-              </button>
-            </div>
-          )}
         </>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
@@ -846,17 +921,27 @@ export function ProductsView({
             </div>
           )}
 
-          {!loading && remainingRecordsCount > 0 && (
-            <div className="mt-4 flex items-center justify-center">
-              <button
-                type="button"
-                onClick={loadMoreRecords}
-                className="rounded-full border border-black/10 bg-white px-5 py-2 text-xs font-semibold text-black/70 shadow-sm transition hover:bg-black/5 dark:border-white/15 dark:bg-black/30 dark:text-white/80 dark:hover:bg-white/10"
-              >
-                Load more ({remainingRecordsCount})
-              </button>
+          {!loading && remainingRecordsCount > 0 ? (
+            <div className="mt-4 border-t border-black/5 pt-4 dark:border-white/10">
+              <div
+                ref={loadMoreSentinelRef}
+                className="mx-auto h-2 w-full max-w-md shrink-0"
+                aria-hidden
+              />
+              <p className="mt-2 text-center text-[10px] leading-snug text-black/45 dark:text-white/40">
+                {isLoadMorePending ? (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+                    Loading more…
+                  </span>
+                ) : (
+                  <>
+                    Scroll for more · {remainingRecordsCount.toLocaleString()} not shown
+                  </>
+                )}
+              </p>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

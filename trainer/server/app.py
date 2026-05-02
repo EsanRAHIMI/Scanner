@@ -32,6 +32,7 @@ import jwt
 from email_validator import EmailNotValidError, validate_email
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
+from pymongo import InsertOne, UpdateOne
 
 CLASSES_COLLECTION = "trainer_classes"
 QUEUE_COLLECTION = "trainer_queue"
@@ -41,6 +42,8 @@ PRODUCT_IMPORT_BATCHES_COLLECTION = "product_import_batches"
 PRODUCT_IMPORT_ROWS_COLLECTION = "product_import_rows"
 PRODUCT_SELECTABLE_FIELDS = ("Category", "Space", "Color", "Material")
 PRODUCT_IMPORT_CANONICAL_COLUMNS = [
+  "Row",
+  "Image1",
   "Image",
   "DAM",
   "Video",
@@ -56,6 +59,7 @@ PRODUCT_IMPORT_CANONICAL_COLUMNS = [
   "Material",
   "DIMENSION (mm)",
   "Note",
+  "Details",
   "CODE NUMBER",
   "L000",
   "Num",
@@ -110,6 +114,8 @@ PRODUCT_IMPORT_HEADER_ALIASES: dict[str, str] = {
   "note": "Note",
   "notes": "Note",
   "description": "Note",
+  "detail": "Details",
+  "details": "Details",
   "code number": "CODE NUMBER",
   "code no": "CODE NUMBER",
   "l000": "L000",
@@ -439,6 +445,84 @@ def _split_variant_from_collection_name(fields: dict[str, Any]) -> None:
     fields["Variant Number"] = clean_variant
 
 
+def _cleanup_redundant_text(value: str) -> str:
+  value = value.replace("\u00a0", " ")
+  value = re.sub(r"[ \t]{2,}", " ", value)
+  value = re.sub(r"\n{3,}", "\n\n", value)
+  value = re.sub(r"\s*([,;|/])\s*([,;|/])+", r"\1", value)
+  value = re.sub(r"^[\s,;|/\\._:-]+|[\s,;|/\\._:-]+$", "", value)
+  return value.strip()
+
+
+def _flexible_fragment_pattern(fragment: str) -> str:
+  parts: list[str] = []
+  for char in fragment.strip():
+    if char.isspace() or char == "\u00a0":
+      parts.append(r"\s+")
+    elif char in {"*", "×", "x", "X"}:
+      parts.append(r"\s*[*×xX]\s*")
+    elif char in {"-", "_", "/", "\\", "|", ":", "."}:
+      parts.append(r"\s*[-_/\\|:.]\s*")
+    else:
+      parts.append(re.escape(char))
+  return "".join(parts)
+
+
+def _remove_redundant_fragment(text: str, fragment: str) -> str:
+  fragment = fragment.strip()
+  if len(fragment) < 3:
+    return text
+  next_text = re.sub(_flexible_fragment_pattern(fragment), "", text, flags=re.IGNORECASE)
+  return _cleanup_redundant_text(next_text)
+
+
+def _remove_duplicate_details_content(fields: dict[str, Any]) -> None:
+  details = _import_value_to_text(fields.get("Details"))
+  if not details:
+    return
+
+  redundant_values = [
+    _import_value_to_text(fields.get("DIMENSION (mm)")),
+    _import_value_to_text(fields.get("Note")),
+  ]
+
+  next_details = details
+  for redundant in redundant_values:
+    if not redundant:
+      continue
+    next_details = _remove_redundant_fragment(next_details, redundant)
+    for part in re.split(r"[\n;|]+", redundant):
+      next_details = _remove_redundant_fragment(next_details, part)
+
+  if next_details:
+    fields["Details"] = next_details
+  else:
+    fields.pop("Details", None)
+
+
+def _apply_import_row_formulas(fields: dict[str, Any]) -> dict[str, Any]:
+  next_fields = dict(fields)
+  preserved_images = {
+    key: value
+    for key, value in next_fields.items()
+    if re.fullmatch(r"Image\d+", str(key))
+  }
+
+  _fill_collection_code_from_fallbacks(next_fields)
+
+  derived_variant = _derive_variant_number_from_code_number(
+    next_fields.get("CODE NUMBER"),
+    next_fields.get("Colecction Code"),
+  )
+  if derived_variant:
+    next_fields["Variant Number"] = derived_variant
+
+  _split_variant_from_collection_name(next_fields)
+  _remove_duplicate_details_content(next_fields)
+  next_fields.update(preserved_images)
+  return next_fields
+
+
 def _normalize_import_row(headers: list[str], values: tuple[Any, ...]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
   fields: dict[str, Any] = {}
   raw_fields: dict[str, Any] = {}
@@ -456,18 +540,170 @@ def _normalize_import_row(headers: list[str], values: tuple[Any, ...]) -> tuple[
     if warning:
       warnings.append(f"{header}: {warning}")
 
-  _fill_collection_code_from_fallbacks(fields)
-
-  derived_variant = _derive_variant_number_from_code_number(
-    fields.get("CODE NUMBER"),
-    fields.get("Colecction Code"),
-  )
-  if derived_variant:
-    fields["Variant Number"] = derived_variant
-
-  _split_variant_from_collection_name(fields)
+  fields = _apply_import_row_formulas(fields)
 
   return fields, raw_fields, warnings
+
+
+def _product_compare_value(value: Any) -> str:
+  text = _import_value_to_text(value)
+  if not text:
+    return ""
+  numeric = text.replace(",", "").strip()
+  if re.fullmatch(r"-?\d+(\.\d+)?", numeric):
+    number = float(numeric)
+    return str(int(number)) if number.is_integer() else str(number)
+  return re.sub(r"\s+", " ", text).casefold()
+
+
+def _first_non_empty_field(fields: dict[str, Any], names: list[str]) -> Any:
+  for name in names:
+    value = fields.get(name)
+    if _product_compare_value(value):
+      return value
+  return ""
+
+
+def _product_match_keys(fields: dict[str, Any]) -> list[str]:
+  collection_name = _product_compare_value(_first_non_empty_field(fields, ["Colecction Name", "Collection Name", "Name"]))
+  collection_code = _product_compare_value(_first_non_empty_field(fields, ["Colecction Code", "Collection Code", "Code"]))
+  variant = _product_compare_value(_first_non_empty_field(fields, ["Variant Number", "Variant", "Num"]))
+  code_number = _product_compare_value(_first_non_empty_field(fields, ["CODE NUMBER", "Code Number", "Code No"]))
+
+  return [
+    f"code-number:{code_number}" if code_number else "",
+    f"collection-code-variant:{collection_code}:{variant}" if collection_code and variant else "",
+    f"collection-name-variant:{collection_name}:{variant}" if collection_name and variant else "",
+    f"collection-code:{collection_code}" if collection_code else "",
+  ]
+
+
+def _canonical_product_field_value(fields: dict[str, Any], field_name: str) -> Any:
+  aliases: dict[str, list[str]] = {
+    "colecction name": ["Colecction Name", "Collection Name", "Name"],
+    "collection name": ["Colecction Name", "Collection Name", "Name"],
+    "name": ["Colecction Name", "Collection Name", "Name"],
+    "colecction code": ["Colecction Code", "Collection Code", "Code"],
+    "collection code": ["Colecction Code", "Collection Code", "Code"],
+    "code": ["Colecction Code", "Collection Code", "Code"],
+    "variant number": ["Variant Number", "Variant", "Num"],
+    "variant": ["Variant Number", "Variant", "Num"],
+    "num": ["Num", "Variant Number", "Variant"],
+    "code number": ["CODE NUMBER", "Code Number", "Code No"],
+    "dimension (mm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
+  }
+  names = aliases.get(field_name.strip().casefold(), [field_name])
+  return _first_non_empty_field(fields, names)
+
+
+async def _build_product_match_index(db: Any) -> dict[str, dict[str, Any]]:
+  index: dict[str, dict[str, Any]] = {}
+  cursor = db["products"].find({})
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    if not isinstance(fields, dict):
+      continue
+    for key in _product_match_keys(fields):
+      if key and key not in index:
+        index[key] = doc
+  return index
+
+
+def _find_matching_product(row_fields: dict[str, Any], product_index: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+  for key in _product_match_keys(row_fields):
+    product = product_index.get(key)
+    if product:
+      return product
+  return None
+
+
+def _product_image_url_to_storage_path(url: Any) -> Path | None:
+  value = _import_value_to_text(url)
+  if not value:
+    return None
+
+  prefixes = ["/api/trainer/files/", "/files/"]
+  relative = ""
+  for prefix in prefixes:
+    if value.startswith(prefix):
+      relative = value[len(prefix):]
+      break
+  if not relative:
+    return None
+
+  path = (STORAGE_DIR / relative).resolve()
+  storage_root = STORAGE_DIR.resolve()
+  try:
+    path.relative_to(storage_root)
+  except ValueError:
+    return None
+  return path
+
+
+def _copy_import_image_to_product_storage(image_url: Any, product_id: str) -> str:
+  source = _product_image_url_to_storage_path(image_url)
+  if not source or not source.exists():
+    return _import_value_to_text(image_url)
+
+  target_dir = STORAGE_DIR / "product-images" / product_id
+  target_dir.mkdir(parents=True, exist_ok=True)
+  suffix = source.suffix or ".png"
+  target_name = f"{uuid.uuid4().hex}{suffix}"
+  target = target_dir / target_name
+  shutil.copyfile(source, target)
+  return f"/api/trainer/files/product-images/{product_id}/{target_name}"
+
+
+def _product_fields_from_import_fields(
+  fields: dict[str, Any],
+  product_id: str,
+  existing_fields: dict[str, Any] | None = None,
+  selected_columns: set[str] | None = None,
+) -> dict[str, Any]:
+  product_fields: dict[str, Any] = {}
+  existing_image = _product_compare_value((existing_fields or {}).get("Image"))
+
+  for field_name, value in fields.items():
+    if field_name == "Row":
+      if selected_columns is not None and "Row" not in selected_columns:
+        continue
+      if value != "":
+        product_fields["Num"] = value
+      continue
+    if field_name == "Image1":
+      continue
+    if selected_columns is not None and field_name not in selected_columns:
+      continue
+    if value == "":
+      continue
+    product_fields[field_name] = value
+
+  image1 = fields.get("Image1")
+  image1_selected = selected_columns is None or "Image1" in selected_columns
+  if image1_selected and _product_compare_value(image1) and not existing_image:
+    product_fields["Image"] = _copy_import_image_to_product_storage(image1, product_id)
+
+  return product_fields
+
+
+def _changed_product_fields(
+  staged_fields: dict[str, Any],
+  existing_fields: dict[str, Any],
+  product_id: str,
+  selected_columns: set[str] | None = None,
+) -> dict[str, Any]:
+  candidate_fields = _product_fields_from_import_fields(staged_fields, product_id, existing_fields, selected_columns)
+  changed: dict[str, Any] = {}
+
+  for field_name, value in candidate_fields.items():
+    if "." in field_name or field_name.startswith("$"):
+      continue
+    existing_value = _canonical_product_field_value(existing_fields, field_name)
+    if _product_compare_value(existing_value) == _product_compare_value(value):
+      continue
+    changed[field_name] = value
+
+  return changed
 
 
 def _safe_import_filename(filename: str, default: str) -> str:
@@ -560,7 +796,70 @@ def _convert_numbers_to_xlsx_content(content: bytes, filename: str) -> bytes:
   )
 
 
-def _parse_product_import_workbook(content: bytes, filename: str) -> dict[str, Any]:
+def _image_extension(image: Any) -> str:
+  image_format = str(getattr(image, "format", "") or "").lower().strip(".")
+  if image_format in {"jpeg", "jpg"}:
+    return "jpg"
+  if image_format in {"png", "gif", "webp", "bmp"}:
+    return image_format
+
+  path = str(getattr(image, "path", "") or "")
+  suffix = Path(path).suffix.lower().strip(".")
+  if suffix in {"jpeg", "jpg", "png", "gif", "webp", "bmp"}:
+    return "jpg" if suffix == "jpeg" else suffix
+  return "png"
+
+
+def _extract_image_bytes(image: Any) -> bytes | None:
+  try:
+    data = image._data()
+  except Exception:
+    return None
+  return data if isinstance(data, bytes) and data else None
+
+
+def _worksheet_image_anchor(image: Any) -> tuple[int, int] | None:
+  marker = getattr(getattr(image, "anchor", None), "_from", None)
+  if marker is None:
+    return None
+  row = getattr(marker, "row", None)
+  col = getattr(marker, "col", None)
+  if not isinstance(row, int) or not isinstance(col, int):
+    return None
+  return row + 1, col + 1
+
+
+def _extract_first_column_images(worksheet: Any, import_id: str) -> dict[int, list[str]]:
+  images_by_row: dict[int, list[str]] = {}
+  images = list(getattr(worksheet, "_images", []) or [])
+  if not images:
+    return images_by_row
+
+  target_dir = STORAGE_DIR / "product-imports" / import_id
+  target_dir.mkdir(parents=True, exist_ok=True)
+  safe_sheet = re.sub(r"[^A-Za-z0-9._-]+", "_", str(worksheet.title or "sheet")).strip("_") or "sheet"
+
+  for index, image in enumerate(images, start=1):
+    anchor = _worksheet_image_anchor(image)
+    if not anchor:
+      continue
+    row_number, column_number = anchor
+    if column_number != 1:
+      continue
+
+    data = _extract_image_bytes(image)
+    if not data:
+      continue
+
+    ext = _image_extension(image)
+    filename = f"{safe_sheet}_r{row_number}_{index}.{ext}"
+    (target_dir / filename).write_bytes(data)
+    images_by_row.setdefault(row_number, []).append(f"/api/trainer/files/product-imports/{import_id}/{filename}")
+
+  return images_by_row
+
+
+def _parse_product_import_workbook(content: bytes, filename: str, import_id: str) -> dict[str, Any]:
   try:
     from openpyxl import load_workbook
   except ImportError as exc:
@@ -569,7 +868,7 @@ def _parse_product_import_workbook(content: bytes, filename: str) -> dict[str, A
   workbook_content = _convert_numbers_to_xlsx_content(content, filename) if filename.lower().endswith(".numbers") else content
 
   try:
-    workbook = load_workbook(io.BytesIO(workbook_content), read_only=True, data_only=True)
+    workbook = load_workbook(io.BytesIO(workbook_content), read_only=False, data_only=True)
   except Exception as exc:
     raise HTTPException(status_code=400, detail=f"INVALID_EXCEL_FILE: {exc}") from exc
 
@@ -581,6 +880,7 @@ def _parse_product_import_workbook(content: bytes, filename: str) -> dict[str, A
     sheet_rows = list(worksheet.iter_rows(values_only=True))
     if not sheet_rows:
       continue
+    images_by_row = _extract_first_column_images(worksheet, import_id)
 
     header_index = _detect_import_header_row(sheet_rows)
     header_values = sheet_rows[header_index]
@@ -599,10 +899,15 @@ def _parse_product_import_workbook(content: bytes, filename: str) -> dict[str, A
 
     sheet_count = 0
     for row_offset, values in enumerate(sheet_rows[header_index + 1:], start=header_index + 2):
-      if all(_is_empty_excel_value(value) for value in values):
+      if all(_is_empty_excel_value(value) for value in values) and not images_by_row.get(row_offset):
         continue
 
       fields, raw_fields, warnings = _normalize_import_row(headers, values)
+      for image_index, image_url in enumerate(images_by_row.get(row_offset, []), start=1):
+        image_field = f"Image{image_index}"
+        fields[image_field] = image_url
+        raw_fields[image_field] = image_url
+
       if not fields:
         continue
 
@@ -1597,6 +1902,35 @@ async def patch_product_asset(
   return {"id": doc["_id"], "fields": doc["fields"]}
 
 
+@api.delete("/products/assets/{record_id}")
+async def delete_product_asset(
+  record_id: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  doc = await db["products"].find_one({"_id": record_id})
+  if not doc:
+    raise HTTPException(status_code=404, detail="PRODUCT_NOT_FOUND")
+
+  res = await db["products"].delete_one({"_id": record_id})
+  if res.deleted_count == 0:
+    raise HTTPException(status_code=404, detail="PRODUCT_NOT_FOUND")
+
+  fields = doc.get("fields") or {}
+  item_label = fields.get("Colecction Name") or fields.get("Name") or record_id
+  await log_activity(
+    req=req,
+    action="PRODUCT_DELETE",
+    details=f"Deleted product: {item_label}",
+    resource_id=record_id,
+    user=user,
+    db=db,
+  )
+
+  return {"deleted": True, "id": record_id}
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Admin Dashboard Endpoints
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1758,13 +2092,13 @@ async def admin_upload_product_import(
   if not content:
     raise HTTPException(status_code=400, detail="EMPTY_FILE")
 
-  parsed = _parse_product_import_workbook(content, filename)
+  import_id = uuid.uuid4().hex
+  parsed = _parse_product_import_workbook(content, filename, import_id)
   rows = parsed["rows"]
   if not rows:
     raise HTTPException(status_code=400, detail="NO_PRODUCT_ROWS_FOUND")
 
   now = _utc_now_iso()
-  import_id = uuid.uuid4().hex
   columns = parsed["columns"]
   warnings_count = sum(1 for row in rows if row.get("warnings"))
 
@@ -1837,9 +2171,14 @@ async def admin_get_product_import_rows(
     .limit(safe_limit)
   )
   async for doc in cursor:
+    fields = doc.get("fields") or {}
+    if isinstance(fields, dict):
+      fields = {"Row": doc.get("source_row_number"), **fields}
+    else:
+      fields = {"Row": doc.get("source_row_number")}
     records.append({
       "id": str(doc.get("_id")),
-      "fields": doc.get("fields") or {},
+      "fields": fields,
       "raw_fields": doc.get("raw_fields") or {},
       "warnings": doc.get("warnings") or [],
       "status": doc.get("status") or "staged",
@@ -1848,13 +2187,60 @@ async def admin_get_product_import_rows(
     })
 
   batch["id"] = str(batch.pop("_id"))
+  columns = batch.get("columns") or []
+  if "Row" not in columns:
+    columns = ["Row", *columns]
   return {
     "import": batch,
-    "columns": batch.get("columns") or [],
+    "columns": columns,
     "records": records,
     "count": total,
     "skip": safe_skip,
     "limit": safe_limit,
+  }
+
+
+@api.post("/admin/products/imports/{import_id}/reprocess")
+async def admin_reprocess_product_import(
+  import_id: str,
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  batch = await db[PRODUCT_IMPORT_BATCHES_COLLECTION].find_one({"_id": import_id})
+  if not batch:
+    raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
+
+  now = _utc_now_iso()
+  processed_count = 0
+  changed_count = 0
+  cursor = db[PRODUCT_IMPORT_ROWS_COLLECTION].find({"import_id": import_id})
+
+  async for row in cursor:
+    row_id = str(row.get("_id"))
+    fields = row.get("fields") or {}
+    if not isinstance(fields, dict):
+      continue
+
+    next_fields = _apply_import_row_formulas(fields)
+    processed_count += 1
+    if next_fields == fields:
+      continue
+
+    changed_count += 1
+    await db[PRODUCT_IMPORT_ROWS_COLLECTION].update_one(
+      {"_id": row_id, "import_id": import_id},
+      {"$set": {"fields": next_fields, "updated_at": now}},
+    )
+
+  await db[PRODUCT_IMPORT_BATCHES_COLLECTION].update_one(
+    {"_id": import_id},
+    {"$set": {"updated_at": now, "last_reprocessed_at": now}},
+  )
+
+  return {
+    "ok": True,
+    "processed_count": processed_count,
+    "changed_count": changed_count,
   }
 
 
@@ -1893,14 +2279,7 @@ async def admin_update_product_import_row(
     if warning:
       warnings.append(f"{field_name}: {warning}")
 
-  _fill_collection_code_from_fallbacks(fields)
-  derived_variant = _derive_variant_number_from_code_number(
-    fields.get("CODE NUMBER"),
-    fields.get("Colecction Code"),
-  )
-  if derived_variant:
-    fields["Variant Number"] = derived_variant
-  _split_variant_from_collection_name(fields)
+  fields = _apply_import_row_formulas(fields)
 
   now = _utc_now_iso()
   await db[PRODUCT_IMPORT_ROWS_COLLECTION].update_one(
@@ -1935,6 +2314,169 @@ async def admin_update_product_import_row(
   }
 
 
+@api.post("/admin/products/imports/{import_id}/apply")
+async def admin_apply_product_import(
+  import_id: str,
+  req: FastAPIRequest,
+  payload: dict[str, Any] | None = None,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  batch = await db[PRODUCT_IMPORT_BATCHES_COLLECTION].find_one({"_id": import_id})
+  if not batch:
+    raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
+
+  raw_columns = (payload or {}).get("columns")
+  if not isinstance(raw_columns, list) or not raw_columns:
+    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+  selected_columns = {
+    column.strip()
+    for column in raw_columns
+    if isinstance(column, str) and column.strip() and "." not in column and not column.strip().startswith("$")
+  }
+  if not selected_columns:
+    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+  product_index = await _build_product_match_index(db)
+  now = _utc_now_iso()
+  created_count = 0
+  updated_count = 0
+  unchanged_count = 0
+  changed_cells_count = 0
+  created_product_ids: list[str] = []
+  updated_product_ids: list[str] = []
+  product_write_ops: list[Any] = []
+  row_write_ops: list[Any] = []
+
+  cursor = (
+    db[PRODUCT_IMPORT_ROWS_COLLECTION]
+    .find({"import_id": import_id})
+    .sort([("source_sheet", 1), ("source_row_number", 1)])
+  )
+
+  async for row in cursor:
+    row_id = str(row.get("_id"))
+    staged_fields = row.get("fields") or {}
+    if not isinstance(staged_fields, dict) or not staged_fields:
+      unchanged_count += 1
+      continue
+    product_staged_fields = dict(staged_fields)
+    source_row_number = row.get("source_row_number")
+    if source_row_number is not None:
+      product_staged_fields["Row"] = source_row_number
+
+    existing_product = _find_matching_product(staged_fields, product_index)
+    if existing_product:
+      product_id = str(existing_product.get("_id"))
+      existing_fields = existing_product.get("fields") or {}
+      if not isinstance(existing_fields, dict):
+        existing_fields = {}
+
+      changed_fields = _changed_product_fields(product_staged_fields, existing_fields, product_id, selected_columns)
+      if changed_fields:
+        update_doc = {f"fields.{field_name}": value for field_name, value in changed_fields.items()}
+        update_doc["updated_at"] = now
+        product_write_ops.append(UpdateOne({"_id": product_id}, {"$set": update_doc}))
+        updated_count += 1
+        changed_cells_count += len(changed_fields)
+        updated_product_ids.append(product_id)
+
+        merged_fields = {**existing_fields, **changed_fields}
+        existing_product["fields"] = merged_fields
+        for key in _product_match_keys(merged_fields):
+          if key:
+            product_index[key] = existing_product
+      else:
+        unchanged_count += 1
+
+      row_write_ops.append(UpdateOne(
+        {"_id": row_id, "import_id": import_id},
+        {"$set": {
+          "status": "applied",
+          "product_id": product_id,
+          "applied_at": now,
+          "applied_fields": sorted(changed_fields.keys()),
+          "updated_at": now,
+        }},
+      ))
+      continue
+
+    product_id = uuid.uuid4().hex
+    new_fields = _product_fields_from_import_fields(product_staged_fields, product_id, selected_columns=selected_columns)
+    if not new_fields:
+      unchanged_count += 1
+      continue
+
+    product_doc = {
+      "_id": product_id,
+      "fields": new_fields,
+      "created_at": now,
+      "updated_at": now,
+      "source_import_id": import_id,
+      "source_import_row_id": row_id,
+    }
+    product_write_ops.append(InsertOne(product_doc))
+    created_count += 1
+    changed_cells_count += len(new_fields)
+    created_product_ids.append(product_id)
+    for key in _product_match_keys(new_fields):
+      if key:
+        product_index[key] = product_doc
+
+    row_write_ops.append(UpdateOne(
+      {"_id": row_id, "import_id": import_id},
+      {"$set": {
+        "status": "applied",
+        "product_id": product_id,
+        "applied_at": now,
+        "applied_fields": sorted(new_fields.keys()),
+        "updated_at": now,
+      }},
+    ))
+
+  if product_write_ops:
+    await db["products"].bulk_write(product_write_ops, ordered=False)
+
+  if row_write_ops:
+    await db[PRODUCT_IMPORT_ROWS_COLLECTION].bulk_write(row_write_ops, ordered=False)
+
+  await db[PRODUCT_IMPORT_BATCHES_COLLECTION].update_one(
+    {"_id": import_id},
+    {
+      "$set": {
+        "status": "applied",
+        "applied_at": now,
+        "updated_at": now,
+        "apply_summary": {
+          "created_count": created_count,
+          "updated_count": updated_count,
+          "unchanged_count": unchanged_count,
+          "changed_cells_count": changed_cells_count,
+          "selected_columns": sorted(selected_columns),
+        },
+      }
+    },
+  )
+
+  await log_activity(
+    req,
+    "PRODUCT_IMPORT_APPLY",
+    details=f"Applied product import: {batch.get('filename')}. Created: {created_count}, updated: {updated_count}, unchanged: {unchanged_count}",
+    resource_id=import_id,
+    user=user,
+    db=db,
+  )
+
+  return {
+    "ok": True,
+    "created_count": created_count,
+    "updated_count": updated_count,
+    "unchanged_count": unchanged_count,
+    "changed_cells_count": changed_cells_count,
+    "created_product_ids": created_product_ids[:50],
+    "updated_product_ids": updated_product_ids[:50],
+  }
+
+
 @api.delete("/admin/products/imports/{import_id}")
 async def admin_delete_product_import(
   import_id: str,
@@ -1948,6 +2490,7 @@ async def admin_delete_product_import(
 
   rows_result = await db[PRODUCT_IMPORT_ROWS_COLLECTION].delete_many({"import_id": import_id})
   await db[PRODUCT_IMPORT_BATCHES_COLLECTION].delete_one({"_id": import_id})
+  shutil.rmtree(STORAGE_DIR / "product-imports" / import_id, ignore_errors=True)
 
   await log_activity(
     req,
