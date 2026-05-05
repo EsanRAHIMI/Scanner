@@ -42,7 +42,6 @@ import { ProductsSkeleton } from './components/products-skeleton';
 import { ProductFilters } from './components/product-filters';
 import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
-import { CommandPalette } from './components/command-palette';
 import { GalleryCard } from './components/gallery-card';
 import { ListView } from './components/list-view';
 import type { AuthMe } from './types';
@@ -90,7 +89,7 @@ export function ProductsView({
   const columns: string[] = data?.columns ?? [];
   const records: ProductsRecord[] = data?.records ?? [];
 
-  const [showCommandPalette, setShowCommandPalette] = React.useState(false);
+  const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
   const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
@@ -115,10 +114,10 @@ export function ProductsView({
     familyMode
   });
 
-  const sync = useProductSync({
+  useProductSync({
     debouncedSearch: filters.debouncedSearch,
     setSearch: filters.setSearch,
-    setShowCommandPalette
+    searchInputRef,
   });
 
   const mutations = useProductMutations({ setData, mutate, notePendingDelete, columns });
@@ -177,27 +176,10 @@ export function ProductsView({
   const editableColors = fieldOptionsData?.options?.Color ?? uniqueColors;
   const editableSpaces = fieldOptionsData?.options?.Space ?? uniqueSpaces;
   const editableMaterials = fieldOptionsData?.options?.Material ?? uniqueMaterials;
-  const { recentSearches, addToRecent } = sync;
   const { isSaving } = mutations;
   const { draggedUrlInfo, setDraggedUrlInfo, activeDropTargetRef } = dnd;
 
 
-
-  // Command Palette Esc/Enter Logic
-  React.useEffect(() => {
-    if (!showCommandPalette) return;
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Enter') {
-        setFamilyMode('collection');
-        setShowCommandPalette(false);
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown, true);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [showCommandPalette]);
-
-  const [paletteIndex, setPaletteIndex] = React.useState(0);
-  React.useEffect(() => { setPaletteIndex(0); }, [search]);
 
   const handleLinkMouseEnter = React.useCallback((url: string, recordId: string, e: React.MouseEvent) => {
     const { clientX: x, clientY: y } = e;
@@ -613,54 +595,69 @@ export function ProductsView({
   const hasActiveFilters = search.trim().length > 0 || selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0 || !!familyCollectionName;
 
   const searchGroupNode = (
-    <div 
-      className={`group flex items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all duration-500 ease-in-out dark:border-white/10 dark:bg-black/40 cursor-pointer ${
+    <div
+      className={`group flex min-h-10 items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all dark:border-white/10 dark:bg-black/40 ${
         hasActiveFilters ? 'pr-1' : 'pr-0'
-      } ${
-        // On desktop, we want to align it with the 4 items below (approx 440px)
-        'min-w-[40px] sm:min-w-[440px]'
-      }`}
-      onClick={() => setShowCommandPalette(true)}
+      } min-w-[40px] sm:min-w-[440px]`}
     >
-      <div 
-        className={`overflow-hidden transition-all duration-500 ease-in-out flex items-center ${
+      <div
+        className={`overflow-hidden transition-[width,opacity] duration-300 ease-out flex items-center ${
           hasActiveFilters ? 'w-10 opacity-100' : 'w-0 opacity-0 pointer-events-none'
         }`}
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
+          onClick={() => {
             setSearch('');
             setSelectedCategories(new Set());
             setSelectedColors(new Set());
             setSelectedSpaces(new Set());
             setSelectedMaterials(new Set());
             setFamilyCollectionName(null);
+            searchInputRef.current?.focus();
           }}
           title="Clear all filters & search"
-          className="flex h-10 w-10 items-center justify-center text-red-600 transition-all hover:scale-110 active:scale-95 dark:text-red-400"
+          className="flex h-10 w-10 shrink-0 items-center justify-center text-red-600 transition-all hover:scale-110 active:scale-95 dark:text-red-400"
         >
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="3">
             <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       </div>
-      <div className="flex flex-1 items-center gap-3 px-3">
-        <svg viewBox="0 0 24 24" className={`h-5 w-5 transition-all active:scale-95 ${
-          showCommandPalette 
-            ? 'text-emerald-600 dark:text-emerald-400' 
-            : 'text-black/40 dark:text-white/40 group-hover:text-black dark:group-hover:text-white'
-        }`} fill="none" stroke="currentColor" strokeWidth="2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 sm:gap-2.5 sm:px-3">
+        <svg
+          viewBox="0 0 24 24"
+          className={`h-5 w-5 shrink-0 ${
+            search.trim().length > 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-black/40 dark:text-white/40'
+          }`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          aria-hidden
+        >
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
-        <span className="hidden sm:block text-xs font-medium text-black/30 dark:text-white/30 group-hover:text-black/60 dark:group-hover:text-white/60 transition-colors">
-          Search products, codes, collections...
-        </span>
+        <input
+          ref={searchInputRef}
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search products, codes, collections…"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="search"
+          aria-label="Search products"
+          className="min-h-9 min-w-0 flex-1 bg-transparent py-2 text-sm text-black outline-none placeholder:text-black/40 dark:text-white dark:placeholder:text-white/45"
+        />
       </div>
-      <div className="hidden sm:flex items-center gap-1.5 rounded-lg bg-black/5 dark:bg-white/5 px-2 py-1 text-[9px] font-black text-black/20 dark:text-white/20 uppercase mr-1 group-hover:text-black/40 dark:group-hover:text-white/40 ring-1 ring-black/5 dark:ring-white/5 transition-all">
-        Cmd + K
+      <div className="hidden shrink-0 items-center gap-1 sm:flex">
+        <kbd className="rounded-md border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-black/45 dark:border-white/15 dark:bg-white/10 dark:text-white/45">
+          ⌘K
+        </kbd>
       </div>
     </div>
   );
@@ -798,7 +795,6 @@ export function ProductsView({
         maxModeToggleNode={maxModeToggleNode}
         themeToggleNode={themeToggleNode}
         fetchUserSession={fetchUserSession}
-        isAdmin={user?.is_admin}
       />
 
       <ProductFilters
@@ -1016,21 +1012,6 @@ export function ProductsView({
         uniqueColors={editableColors}
         uniqueMaterials={editableMaterials}
         uniqueCategories={editableCategories}
-      />
-      
-      <CommandPalette
-        isOpen={showCommandPalette}
-        onClose={() => setShowCommandPalette(false)}
-        search={search}
-        setSearch={setSearch}
-        paletteIndex={paletteIndex}
-        setPaletteIndex={setPaletteIndex}
-        recentSearches={recentSearches}
-        addToRecent={addToRecent}
-        filteredRecords={filteredRecords}
-        sortedRecords={sortedRecords}
-        setPreviewId={setPreviewId}
-        setPreviewIndex={setPreviewIndex}
       />
 
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />

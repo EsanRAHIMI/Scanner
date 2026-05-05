@@ -40,10 +40,10 @@ export function useProductFilters({
   const spaceFieldName = columns.find(c => c.trim().toLowerCase() === 'space') || 'Space';
   const materialFieldName = columns.find(c => c.trim().toLowerCase() === 'material') || 'Material';
 
-  // Debounce search
+  // Debounce search for URL sync only (list filters use `search` directly for responsive UX).
   const [debouncedSearch, setDebouncedSearch] = React.useState(search);
   React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 280);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -130,7 +130,7 @@ export function useProductFilters({
 
   // Filter Logic
   const filteredRecords = React.useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
+    const q = search.trim().toLowerCase();
     let base = !q ? records : records.filter((r) => {
       const text = getSearchText(r, displayedColumns);
       if (text.includes(q)) return true;
@@ -188,9 +188,9 @@ export function useProductFilters({
     }
     return base.filter((r) => selectedIds.has(r.id));
   }, [
-    displayedColumns, getSearchText, records, debouncedSearch, selectedIds, 
-    showSelectedOnly, selectedCategories, selectedColors, selectedSpaces, 
-    selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName, 
+    displayedColumns, getSearchText, records, search, selectedIds,
+    showSelectedOnly, selectedCategories, selectedColors, selectedSpaces,
+    selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName,
     materialFieldName, familyCollectionName
   ]);
 
