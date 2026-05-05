@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import { safelyVoid } from '@/lib/client-log';
+
 interface ServiceStatus {
   name: string;
   url: string;
@@ -114,7 +116,7 @@ export default function Home() {
     // Check services with delay for loading effect
     setTimeout(() => {
       services.forEach(service => {
-        checkServiceHealth(service.name, service.url);
+        safelyVoid(`home_service_health_${service.name}`, checkServiceHealth(service.name, service.url));
       });
     }, 1000);
 

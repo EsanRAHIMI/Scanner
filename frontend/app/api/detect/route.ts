@@ -7,6 +7,14 @@ function getBackendDetectUrl() {
   return 'http://127.0.0.1:8000/detect';
 }
 
+function getOptionalBackendDetectSignal(): AbortSignal | undefined {
+  const raw = process.env.BACKEND_DETECT_TIMEOUT_MS;
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const ms = Number.parseInt(raw, 10);
+  if (!(ms > 0) || !(ms <= 3_600_000)) return undefined;
+  return AbortSignal.timeout(ms);
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get('content-type') ?? '';
@@ -45,9 +53,11 @@ export async function POST(request: Request) {
 
     let backendRes: Response;
     try {
+      const timeoutSignal = getOptionalBackendDetectSignal();
       backendRes = await fetch(getBackendDetectUrl(), {
         method: 'POST',
         body: forwardForm,
+        ...(timeoutSignal ? { signal: timeoutSignal } : {}),
       });
     } catch {
       return NextResponse.json(

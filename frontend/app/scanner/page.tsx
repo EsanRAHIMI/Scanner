@@ -4,6 +4,8 @@ import * as React from 'react';
 
 import { Button } from '@/ui/button';
 
+import { clientLog, safelyVoid } from '@/lib/client-log';
+
 type Product = {
   id: string;
   name: string;
@@ -26,11 +28,21 @@ type DetectResponse = {
 };
 
 type BackendHealth = {
-  status: string;
+  status?: string;
   model_path: string;
   model_exists: boolean;
   model_size_bytes: number | null;
 };
+
+function isBackendHealthPayload(value: unknown): value is BackendHealth {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as BackendHealth;
+  return (
+    typeof v.model_path === 'string' &&
+    typeof v.model_exists === 'boolean' &&
+    ('model_size_bytes' in v && (typeof v.model_size_bytes === 'number' || v.model_size_bytes === null))
+  );
+}
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -196,6 +208,13 @@ export default function ScannerPage() {
       const base = isLocal ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
       const res = await fetch(`${base}/classes`, { cache: 'no-store' });
       const text = await res.text();
+
+      if (res.status === 401 || res.status === 403) {
+        setTrainerClasses([]);
+        setTrainerClassesError(null);
+        return;
+      }
+
       if (!res.ok) throw new Error(text || `Classes failed (${res.status})`);
 
       const data = JSON.parse(text) as unknown;
@@ -213,7 +232,9 @@ export default function ScannerPage() {
       setTrainerClasses(normalized);
     } catch (e) {
       setTrainerClasses(null);
-      setTrainerClassesError(e instanceof Error ? e.message : 'Failed to load classes');
+      const message = e instanceof Error ? e.message : 'Failed to load classes';
+      clientLog('warn', 'trainer_classes_load_failed', { message, ...(e instanceof Error && e.stack ? { stack: e.stack } : {}) });
+      setTrainerClassesError(message);
     }
   }, []);
 
@@ -222,11 +243,43 @@ export default function ScannerPage() {
       setBackendHealthError(null);
       const res = await fetch('/api/health', { cache: 'no-store' });
       const text = await res.text();
-      if (!res.ok) throw new Error(text || `Health failed (${res.status})`);
-      setBackendHealth(JSON.parse(text) as BackendHealth);
+      let parsed: unknown = null;
+      try {
+        parsed = text ? (JSON.parse(text) as unknown) : null;
+      } catch {
+        parsed = null;
+      }
+
+      if (res.ok && isBackendHealthPayload(parsed)) {
+        setBackendHealth(parsed);
+        return;
+      }
+
+      if (!res.ok && isBackendHealthPayload(parsed)) {
+        setBackendHealth(parsed);
+        setBackendHealthError(null);
+        const st = parsed.status;
+        if (st === 'degraded') {
+          clientLog('warn', 'backend_health_degraded', { httpStatus: res.status, status: st });
+          return;
+        }
+        if (st === 'error') {
+          clientLog('error', 'backend_health_model_unavailable', { httpStatus: res.status, status: st });
+          return;
+        }
+        clientLog('warn', 'backend_health_non_ok', { httpStatus: res.status, status: st ?? 'unknown' });
+        return;
+      }
+
+      throw new Error(text || `Health failed (${res.status})`);
     } catch (e) {
       setBackendHealth(null);
-      setBackendHealthError(e instanceof Error ? e.message : 'Health failed');
+      const message = e instanceof Error ? e.message : 'Health failed';
+      clientLog('error', 'backend_health_fetch_failed', {
+        message,
+        ...(e instanceof Error && e.stack ? { stack: e.stack } : {}),
+      });
+      setBackendHealthError(message);
     }
   }, []);
 
@@ -378,6 +431,10 @@ export default function ScannerPage() {
       setApiStatus('idle');
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unknown error.';
+      clientLog('error', 'scanner_detect_failed', {
+        message,
+        ...(e instanceof Error && e.stack ? { stack: e.stack } : {}),
+      });
       setApiStatus('error');
       setLatencyMs(null);
       setError(message);
@@ -390,7 +447,7 @@ export default function ScannerPage() {
     if (timerRef.current !== null) return;
 
     timerRef.current = window.setInterval(() => {
-      void captureAndSendFrame();
+      safelyVoid('scanner_capture_tick', captureAndSendFrame());
     }, 800);
   }, [captureAndSendFrame]);
 
@@ -410,6 +467,10 @@ export default function ScannerPage() {
       startLoop();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unknown error.';
+      clientLog('error', 'scanner_start_failed', {
+        message,
+        ...(e instanceof Error && e.stack ? { stack: e.stack } : {}),
+      });
       setError(message);
       setIsStarted(false);
       stopLoop();
@@ -439,11 +500,11 @@ export default function ScannerPage() {
   }, [handleStop]);
 
   React.useEffect(() => {
-    void loadBackendHealth();
+    safelyVoid('scanner_mount_health', loadBackendHealth());
   }, [loadBackendHealth]);
 
   React.useEffect(() => {
-    void loadTrainerClasses();
+    safelyVoid('scanner_mount_classes', loadTrainerClasses());
   }, [loadTrainerClasses]);
 
   React.useEffect(() => {
@@ -526,7 +587,17 @@ export default function ScannerPage() {
       const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
       const res = await fetch(url, { cache: 'no-store' });
       const text = await res.text();
-      if (!res.ok) throw new Error(text || `Lookup failed (${res.status})`);
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setAirtableCollectionCode(null);
+          setAirtableVariantNumber(null);
+          setAirtablePrice(null);
+          setAirtableCollectionCodeError(null);
+          clientLog('warn', 'dam_collection_lookup_unauthenticated', { httpStatus: res.status });
+          return;
+        }
+        throw new Error(text || `Lookup failed (${res.status})`);
+      }
 
       const data = JSON.parse(text) as unknown;
       const parsed =
@@ -545,14 +616,19 @@ export default function ScannerPage() {
       setAirtableCollectionCode(null);
       setAirtableVariantNumber(null);
       setAirtablePrice(null);
-      setAirtableCollectionCodeError(e instanceof Error ? e.message : 'Lookup failed');
+      const msg = e instanceof Error ? e.message : 'Lookup failed';
+      clientLog('warn', 'dam_collection_lookup_failed', {
+        message: msg,
+        ...(e instanceof Error && e.stack ? { stack: e.stack } : {}),
+      });
+      setAirtableCollectionCodeError(msg);
     }
   }, []);
 
   React.useEffect(() => {
     if (!lastDetection) return;
     if (!displayName || displayName === '—') return;
-    void resolveAirtableCollectionCode(displayName);
+    safelyVoid('dam_collection_resolve', resolveAirtableCollectionCode(displayName));
   }, [displayName, lastDetection, resolveAirtableCollectionCode]);
 
   const matchedClass = React.useMemo(() => {
@@ -756,7 +832,7 @@ export default function ScannerPage() {
 
                 <Button
                   variant="outline"
-                  onClick={() => void onShareDam()}
+                  onClick={() => safelyVoid('share_dam', onShareDam())}
                   disabled={!damUrl}
                   className="h-11 w-full min-w-0 rounded-xl border-white/15 bg-black/10 px-2 text-[11px] font-medium tracking-wide text-white/90 hover:bg-white/10 disabled:opacity-50"
                   type="button"
@@ -795,7 +871,7 @@ export default function ScannerPage() {
         {!isStarted ? (
           <div className="fixed left-1/2 top-1/2 z-40 -translate-x-1/2 translate-y-[72px]">
             <Button
-              onClick={() => void onStart()}
+              onClick={() => safelyVoid('scanner_start', onStart())}
               className="h-11 w-28 rounded-xl bg-white px-2 py-0 text-[11px] font-semibold tracking-wide text-black shadow-lg hover:bg-white/90"
               type="button"
             >

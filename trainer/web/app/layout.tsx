@@ -11,6 +11,9 @@ import { TrainerNavbar } from './trainer-navbar';
 export const metadata: Metadata = {
   title: 'Lorenzo Trainer',
   description: 'Admin dashboard for labeling and training',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 function getScannerUrl() {
