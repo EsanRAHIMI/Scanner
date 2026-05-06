@@ -6,6 +6,8 @@ import { FilterDropdown } from './filter-dropdown';
 interface ProductFiltersProps {
   data: any;
   visibleCount: number;
+  /** When GET /api/products/assets failed but SWR/session snapshot still renders rows */
+  isStaleOfflineSnapshot?: boolean;
   uniqueCategories: string[];
   selectedCategories: Set<string>;
   setSelectedCategories: (val: Set<string>) => void;
@@ -28,6 +30,7 @@ interface ProductFiltersProps {
 export function ProductFilters({
   data,
   visibleCount,
+  isStaleOfflineSnapshot = false,
   uniqueCategories,
   selectedCategories,
   setSelectedCategories,
@@ -63,17 +66,49 @@ export function ProductFilters({
       <div className="mt-1 text-[11px] leading-tight text-black/50 dark:text-white/45">
         <span className="font-medium text-black/60 dark:text-white/60">Variant:</span>{' '}
         {data ? (
-          <span className="animate-fade-in">{data.count}</span>
+          <span className="animate-fade-in">
+            {isStaleOfflineSnapshot && (
+              <>
+                <span
+                  title="Totals reflect cached browser data until the server catalog succeeds again."
+                  className="text-amber-800 dark:text-amber-200/90"
+                >
+                  Cached snapshot
+                </span>
+                {' · '}
+              </>
+            )}
+            <span className={isStaleOfflineSnapshot ? 'tabular-nums' : undefined}>
+              {isStaleOfflineSnapshot && Array.isArray(data.records) ?
+                data.records.length
+              : data.count}
+            </span>
+          </span>
         ) : (
           <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
         )}
         <span className="mx-2 text-black/25 dark:text-white/20">|</span>
         <span className="font-medium text-black/60 dark:text-white/60">List:</span>{' '}
-        {data ? (
-          <span className="animate-fade-in">{visibleCount}</span>
-        ) : (
-          <span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-        )}
+        {data ?
+          (
+            <span className="animate-fade-in">
+              {visibleCount}
+              {isStaleOfflineSnapshot ?
+                (
+                  <span
+                    title="Filtered count applies only to the cached snapshot loaded in this browser."
+                    className="text-amber-800/85 dark:text-amber-200/80"
+                  >
+                    {' · filtered from snapshot'}
+                  </span>
+                )
+              : null}
+            </span>
+          )
+
+        :
+
+          (<span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />)}
 
         {onPurgeNumOnlyStubs ? (
           <>

@@ -111,14 +111,19 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
           />
         )
       ) : (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={media.url}
-          alt="Product"
-          className="max-h-full w-auto max-w-full object-contain select-none pointer-events-none"
-          draggable={false}
-          loading="lazy"
-        />
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- Feed full-bleed: direct origin fetch; cards still use next/image. */}
+          <img
+            src={media.url}
+            alt="Product"
+            className="max-h-full w-auto max-w-full object-contain select-none pointer-events-none"
+            draggable={false}
+            loading={isActive && isPrimary ? 'eager' : shouldPreload ? 'eager' : 'lazy'}
+            fetchPriority={isActive && isPrimary ? 'high' : shouldPreload ? 'high' : 'low'}
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        </>
       )}
 
       {/* Double Tap Heart Animation Overlay */}

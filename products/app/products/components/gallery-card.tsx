@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { extractUrls, getDriveDirectLink, formatScalar, highlightMatches, formatPrice } from '../lib/product-utils';
+import Image from 'next/image';
+import { extractUrls, getDriveDirectLink, formatScalar, highlightMatches, formatPrice, supportsNextJsImageOptimization } from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
 import { GalleryCardProps } from '../types/products-ui';
@@ -23,6 +24,12 @@ export function GalleryCard({
   const urlValue = urlEntry?.[1];
   const rawImg = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
   const img = getDriveDirectLink(rawImg);
+  const useNextImg = Boolean(img && supportsNextJsImageOptimization(img));
+  const [imageFailed, setImageFailed] = React.useState(false);
+  React.useEffect(() => {
+    setImageFailed(false);
+  }, [img]);
+
   const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
   const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
   const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
@@ -58,24 +65,38 @@ export function GalleryCard({
     <div className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
       <div className="block w-full">
         <div className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
-          {img ? (
+          {img && !imageFailed ? (
             <button
               type="button"
-              className="h-full w-full outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500/30"
+              className="relative h-full w-full outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500/30"
               onClick={() => openPreviewByUrl?.(img)}
               title="Click to maximize"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={img}
-                alt="product"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-                className="h-full w-full object-cover"
-              />
+              {useNextImg ?
+                (
+                  <Image
+                    src={img}
+                    alt="product"
+                    fill
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
+                    loading="lazy"
+                    placeholder="empty"
+                    referrerPolicy="no-referrer"
+                    className="object-cover"
+                    onError={() => setImageFailed(true)}
+                  />
+                )
+              : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={img}
+                  alt="product"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageFailed(true)}
+                  className="h-full w-full object-cover"
+                />
+              )}
             </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs italic text-black/40 dark:bg-white/5 dark:text-white/40">

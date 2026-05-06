@@ -40,7 +40,7 @@ export function useProductFilters({
   const spaceFieldName = columns.find(c => c.trim().toLowerCase() === 'space') || 'Space';
   const materialFieldName = columns.find(c => c.trim().toLowerCase() === 'material') || 'Material';
 
-  // Debounce search for URL sync only (list filters use `search` directly for responsive UX).
+  // Debounced search drives URL sync and filtering (highlights still use live `search`).
   const [debouncedSearch, setDebouncedSearch] = React.useState(search);
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 280);
@@ -128,59 +128,112 @@ export function useProductFilters({
     return parts.join(' \n ').toLowerCase();
   }, []);
 
+  const recordSearchTextById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of records) {
+      m.set(r.id, getSearchText(r, displayedColumns));
+    }
+    return m;
+  }, [records, displayedColumns, getSearchText]);
+
+  const matchesFacetFilters = React.useCallback(
+    (r: ProductsRecord): boolean => {
+      if (selectedCategories.size > 0) {
+        const v = r.fields?.[categoryFieldName];
+        const ok =
+          (typeof v === 'string' && v.split(',').some((p) => selectedCategories.has(p.trim()))) ||
+          (Array.isArray(v) &&
+            v.some(
+              (x) =>
+                typeof x === 'string' &&
+                x.split(',').some((p) => selectedCategories.has(p.trim())),
+            ));
+        if (!ok) return false;
+      }
+      if (selectedColors.size > 0) {
+        const v = r.fields?.[colorFieldName];
+        const ok =
+          (typeof v === 'string' && v.split(',').some((p) => selectedColors.has(p.trim()))) ||
+          (Array.isArray(v) &&
+            v.some(
+              (x) =>
+                typeof x === 'string' &&
+                x.split(',').some((p) => selectedColors.has(p.trim())),
+            ));
+        if (!ok) return false;
+      }
+      if (selectedSpaces.size > 0) {
+        const v = r.fields?.[spaceFieldName];
+        const ok =
+          (typeof v === 'string' && v.split(',').some((p) => selectedSpaces.has(p.trim()))) ||
+          (Array.isArray(v) &&
+            v.some(
+              (x) =>
+                typeof x === 'string' &&
+                x.split(',').some((p) => selectedSpaces.has(p.trim())),
+            ));
+        if (!ok) return false;
+      }
+      if (selectedMaterials.size > 0) {
+        const v = r.fields?.[materialFieldName];
+        const ok =
+          (typeof v === 'string' && v.split(',').some((p) => selectedMaterials.has(p.trim()))) ||
+          (Array.isArray(v) &&
+            v.some(
+              (x) =>
+                typeof x === 'string' &&
+                x.split(',').some((p) => selectedMaterials.has(p.trim())),
+            ));
+        if (!ok) return false;
+      }
+      return true;
+    },
+    [
+      categoryFieldName,
+      colorFieldName,
+      materialFieldName,
+      selectedCategories,
+      selectedColors,
+      selectedMaterials,
+      selectedSpaces,
+      spaceFieldName,
+    ],
+  );
+
   // Filter Logic
   const filteredRecords = React.useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let base = !q ? records : records.filter((r) => {
-      const text = getSearchText(r, displayedColumns);
-      if (text.includes(q)) return true;
-      const words = q.split(/\s+/);
-      return words.every(word => text.includes(word));
-    });
+    const q = debouncedSearch.trim().toLowerCase();
+    let base =
+      !q ?
+        records
+      : records.filter((r) => {
+          const text = recordSearchTextById.get(r.id) ?? '';
+          if (text.includes(q)) return true;
+          const words = q.split(/\s+/);
+          return words.every((word) => text.includes(word));
+        });
 
-    if (selectedCategories.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[categoryFieldName];
-        if (typeof v === 'string') return v.split(',').some(p => selectedCategories.has(p.trim()));
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedCategories.has(p.trim())));
-        return false;
-      });
-    }
-    if (selectedColors.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[colorFieldName];
-        if (typeof v === 'string') return v.split(',').some(p => selectedColors.has(p.trim()));
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedColors.has(p.trim())));
-        return false;
-      });
-    }
-    if (selectedSpaces.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[spaceFieldName];
-        if (typeof v === 'string') return v.split(',').some(p => selectedSpaces.has(p.trim()));
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedSpaces.has(p.trim())));
-        return false;
-      });
-    }
-    if (selectedMaterials.size > 0) {
-      base = base.filter(r => {
-        const v = r.fields?.[materialFieldName];
-        if (typeof v === 'string') return v.split(',').some(p => selectedMaterials.has(p.trim()));
-        if (Array.isArray(v)) return v.some(x => typeof x === 'string' && x.split(',').some(p => selectedMaterials.has(p.trim())));
-        return false;
-      });
+    if (
+      selectedCategories.size > 0 ||
+      selectedColors.size > 0 ||
+      selectedSpaces.size > 0 ||
+      selectedMaterials.size > 0
+    ) {
+      base = base.filter(matchesFacetFilters);
     }
 
     if (!showSelectedOnly) {
       if (familyCollectionName) {
         const key = familyCollectionName.toLowerCase().trim();
-        base = base.filter(r => {
+        base = base.filter((r) => {
           const name = (
-            formatScalar(r.fields?.['Colecction Name']) || 
-            formatScalar(r.fields?.Name) || 
-            formatScalar(r.fields?.['Collection Name']) || 
+            formatScalar(r.fields?.['Colecction Name']) ||
+            formatScalar(r.fields?.Name) ||
+            formatScalar(r.fields?.['Collection Name']) ||
             ''
-          ).toLowerCase().trim();
+          )
+            .toLowerCase()
+            .trim();
           return name === key;
         });
       }
@@ -188,10 +241,17 @@ export function useProductFilters({
     }
     return base.filter((r) => selectedIds.has(r.id));
   }, [
-    displayedColumns, getSearchText, records, search, selectedIds,
-    showSelectedOnly, selectedCategories, selectedColors, selectedSpaces,
-    selectedMaterials, categoryFieldName, colorFieldName, spaceFieldName,
-    materialFieldName, familyCollectionName
+    debouncedSearch,
+    familyCollectionName,
+    matchesFacetFilters,
+    recordSearchTextById,
+    records,
+    selectedIds,
+    showSelectedOnly,
+    selectedCategories.size,
+    selectedColors.size,
+    selectedMaterials.size,
+    selectedSpaces.size,
   ]);
 
   // Sort Logic
@@ -233,6 +293,8 @@ export function useProductFilters({
   }, []);
 
   const sortedRecords = React.useMemo(() => {
+    if (filteredRecords.length <= 1) return filteredRecords;
+
     const base = [...filteredRecords];
     base.sort((a, b) => {
       const av = getSortValue(a, sortKey);

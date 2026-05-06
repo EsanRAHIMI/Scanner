@@ -5,6 +5,8 @@ import { FeedItem } from './feed-item';
 export interface SocialFeedProps {
   variants: FeedVariant[];
   initialVariantId: string | null;
+  /** Optional row index from parent (same order as `variants`) to skip O(n) id lookup on open. */
+  initialVariantIndex?: number | null;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onClose: () => void;
@@ -19,6 +21,7 @@ export interface SocialFeedProps {
 export function SocialFeed({
   variants,
   initialVariantId,
+  initialVariantIndex,
   selectedIds,
   onToggleSelect,
   onClose,
@@ -30,12 +33,20 @@ export function SocialFeed({
   onUpdateVariant
 }: SocialFeedProps) {
 
-  // Resolve initial index
+  // Resolve initial index — prefer explicit index (O(1)) over scanning all variants by id (O(n))
   const initialIndex = useMemo(() => {
+    if (
+      typeof initialVariantIndex === 'number' &&
+      Number.isFinite(initialVariantIndex) &&
+      initialVariantIndex >= 0 &&
+      initialVariantIndex < variants.length
+    ) {
+      return initialVariantIndex;
+    }
     if (!initialVariantId) return 0;
-    const idx = variants.findIndex(v => v.id === initialVariantId);
+    const idx = variants.findIndex((v) => v.id === initialVariantId);
     return idx >= 0 ? idx : 0;
-  }, [variants, initialVariantId]);
+  }, [variants, initialVariantId, initialVariantIndex]);
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [showFilterHint, setShowFilterHint] = useState(false);

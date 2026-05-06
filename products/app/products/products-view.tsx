@@ -81,7 +81,8 @@ export function ProductsView({
     (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
   }, []);
 
-  const { data, loading, error, setData, mutate, notePendingDelete } = useProductsCache();
+  const { data, loading, error, isStaleOfflineSnapshot, setData, mutate, notePendingDelete } =
+    useProductsCache();
   const { data: fieldOptionsData } = useSWR('/public/products/field-options', productFieldOptionsFetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
@@ -145,33 +146,35 @@ export function ProductsView({
 
   const { selectedIds, setSelectedIds, showSelectedOnly, setShowSelectedOnly, familyCollectionName, setFamilyCollectionName } = selection;
 
-  const getUniqueValues = React.useCallback((fieldName: string) => {
-    const vals = new Set<string>();
-    records.forEach(r => {
-      const v = r.fields?.[fieldName];
+  const { uniqueCategories, uniqueColors, uniqueSpaces, uniqueMaterials } = React.useMemo(() => {
+    const addCommaParts = (v: unknown, target: Set<string>) => {
       if (typeof v === 'string' && v.trim()) {
-        v.split(',').forEach(part => {
+        for (const part of v.split(',')) {
           const p = part.trim();
-          if (p) vals.add(p);
-        });
+          if (p) target.add(p);
+        }
       } else if (Array.isArray(v)) {
-        v.forEach(x => {
-          if (typeof x === 'string' && x.trim()) {
-            x.split(',').forEach(part => {
-              const p = part.trim();
-              if (p) vals.add(p);
-            });
-          }
-        });
+        for (const x of v) addCommaParts(x, target);
       }
-    });
-    return Array.from(vals).sort((a, b) => a.localeCompare(b));
-  }, [records]);
-
-  const uniqueCategories = React.useMemo(() => getUniqueValues(categoryFieldName), [getUniqueValues, categoryFieldName]);
-  const uniqueColors = React.useMemo(() => getUniqueValues(colorFieldName), [getUniqueValues, colorFieldName]);
-  const uniqueSpaces = React.useMemo(() => getUniqueValues(spaceFieldName), [getUniqueValues, spaceFieldName]);
-  const uniqueMaterials = React.useMemo(() => getUniqueValues(materialFieldName), [getUniqueValues, materialFieldName]);
+    };
+    const cats = new Set<string>();
+    const colors = new Set<string>();
+    const spaces = new Set<string>();
+    const materials = new Set<string>();
+    for (const r of records) {
+      addCommaParts(r.fields?.[categoryFieldName], cats);
+      addCommaParts(r.fields?.[colorFieldName], colors);
+      addCommaParts(r.fields?.[spaceFieldName], spaces);
+      addCommaParts(r.fields?.[materialFieldName], materials);
+    }
+    const sortVals = (s: Set<string>) => Array.from(s).sort((a, b) => a.localeCompare(b));
+    return {
+      uniqueCategories: sortVals(cats),
+      uniqueColors: sortVals(colors),
+      uniqueSpaces: sortVals(spaces),
+      uniqueMaterials: sortVals(materials),
+    };
+  }, [records, categoryFieldName, colorFieldName, materialFieldName, spaceFieldName]);
   const editableCategories = fieldOptionsData?.options?.Category ?? uniqueCategories;
   const editableColors = fieldOptionsData?.options?.Color ?? uniqueColors;
   const editableSpaces = fieldOptionsData?.options?.Space ?? uniqueSpaces;
@@ -799,6 +802,7 @@ export function ProductsView({
 
       <ProductFilters
         data={data}
+        isStaleOfflineSnapshot={isStaleOfflineSnapshot}
         visibleCount={visibleRecords.length}
         uniqueCategories={editableCategories}
         selectedCategories={selectedCategories}
@@ -819,8 +823,32 @@ export function ProductsView({
       />
 
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
-          {error}
+        <div
+          role="alert"
+          className={`rounded-lg border p-3 text-sm ${
+            isStaleOfflineSnapshot ?
+              'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-50'
+            : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200'
+          }`}
+        >
+          {isStaleOfflineSnapshot ?
+            <>
+              <p className="font-semibold">Live catalog unavailable — offline snapshot displayed</p>
+              <p className="mt-1.5 text-[13px] leading-snug opacity-95">
+                The list below reflects cached data (sessionStorage) or memory from an earlier successful load, not an
+                up-to-date read from MongoDB. Totals labeled &quot;Cached snapshot&quot; are not guaranteed to match the
+                current server inventory.
+              </p>
+              <p className="mt-3 text-[12px] font-semibold uppercase tracking-wide opacity-85">Underlying API failure</p>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-snug opacity-95">
+                {error}
+              </pre>
+            </>
+          : <>
+              <p className="font-semibold">Unable to load products</p>
+              <p className="mt-1">{error}</p>
+            </>
+          }
         </div>
       ) : null}
 
@@ -967,6 +995,7 @@ export function ProductsView({
         <SocialFeed
           variants={galleryItems as any}
           initialVariantId={previewId}
+          initialVariantIndex={previewIndex === null ? undefined : previewIndex}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelected}
           onClose={closePreview}

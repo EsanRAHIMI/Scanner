@@ -81,6 +81,8 @@ export interface ProductsCacheContextValue {
   data: ProductsAssetsResponse | null;
   loading: boolean;
   error: string | null;
+  /** True when the UI still shows cached/previous snapshot but the latest GET `/api/products/assets` failed (e.g. trainer/Mongo inactive). */
+  isStaleOfflineSnapshot: boolean;
   setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
   /** Call synchronously before optimistic delete so pending-delete survives stale refetches. */

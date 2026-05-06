@@ -1,9 +1,67 @@
 'use client';
 
 import * as React from 'react';
-import { isVideoUrl, getDriveDirectLink } from '../lib/product-utils';
+import Image from 'next/image';
+import { getDriveDirectLink, isVideoUrl, supportsNextJsImageOptimization } from '../lib/product-utils';
 
 import { PhotoDeckProps } from '../types/products-ui';
+
+function DeckRaster({
+  finalUrl,
+  revIdx,
+  isVideo,
+}: {
+  finalUrl: string;
+  revIdx: number;
+  isVideo: boolean;
+}) {
+  const [broken, setBroken] = React.useState(false);
+  React.useEffect(() => {
+    setBroken(false);
+  }, [finalUrl]);
+
+  const optimize = !isVideo && supportsNextJsImageOptimization(finalUrl);
+
+  if (!finalUrl || broken) {
+    return (
+      <span
+        aria-hidden
+        className="block h-full w-full bg-gradient-to-br from-black/[0.06] to-black/[0.12] dark:from-white/[0.05] dark:to-white/[0.10]"
+      />
+    );
+  }
+
+  if (optimize) {
+    return (
+      <Image
+        src={finalUrl}
+        alt={`Product view ${revIdx + 1}`}
+        fill
+        sizes="96px"
+        loading={revIdx === 0 ? 'eager' : 'lazy'}
+        priority={revIdx === 0}
+        placeholder="empty"
+        referrerPolicy="no-referrer"
+        className="object-cover"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+
+  /* eslint-disable-next-line @next/next/no-img-element */
+  return (
+    <img
+      src={finalUrl}
+      alt={`Product view ${revIdx + 1}`}
+      loading={revIdx === 0 ? 'eager' : 'lazy'}
+      decoding="async"
+      fetchPriority={revIdx === 0 ? 'high' : 'low'}
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+      className="block h-full w-full object-cover"
+    />
+  );
+}
 
 const PhotoDeck = React.memo(({ 
   urls, 
@@ -62,19 +120,7 @@ const PhotoDeck = React.memo(({
               tabIndex={0}
             >
               <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={finalUrl}
-                  alt={`Product view ${revIdx + 1}`}
-                  loading="lazy"
-                  decoding="async"
-                  fetchPriority={revIdx === 0 ? "high" : "low"}
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                  className="block h-full w-full object-cover"
-                />
+                <DeckRaster finalUrl={finalUrl} revIdx={revIdx} isVideo={isVideo} />
                 {isVideo && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">

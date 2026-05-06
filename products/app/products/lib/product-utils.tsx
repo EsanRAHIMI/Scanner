@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import type { ProductsRecord } from '@/types/trainer';
+import type { GalleryItem } from '../types/shared-types';
 
 /**
  * Checks if a URL points to a video file.
@@ -28,6 +29,20 @@ export function isImageUrl(url: string | null | undefined): boolean {
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.heic'];
   if (l.includes('lh3.googleusercontent.com/d/')) return true;
   return imageExts.some(ext => l.includes(ext));
+}
+
+/**
+ * True when `next/image` can safely optimise this remote URL (configured in next.config remotePatterns).
+ * Non‑lh3 URLs keep using `<img>` so arbitrary CDNs and edge cases stay unchanged.
+ */
+export function supportsNextJsImageOptimization(url: string | null | undefined): boolean {
+  if (!url || isVideoUrl(url)) return false;
+  try {
+    const hostname = new URL(url.trim()).hostname;
+    return hostname === 'lh3.googleusercontent.com';
+  } catch {
+    return /^https:\/\/lh3\.googleusercontent\.com\b/i.test(url.trim());
+  }
 }
 
 /**
@@ -162,6 +177,96 @@ export function getDriveDirectLink(url: string | null | undefined): string {
     return `https://lh3.googleusercontent.com/d/${id}=w1200`;
   }
   return u;
+}
+
+const GOOGLE_ASSET_ID = /^[a-zA-Z0-9_-]{10,}$/;
+
+/**
+ * Best-effort canonical file ID for lh3 thumbnails or Drive URLs (sizes like =w600 vs =w1200 share the same id).
+ */
+export function extractGoogleHostedAssetId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  try {
+    const lh = u.match(/lh3\.googleusercontent\.com\/d\/([^/?#\s]+)/i);
+    if (lh?.[1]) {
+      const id = lh[1].split('=')[0] ?? '';
+      if (GOOGLE_ASSET_ID.test(id)) return id;
+    }
+    const dSlash = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{10,})\b/);
+    if (dSlash?.[1]) return dSlash[1];
+    const qp = u.match(/[?&](?:id|fileId|docid|fileid)=([a-zA-Z0-9_-]{10,})\b/i);
+    if (qp?.[1]) return qp[1];
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** True when two URLs refer to the same Google-hosted file (handles drive link vs lh3, width suffixes). */
+export function sameGoogleHostedMediaUrl(aRaw: string, bRaw: string): boolean {
+  const a = aRaw.trim();
+  const b = bRaw.trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ia = extractGoogleHostedAssetId(a);
+  const ib = extractGoogleHostedAssetId(b);
+  if (ia && ib && ia === ib) return true;
+  const da = getDriveDirectLink(a);
+  const db = getDriveDirectLink(b);
+  return Boolean(da && db && da === db);
+}
+
+const GALLERY_LOOKUP_ASSET_PREFIX = '__gallery_asset__:';
+
+/**
+ * Build a URL → gallery index map in a single pass when `galleryItems` changes.
+ * Opening a preview then resolves in O(1) instead of scanning thousands of rows per click.
+ */
+export function buildGalleryOpenUrlIndexMap(items: GalleryItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  const put = (raw: string | null | undefined, idx: number) => {
+    if (typeof raw !== 'string') return;
+    const t = raw.trim();
+    if (!t) return;
+    if (!map.has(t)) map.set(t, idx);
+    const direct = getDriveDirectLink(t);
+    if (direct && !map.has(direct)) map.set(direct, idx);
+    const id = extractGoogleHostedAssetId(t);
+    if (id) {
+      const key = `${GALLERY_LOOKUP_ASSET_PREFIX}${id}`;
+      if (!map.has(key)) map.set(key, idx);
+    }
+  };
+
+  items.forEach((item, idx) => {
+    put(item.url, idx);
+    put(item.originalUrl, idx);
+    for (const m of item.allMedia) {
+      put(m.url, idx);
+      put(m.originalUrl, idx);
+    }
+  });
+  return map;
+}
+
+/** Resolve gallery row index from the URL emitted by list / deck / gallery cards (O(1)). */
+export function resolveGalleryIndexFromOpenMap(map: Map<string, number>, clicked: string): number {
+  const c = clicked.trim();
+  if (!c) return -1;
+  const directHit = map.get(c);
+  if (directHit !== undefined) return directHit;
+  const transformed = getDriveDirectLink(c);
+  if (transformed) {
+    const tHit = map.get(transformed);
+    if (tHit !== undefined) return tHit;
+  }
+  const id = extractGoogleHostedAssetId(c);
+  if (id) {
+    const idHit = map.get(`${GALLERY_LOOKUP_ASSET_PREFIX}${id}`);
+    if (idHit !== undefined) return idHit;
+  }
+  return -1;
 }
 
 /**

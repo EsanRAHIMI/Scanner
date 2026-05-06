@@ -14,10 +14,43 @@ export function useProductsCache() {
   return ctx;
 }
 
+/**
+ * FastAPI `/detail` payloads are plain strings, validation arrays, or nested objects —
+ * flatten to one readable line without hiding the server's reason.
+ */
+function formatTrainerAssetsErrorMessage(rawBody: string, httpHint?: string): string {
+  const raw = rawBody.trim();
+  if (!raw) return httpHint || 'Request failed (empty response body).';
+  try {
+    const parsed = JSON.parse(raw) as { detail?: unknown };
+    const detail = parsed?.detail;
+    if (typeof detail === 'string' && detail) return `${httpHint ? `${httpHint}: ` : ''}${detail}`;
+    if (Array.isArray(detail)) {
+      const parts = detail.map((entry) =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        ('msg' in entry || 'type' in entry || 'loc' in entry)
+          ? `${JSON.stringify(entry)}`
+          : String(entry)
+      );
+      return `${httpHint ? `${httpHint}: ` : ''}${parts.join('; ')}`;
+    }
+    if (detail !== undefined && typeof detail !== 'object')
+      return `${httpHint ? `${httpHint}: ` : ''}${String(detail)}`;
+  } catch {
+    /* not JSON — use raw snippet */
+  }
+  const clip = raw.length > 900 ? `${raw.slice(0, 900)}…` : raw;
+  return `${httpHint ? `${httpHint}: ` : ''}${clip}`;
+}
+
 async function fetcher(url: string): Promise<ProductsAssetsResponse> {
   const res = await fetch(url);
   const text = await res.text();
-  if (!res.ok) throw new Error(text || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
+    throw new Error(formatted || `Request failed (${res.status})`);
+  }
   return JSON.parse(text) as ProductsAssetsResponse;
 }
 
@@ -227,12 +260,33 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     }
   );
 
+  const persistedCacheJsonRef = React.useRef<string>('');
+
   React.useEffect(() => {
     if (!swrData) return;
+
+    let t: ReturnType<typeof setTimeout> | null = null;
     try {
-      window.sessionStorage.setItem('products_assets_cache_v1', JSON.stringify(swrData));
+      const json = JSON.stringify(swrData);
+      if (json === persistedCacheJsonRef.current) return;
+
+      /** Debounced write: large payloads on every mutate were blocking the main thread. */
+      const flush = () => {
+        try {
+          window.sessionStorage.setItem('products_assets_cache_v1', json);
+          persistedCacheJsonRef.current = json;
+        } catch {
+          // Ignore storage failures / quota exceeded.
+        }
+      };
+
+      t = setTimeout(flush, 450);
+      return () => {
+        if (t) clearTimeout(t);
+      };
     } catch {
-      // Ignore storage failures.
+      // Ignore serialization failures on odd proxy objects.
+      return undefined;
     }
   }, [swrData]);
 
@@ -313,7 +367,16 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   }, [runRevalidation]);
 
   const loading = isLoading;
-  const error = swrError ? (swrError instanceof Error ? swrError.message : 'Failed to load Products') : null;
+  const isStaleOfflineSnapshot = Boolean(swrError && data);
+
+  const error =
+    swrError instanceof Error ?
+      (swrError.message.trim() || 'Failed to load Products')
+    : swrError ?
+      (typeof swrError === 'object' && swrError !== null && String(swrError) !== '[object Object]' ?
+        String(swrError)
+      : 'Failed to load Products')
+    : null;
 
   const notePendingDelete = React.useCallback((recordId: string) => {
     if (pendingDeletedIdsRef.current.has(recordId)) return;
@@ -328,6 +391,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       data, 
       loading, 
       error, 
+      isStaleOfflineSnapshot,
       notePendingDelete,
       setData: (updater) => {
         setLocalOverride(prev => {
@@ -380,7 +444,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         }
       }
     }),
-    [data, error, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData]
+    [data, error, isStaleOfflineSnapshot, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData]
   );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;

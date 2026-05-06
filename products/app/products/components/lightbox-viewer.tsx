@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { isVideoUrl, getDriveDirectLink } from '../lib/product-utils';
+import { getDriveDirectLink, isVideoUrl } from '../lib/product-utils';
 import { ProductDetailsPanel } from './product-details-panel';
 import type { GalleryItem, SwipeRefState } from '../types/shared-types';
 
@@ -40,6 +40,17 @@ export function LightboxViewer({
   setLightboxDetailsCollapsed,
   currentCollectionVariants
 }: LightboxViewerProps) {
+  const isVideoPreview = isVideoUrl(currentItem.originalUrl);
+  const resolvedStillUrl = isVideoPreview ? '' : getDriveDirectLink(currentItem.url);
+
+  const onGalleryImgPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (swipeRef.current.swiped) return;
+    if (e.shiftKey || e.pointerType === 'mouse') {
+      toggleSelected(currentItem.id);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[1000] flex items-center justify-center bg-white/85 backdrop-blur-[2px] p-4 text-black dark:bg-black/85 dark:text-white"
@@ -118,7 +129,7 @@ export function LightboxViewer({
         }}
         onPointerUp={(e) => { if (swipeRef.current.pointerId === e.pointerId) swipeRef.current.pointerId = null; }}
       >
-        {isVideoUrl(currentItem.originalUrl) ? (
+        {isVideoPreview ? (
           currentItem.driveId ? (
             <div className="relative h-[80vh] w-[90vw] max-w-4xl overflow-hidden rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 shadow-2xl transition-all">
               <iframe
@@ -143,21 +154,20 @@ export function LightboxViewer({
             />
           )
         ) : (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={getDriveDirectLink(currentItem.url)}
-            alt={currentItem.title}
-            className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
-            draggable={false}
-            style={{ touchAction: 'pan-y' }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              if (swipeRef.current.swiped) return;
-              if (e.shiftKey || e.pointerType === 'mouse') {
-                toggleSelected(currentItem.id);
-              }
-            }}
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- Full-size uses native fetch for faster first paint vs next/image proxy; thumbnails stay optimized. */}
+            <img
+              src={resolvedStillUrl}
+              alt={currentItem.title}
+              className="max-h-[85vh] w-auto max-w-[95vw] select-none object-contain shadow-2xl transition-transform duration-300"
+              draggable={false}
+              style={{ touchAction: 'pan-y' }}
+              onPointerDown={onGalleryImgPointerDown}
+              fetchPriority="high"
+              decoding="async"
+              referrerPolicy="no-referrer"
+            />
+          </>
         )}
       </div>
 

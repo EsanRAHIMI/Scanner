@@ -1,17 +1,40 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { GalleryItem } from '../types/shared-types';
+import {
+  buildGalleryOpenUrlIndexMap,
+  resolveGalleryIndexFromOpenMap,
+  sameGoogleHostedMediaUrl,
+} from '../lib/product-utils';
 
 export function useLightbox(visibleGalleryItems: GalleryItem[]) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
 
-  const openPreviewByUrl = useCallback((url: string) => {
-    const idx = visibleGalleryItems.findIndex(i => i.allMedia.some(m => m.url === url || m.originalUrl === url));
-    if (idx >= 0) {
-      setPreviewIndex(idx);
-      setPreviewId(visibleGalleryItems[idx].id);
-    }
-  }, [visibleGalleryItems]);
+  const openUrlIndexMap = useMemo(
+    () => buildGalleryOpenUrlIndexMap(visibleGalleryItems),
+    [visibleGalleryItems],
+  );
+
+  const openPreviewByUrl = useCallback(
+    (url: string) => {
+      let idx = resolveGalleryIndexFromOpenMap(openUrlIndexMap, url);
+      if (idx < 0) {
+        const clicked = url.trim();
+        idx = visibleGalleryItems.findIndex((i) =>
+          i.allMedia.some(
+            (m) =>
+              sameGoogleHostedMediaUrl(clicked, m.url) ||
+              sameGoogleHostedMediaUrl(clicked, m.originalUrl),
+          ),
+        );
+      }
+      if (idx >= 0) {
+        setPreviewIndex(idx);
+        setPreviewId(visibleGalleryItems[idx].id);
+      }
+    },
+    [openUrlIndexMap, visibleGalleryItems],
+  );
 
   const closePreview = useCallback(() => {
     setPreviewIndex(null);
@@ -19,7 +42,7 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
   }, []);
 
   const goPrev = useCallback(() => {
-    setPreviewIndex(prev => {
+    setPreviewIndex((prev) => {
       if (prev === null) return null;
       const n = visibleGalleryItems.length;
       if (n <= 1) return prev;
@@ -30,7 +53,7 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
   }, [visibleGalleryItems]);
 
   const goNext = useCallback(() => {
-    setPreviewIndex(prev => {
+    setPreviewIndex((prev) => {
       if (prev === null) return null;
       const n = visibleGalleryItems.length;
       if (n <= 1) return prev;
