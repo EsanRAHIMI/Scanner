@@ -34,6 +34,7 @@ import { FieldEditPortal } from './components/field-edit-portal';
 import { LinkHoverPreview } from './components/link-hover-preview';
 import { useTheme } from './hooks/use-theme';
 import { useLightbox } from './hooks/use-lightbox';
+import { markLightboxTrace } from './lib/lightbox-perf';
 
 import { ActivityLogModal } from './components/activity-log-modal';
 import { TopProgressBar } from './components/top-progress-bar';
@@ -502,6 +503,7 @@ export function ProductsView({
   React.useEffect(() => {
     const isOpen = Boolean(currentItem?.url);
     if (!isOpen) return;
+    markLightboxTrace('lightbox:state-committed');
 
     const el = document.documentElement;
     const body = document.body;

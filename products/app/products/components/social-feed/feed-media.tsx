@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FeedMediaItem } from './types';
+import { markLightboxTrace } from '../../lib/lightbox-perf';
 
 interface FeedMediaProps {
   media: FeedMediaItem;
@@ -39,6 +40,12 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (shouldLoad && isActive && isPrimary) {
+      markLightboxTrace('media:request-start', `type=${media.isVideo ? 'video' : 'image'}`);
+    }
+  }, [isActive, isPrimary, media.isVideo, shouldLoad]);
 
   // Manage auto-playback of native videos based on activity
   useEffect(() => {
@@ -122,6 +129,11 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
             fetchPriority={isActive && isPrimary ? 'high' : shouldPreload ? 'high' : 'low'}
             decoding="async"
             referrerPolicy="no-referrer"
+            onLoad={() => {
+              if (isActive && isPrimary) {
+                markLightboxTrace('media:first-load');
+              }
+            }}
           />
         </>
       )}

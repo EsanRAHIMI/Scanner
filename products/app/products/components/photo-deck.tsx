@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Image from 'next/image';
 import { getDriveDirectLink, isVideoUrl, supportsNextJsImageOptimization } from '../lib/product-utils';
+import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 
 import { PhotoDeckProps } from '../types/products-ui';
 
@@ -95,6 +96,8 @@ const PhotoDeck = React.memo(({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
+                beginLightboxTrace('photo-deck');
+                markLightboxTrace('click:handler');
                 onOpenPreview?.(finalUrl);
               }}
               title={finalUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}

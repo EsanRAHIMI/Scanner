@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect, startTransition } from 'react';
 import { FeedVariant } from './types';
 import { FeedItem } from './feed-item';
+import { endLightboxTrace, markLightboxTrace } from '../../lib/lightbox-perf';
 
 export interface SocialFeedProps {
   variants: FeedVariant[];
@@ -49,6 +50,17 @@ export function SocialFeed({
   }, [variants, initialVariantId, initialVariantIndex]);
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [hydrationRadius, setHydrationRadius] = useState(2);
+  const activeIndexRef = useRef(initialIndex);
+  useLayoutEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  const variantsLengthRef = useRef(variants.length);
+  useLayoutEffect(() => {
+    variantsLengthRef.current = variants.length;
+  }, [variants.length]);
+
   const [showFilterHint, setShowFilterHint] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,8 +75,12 @@ export function SocialFeed({
     hintTimeoutRef.current = setTimeout(() => setShowFilterHint(false), 1500);
   };
 
+  const triggerHintRef = useRef(triggerHint);
+  triggerHintRef.current = triggerHint;
+
   // Set initial scroll position logic on mount
   useEffect(() => {
+    markLightboxTrace('socialFeed:mount');
     if (containerRef.current) {
       if (initialIndex > 0) {
         containerRef.current.scrollTop = initialIndex * containerRef.current.clientHeight;
@@ -73,25 +89,94 @@ export function SocialFeed({
     }
   }, []); // Only on mount
 
-  // Simple scroll detection for active index
+  useLayoutEffect(() => {
+    markLightboxTrace('socialFeed:first-frame');
+    endLightboxTrace('overlay:first-frame');
+  }, []);
+
+  // Keep initial mount cheap: render a small window first, then progressively hydrate farther items.
+  useEffect(() => {
+    setHydrationRadius(2);
+  }, [initialIndex, variants.length]);
+
+  useEffect(() => {
+    if (variants.length <= 0) return;
+    let cancelled = false;
+    const grow = () => {
+      if (cancelled) return;
+      setHydrationRadius((prev) => {
+        if (prev >= variants.length) return prev;
+        return Math.min(prev + 8, variants.length);
+      });
+    };
+
+    const schedule =
+      typeof window !== 'undefined' && 'requestIdleCallback' in window
+        ? () =>
+            (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout?: number }) => number })
+              .requestIdleCallback(grow, { timeout: 120 })
+        : () => window.setTimeout(grow, 60);
+
+    const cancel =
+      typeof window !== 'undefined' && 'cancelIdleCallback' in window
+        ? (id: number) =>
+            (window as Window & { cancelIdleCallback: (idleId: number) => void }).cancelIdleCallback(id)
+        : (id: number) => window.clearTimeout(id);
+
+    let timerId = 0;
+    const tick = () => {
+      if (cancelled) return;
+      timerId = schedule();
+    };
+    tick();
+
+    const intervalId = window.setInterval(() => {
+      setHydrationRadius((prev) => {
+        if (prev >= variants.length) {
+          window.clearInterval(intervalId);
+          return prev;
+        }
+        const next = Math.min(prev + 16, variants.length);
+        return next;
+      });
+      tick();
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      cancel(timerId);
+      window.clearInterval(intervalId);
+    };
+  }, [variants.length]);
+
+  // Vertical snap: one listener, rAF + startTransition — avoid re-attaching per activeIndex (was freezing scroll)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
+    let raf = 0;
     const handleScroll = () => {
-      const height = el.clientHeight;
-      if (height > 0) {
-        const scrollY = el.scrollTop;
-        const index = Math.round(scrollY / height);
-        if (index !== activeIndex) {
-          setActiveIndex(index);
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const height = el.clientHeight;
+        if (height <= 0) return;
+        const index = Math.round(el.scrollTop / height);
+        const max = variantsLengthRef.current - 1;
+        const clamped = max >= 0 ? Math.max(0, Math.min(max, index)) : 0;
+        if (clamped !== activeIndexRef.current) {
+          activeIndexRef.current = clamped;
+          startTransition(() => setActiveIndex(clamped));
         }
-      }
+      });
     };
 
     el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => el.removeEventListener('scroll', handleScroll);
-  }, [activeIndex]);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      el.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   // Keyboard navigation for Vertical Scroll (Products)
   useEffect(() => {
@@ -108,6 +193,7 @@ export function SocialFeed({
             top: nextIndex * height,
             behavior: 'smooth'
           });
+          activeIndexRef.current = nextIndex;
           setActiveIndex(nextIndex);
         } else if (activeCollectionName) {
           triggerHint();
@@ -121,6 +207,7 @@ export function SocialFeed({
             top: prevIndex * height,
             behavior: 'smooth'
           });
+          activeIndexRef.current = prevIndex;
           setActiveIndex(prevIndex);
         }
       } else if (e.key === 'Escape') {
@@ -158,11 +245,12 @@ export function SocialFeed({
         top: foundIdx * height,
         behavior: 'smooth'
       });
+      activeIndexRef.current = foundIdx;
       setActiveIndex(foundIdx);
     }
   };
 
-  // Touch/Wheel overscroll detection
+  // Touch/Wheel overscroll detection — stable listeners (refs), not tied to activeIndex
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -170,8 +258,12 @@ export function SocialFeed({
     let touchStartY = 0;
 
     const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY > 0 && activeIndex === variants.length - 1) {
-        triggerHint();
+      if (
+        e.deltaY > 0 &&
+        activeIndexRef.current === variantsLengthRef.current - 1 &&
+        variantsLengthRef.current > 0
+      ) {
+        triggerHintRef.current();
       }
     };
 
@@ -182,8 +274,12 @@ export function SocialFeed({
     const handleTouchMove = (e: TouchEvent) => {
       const touchY = e.touches[0].clientY;
       const deltaY = touchStartY - touchY;
-      if (deltaY > 20 && activeIndex === variants.length - 1) {
-        triggerHint();
+      if (
+        deltaY > 20 &&
+        activeIndexRef.current === variantsLengthRef.current - 1 &&
+        variantsLengthRef.current > 0
+      ) {
+        triggerHintRef.current();
       }
     };
 
@@ -196,14 +292,21 @@ export function SocialFeed({
       el.removeEventListener('touchstart', handleTouchStart);
       el.removeEventListener('touchmove', handleTouchMove);
     };
-  }, [activeIndex, variants.length, activeCollectionName, showFilterHint]);
+  }, []);
 
-  const handleDownloadMedia = async (url: string) => {
+  const handleDownloadMedia = useCallback(async (url: string) => {
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) return;
       const blob = await res.blob();
-      const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : blob.type.includes('video') ? 'mp4' : 'jpg';
+      const ext =
+        blob.type === 'image/png'
+          ? 'png'
+          : blob.type === 'image/webp'
+            ? 'webp'
+            : blob.type.includes('video')
+              ? 'mp4'
+              : 'jpg';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `media_${Date.now()}.${ext}`;
@@ -212,9 +315,9 @@ export function SocialFeed({
       a.remove();
       URL.revokeObjectURL(a.href);
     } catch {}
-  };
+  }, []);
 
-  const handleShareMedia = async (variant: FeedVariant, mediaUrl: string) => {
+  const handleShareMedia = useCallback(async (variant: FeedVariant, mediaUrl: string) => {
     // 1. Structure the minimalist English metadata
     const specs = [
       `Collection: ${variant.collectionName || variant.title || '---'}`,
@@ -271,7 +374,16 @@ export function SocialFeed({
         alert('Error sharing product detail');
       }
     }
-  };
+  }, []);
+
+  const handleCollectionTap = useCallback(
+    (key: string | null | undefined) => {
+      if (!key) return;
+      if (activeCollectionName === key) onFilterCollection(null);
+      else onFilterCollection(key);
+    },
+    [activeCollectionName, onFilterCollection],
+  );
 
   return (
     <div 
@@ -369,33 +481,24 @@ export function SocialFeed({
               contentVisibility: Math.abs(idx - activeIndex) > 3 ? 'hidden' : 'auto' 
             }}
           >
-            <FeedItem 
-              variant={variant}
-              isActive={idx === activeIndex}
-              shouldPreload={Math.abs(idx - activeIndex) === 1}
-              isSelected={selectedIds.has(variant.id)}
-              onToggleSelect={() => onToggleSelect(variant.id)}
-              onDownloadMedia={handleDownloadMedia}
-              onShareMedia={(v, url) => handleShareMedia(v, url)}
-              onShowCollection={() => {
-                const key = variant.collectionNameNormalized;
-                if (key) {
-                  // Toggle behavior: If already filtering THIS collection, clear it.
-                  if (activeCollectionName === key) {
-                    onFilterCollection(null);
-                  } else {
-                    onFilterCollection(key);
-                  }
-                  // We NO LONGER call onClose() here to stay in the feed
-                }
-              }}
-              activeCollectionFilter={activeCollectionName}
-              selectedCount={selectedCount}
-              canEdit={canEdit}
-              onAddMedia={onAddMedia}
-              onUpdateVariant={onUpdateVariant}
-              triggerFilterHint={idx === activeIndex ? showFilterHint : false}
-            />
+            {Math.abs(idx - activeIndex) <= hydrationRadius ? (
+              <FeedItem 
+                variant={variant}
+                isActive={idx === activeIndex}
+                shouldPreload={Math.abs(idx - activeIndex) === 1}
+                isSelected={selectedIds.has(variant.id)}
+                onToggleSelectById={onToggleSelect}
+                onDownloadMedia={handleDownloadMedia}
+                onShareMedia={handleShareMedia}
+                onCollectionFilterTap={handleCollectionTap}
+                activeCollectionFilter={activeCollectionName}
+                selectedCount={selectedCount}
+                canEdit={canEdit}
+                onAddMedia={onAddMedia}
+                onUpdateVariant={onUpdateVariant}
+                triggerFilterHint={idx === activeIndex ? showFilterHint : false}
+              />
+            ) : null}
           </div>
         ))}
       </div>

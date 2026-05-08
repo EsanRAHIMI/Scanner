@@ -5,6 +5,7 @@ import {
   resolveGalleryIndexFromOpenMap,
   sameGoogleHostedMediaUrl,
 } from '../lib/product-utils';
+import { markLightboxTrace } from '../lib/lightbox-perf';
 
 export function useLightbox(visibleGalleryItems: GalleryItem[]) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
@@ -17,8 +18,15 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
 
   const openPreviewByUrl = useCallback(
     (url: string) => {
+      markLightboxTrace('openPreviewByUrl:start');
+      const lookupStart = performance.now();
       let idx = resolveGalleryIndexFromOpenMap(openUrlIndexMap, url);
+      markLightboxTrace(
+        'lookup:openUrlIndexMap',
+        `duration=${(performance.now() - lookupStart).toFixed(2)}ms hit=${idx >= 0}`,
+      );
       if (idx < 0) {
+        const fallbackStart = performance.now();
         const clicked = url.trim();
         idx = visibleGalleryItems.findIndex((i) =>
           i.allMedia.some(
@@ -27,10 +35,16 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
               sameGoogleHostedMediaUrl(clicked, m.originalUrl),
           ),
         );
+        markLightboxTrace(
+          'lookup:fallback-scan',
+          `duration=${(performance.now() - fallbackStart).toFixed(2)}ms hit=${idx >= 0}`,
+        );
       }
       if (idx >= 0) {
+        markLightboxTrace('lightbox:setState:start', `index=${idx}`);
         setPreviewIndex(idx);
         setPreviewId(visibleGalleryItems[idx].id);
+        markLightboxTrace('openPreviewByUrl:end');
       }
     },
     [openUrlIndexMap, visibleGalleryItems],

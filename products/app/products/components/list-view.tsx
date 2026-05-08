@@ -10,6 +10,7 @@ import {
   isVideoUrl,
   formatPrice
 } from '../lib/product-utils';
+import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { getTagColorStyles, getTagMaterialStyles } from '../lib/constants';
 import { PhotoDeck } from './photo-deck';
 import { ProductsSkeleton } from './products-skeleton';
@@ -895,7 +896,11 @@ export function ListView({
                           if (colLower === 'image' || isDAM) {
                             const u = extractUrls(cellValue)[0] ?? '';
                             const finalUrl = isDAM ? getDriveDirectLink(u) : u;
-                            if (finalUrl) openPreviewByUrl(finalUrl);
+                            if (finalUrl) {
+                              beginLightboxTrace('list-cell');
+                              markLightboxTrace('click:handler');
+                              openPreviewByUrl(finalUrl);
+                            }
                             return;
                           }
                           toggleSelected(r.id);

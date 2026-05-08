@@ -16,6 +16,19 @@ interface ServiceStatus {
 export default function Home() {
   const [isVisible, setIsVisible] = useState(false);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, ServiceStatus>>({});
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<{ email?: string; username?: string; is_admin?: boolean; role?: string | null } | null>(null);
+  const [gitMessage, setGitMessage] = useState('');
+  const [gitBusy, setGitBusy] = useState(false);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [gitOutput, setGitOutput] = useState<string>('');
+  const [gitStatus, setGitStatus] = useState<{
+    repoRoot: string;
+    branch: string;
+    status: string;
+    recentCommits: string;
+  } | null>(null);
 
   useEffect(() => {
     setIsVisible(true);
@@ -57,6 +70,40 @@ export default function Home() {
   const trainerApiDocsUrl = isLocal
     ? 'http://localhost:8010/docs'
     : 'https://trainer.ehsanrahimi.com/api/docs';
+
+  const trainerLoginUrl = isLocal ? 'http://localhost:3010/login?next=/' : 'https://trainer.ehsanrahimi.com/login?next=/';
+  const canManageLocalGit = isLocal && !!authUser && (Boolean(authUser.is_admin) || (authUser.role || '').toLowerCase() === 'admin');
+
+  useEffect(() => {
+    if (!isLocal) return;
+    let cancelled = false;
+    const loadAuth = async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      try {
+        const res = await fetch('/api/trainer/auth/me', { cache: 'no-store' });
+        if (res.status === 401) {
+          if (!cancelled) setAuthUser(null);
+          return;
+        }
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || `Auth failed (${res.status})`);
+        const data = JSON.parse(text) as { email?: string; username?: string; is_admin?: boolean; role?: string | null };
+        if (!cancelled) setAuthUser(data);
+      } catch (error) {
+        if (!cancelled) {
+          setAuthUser(null);
+          setAuthError(error instanceof Error ? error.message : 'خطا در احراز هویت');
+        }
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    };
+    void loadAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocal]);
 
   // Service health check
   useEffect(() => {
@@ -145,6 +192,89 @@ export default function Home() {
       case 'offline': return 'text-red-400';
       case 'loading': return 'text-yellow-400';
       default: return 'text-gray-400';
+    }
+  };
+
+  const callGitApi = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
+    const res = await fetch('/api/local-git', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error((json?.error as string) || 'request_failed');
+    }
+    return json;
+  };
+
+  const refreshGitStatus = async () => {
+    if (!canManageLocalGit) return;
+    setGitError(null);
+    setGitBusy(true);
+    try {
+      const json = await callGitApi('GET');
+      setGitStatus({
+        repoRoot: json.repoRoot as string,
+        branch: json.branch as string,
+        status: json.status as string,
+        recentCommits: json.recentCommits as string,
+      });
+      setGitOutput('');
+    } catch (error) {
+      setGitStatus(null);
+      setGitError(error instanceof Error ? error.message : 'خطا');
+    } finally {
+      setGitBusy(false);
+    }
+  };
+
+  const runCommit = async () => {
+    if (!canManageLocalGit) return;
+    if (!gitMessage.trim()) {
+      setGitError('پیام کامیت خالی است.');
+      return;
+    }
+    setGitError(null);
+    setGitBusy(true);
+    try {
+      const json = await callGitApi('POST', {
+        action: 'commit',
+        message: gitMessage.trim(),
+        stageAll: true,
+      });
+      setGitOutput((json.commitOutput as string) || '');
+      setGitStatus({
+        repoRoot: json.repoRoot as string,
+        branch: json.branch as string,
+        status: json.status as string,
+        recentCommits: json.recentCommits as string,
+      });
+      setGitMessage('');
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : 'خطا');
+    } finally {
+      setGitBusy(false);
+    }
+  };
+
+  const runPush = async () => {
+    if (!canManageLocalGit) return;
+    setGitError(null);
+    setGitBusy(true);
+    try {
+      const json = await callGitApi('POST', { action: 'push' });
+      setGitOutput((json.pushOutput as string) || '');
+      setGitStatus({
+        repoRoot: json.repoRoot as string,
+        branch: json.branch as string,
+        status: json.status as string,
+        recentCommits: json.recentCommits as string,
+      });
+    } catch (error) {
+      setGitError(error instanceof Error ? error.message : 'خطا');
+    } finally {
+      setGitBusy(false);
     }
   };
 
@@ -534,6 +664,110 @@ export default function Home() {
                 </div>
               </div>
             </section>
+
+            {isLocal && (
+              <section className={`mt-12 transition-all duration-1000 delay-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+                <h2 className="text-xl font-semibold text-gray-300 mb-6">Local Git Admin Box</h2>
+                <div className="bg-gray-900/30 border border-gray-800 rounded-xl p-6 space-y-4">
+                  <p className="text-xs text-amber-300/90">دسترسی فقط برای کاربر ادمین لاگین‌شده از سیستم احراز هویت یکپارچه Trainer.</p>
+                  <div className="rounded-lg border border-gray-800 bg-black/40 px-3 py-2 text-xs text-gray-300">
+                    {authLoading ? (
+                      <span>در حال بررسی وضعیت احراز هویت...</span>
+                    ) : authUser ? (
+                      <span>
+                        Login: <span className="text-white">{authUser.username || authUser.email || 'user'}</span> · Role:{' '}
+                        <span className="text-white">{authUser.role || (authUser.is_admin ? 'admin' : 'user')}</span>
+                      </span>
+                    ) : (
+                      <span>Login نشده‌ای. برای دسترسی ادمین ابتدا وارد شو.</span>
+                    )}
+                  </div>
+                  {authError ? (
+                    <div className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs text-red-300">{authError}</div>
+                  ) : null}
+                  {!canManageLocalGit ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={trainerLoginUrl}
+                        className="rounded-lg border border-indigo-700 bg-indigo-600/20 px-4 py-2 text-sm font-semibold text-indigo-200 hover:bg-indigo-600/30"
+                      >
+                        ورود از Trainer
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
+                      <div className="rounded-lg border border-gray-800 bg-black/40 px-3 py-2 text-xs text-gray-400">
+                        دسترسی تایید شد (Admin)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void refreshGitStatus()}
+                        disabled={gitBusy}
+                        className="rounded-lg border border-indigo-700 bg-indigo-600/20 px-4 py-2 text-sm font-semibold text-indigo-200 hover:bg-indigo-600/30 disabled:opacity-40"
+                      >
+                        {gitBusy ? 'در حال بررسی...' : 'بررسی Git'}
+                      </button>
+                    </div>
+                  )}
+
+                  {gitStatus && (
+                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3 text-xs text-gray-300 space-y-2">
+                      <div>Repo: <span className="text-white">{gitStatus.repoRoot}</span></div>
+                      <div>Branch: <span className="text-white">{gitStatus.branch}</span></div>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        <div>
+                          <p className="mb-1 text-gray-400">Working Tree</p>
+                          <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-[11px]">{gitStatus.status}</pre>
+                        </div>
+                        <div>
+                          <p className="mb-1 text-gray-400">Recent Commits</p>
+                          <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-[11px]">{gitStatus.recentCommits}</pre>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3">
+                    <input
+                      type="text"
+                      value={gitMessage}
+                      onChange={(e) => setGitMessage(e.target.value)}
+                      placeholder="پیام کامیت دستی..."
+                      className="w-full rounded-lg border border-gray-700 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void runCommit()}
+                      disabled={gitBusy || !canManageLocalGit || !gitMessage.trim()}
+                      className="rounded-lg border border-green-700 bg-green-600/20 px-4 py-2 text-sm font-semibold text-green-200 hover:bg-green-600/30 disabled:opacity-40"
+                    >
+                      Commit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runPush()}
+                      disabled={gitBusy || !canManageLocalGit}
+                      className="rounded-lg border border-cyan-700 bg-cyan-600/20 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-600/30 disabled:opacity-40"
+                    >
+                      Push
+                    </button>
+                  </div>
+
+                  {gitError && (
+                    <div className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+                      {gitError}
+                    </div>
+                  )}
+
+                  {gitOutput && (
+                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
+                      <p className="mb-1 text-xs text-gray-400">آخرین خروجی Git</p>
+                      <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-[11px] text-gray-200">{gitOutput}</pre>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         </main>
       </div>
