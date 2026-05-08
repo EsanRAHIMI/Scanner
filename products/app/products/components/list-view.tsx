@@ -115,7 +115,8 @@ export function ListView({
 
   const getColumnLabel = React.useCallback((column: string) => {
     const normalized = column.trim().toLowerCase();
-    if (normalized === 'colecction name' || normalized === 'collection name') return 'Name';
+    if (normalized === 'colecction name' || normalized === 'collection name') return 'Collection Name';
+    if (normalized === 'colecction code' || normalized === 'collection code') return 'Collection Code';
     if (normalized === 'code number') return 'Code Number';
     if (normalized === 'dimension (mm)' || normalized === 'dimension') return 'Dimension (mm)';
     return column;
@@ -125,9 +126,9 @@ export function ListView({
     const normalized = getColumnLabel(column).trim().toLowerCase();
     return [
       'code number',
-      'name',
+      'collection name',
       'price',
-      'colecction code',
+      'collection code',
       'variant number',
       'dimension (mm)',
       'note',
@@ -792,7 +793,11 @@ export function ListView({
         </thead>
         <tbody>
           {loading && records.length === 0 ? (
-            <ProductsSkeleton viewMode="list" rowsOnly />
+            <ProductsSkeleton
+              viewMode="list"
+              rowsOnly
+              columnCount={displayedColumns.length + (canDelete ? 1 : 0)}
+            />
           ) : (
             visibleRecords.map((r, i) => {
               const { isGroupStart, isGroupEnd, isInGroup } = rowGroupMeta[i] ?? {

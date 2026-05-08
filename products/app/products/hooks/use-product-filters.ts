@@ -23,11 +23,47 @@ export function useProductFilters({
   familyCollectionName,
   familyMode,
 }: UseProductFiltersProps) {
+  const getFamilyDisplayKey = React.useCallback((fields: Record<string, unknown> | undefined) => {
+    const collectionName =
+      formatScalar(fields?.['Collection Name']) ||
+      formatScalar(fields?.['Colecction Name']) ||
+      formatScalar(fields?.Name) ||
+      '';
+    const nameKey = collectionName.trim();
+    if (nameKey) return nameKey;
+
+    const collectionCode =
+      formatScalar(fields?.['Collection Code']) ||
+      formatScalar(fields?.['Colecction Code']) ||
+      formatScalar(fields?.Code) ||
+      '';
+    return collectionCode.trim();
+  }, []);
+
+  const getFamilyKey = React.useCallback((fields: Record<string, unknown> | undefined) => {
+    const collectionName =
+      formatScalar(fields?.['Collection Name']) ||
+      formatScalar(fields?.['Colecction Name']) ||
+      formatScalar(fields?.Name) ||
+      '';
+    const nameKey = collectionName.trim();
+    if (nameKey) return `name:${nameKey.toLowerCase()}`;
+
+    const collectionCode =
+      formatScalar(fields?.['Collection Code']) ||
+      formatScalar(fields?.['Colecction Code']) ||
+      formatScalar(fields?.Code) ||
+      '';
+    const codeKey = collectionCode.trim();
+    if (codeKey) return `code:${codeKey.toLowerCase()}`;
+    return '';
+  }, []);
+
   // State
   const [search, setSearch] = React.useState('');
   const [sortKey, setSortKey] = React.useState('Num');
   const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('gallery');
+  const [viewMode, setViewMode] = React.useState<'list' | 'gallery'>('list');
   const [selectedCategories, setSelectedCategories] = React.useState<Set<string>>(new Set());
   const [selectedColors, setSelectedColors] = React.useState<Set<string>>(new Set());
   const [selectedSpaces, setSelectedSpaces] = React.useState<Set<string>>(new Set());
@@ -83,7 +119,7 @@ export function useProductFilters({
     ].filter(Boolean) as string[];
 
     if (columns.length === 0 && loading) {
-      return ['Image', 'CODE NUMBER', 'Colecction Name', 'Price', 'Video', 'URL', 'Main', 'Num'];
+      return ['Image', 'CODE NUMBER', 'Collection Name', 'Price', 'Video', 'URL', 'Main', 'Num'];
     }
 
     const out: string[] = [];
@@ -226,15 +262,8 @@ export function useProductFilters({
       if (familyCollectionName) {
         const key = familyCollectionName.toLowerCase().trim();
         base = base.filter((r) => {
-          const name = (
-            formatScalar(r.fields?.['Colecction Name']) ||
-            formatScalar(r.fields?.Name) ||
-            formatScalar(r.fields?.['Collection Name']) ||
-            ''
-          )
-            .toLowerCase()
-            .trim();
-          return name === key;
+          const family = getFamilyDisplayKey(r.fields);
+          return family.toLowerCase().trim() === key;
         });
       }
       return base;
@@ -243,6 +272,7 @@ export function useProductFilters({
   }, [
     debouncedSearch,
     familyCollectionName,
+    getFamilyDisplayKey,
     matchesFacetFilters,
     recordSearchTextById,
     records,
@@ -295,8 +325,29 @@ export function useProductFilters({
   const sortedRecords = React.useMemo(() => {
     if (filteredRecords.length <= 1) return filteredRecords;
 
+    const getNumValue = (r: ProductsRecord): string => {
+      const directNum = formatScalar(r.fields?.Num).trim();
+      if (directNum) return directNum;
+      const variantNum = formatScalar(r.fields?.['Variant Number']).trim();
+      if (variantNum) return variantNum;
+      return '';
+    };
+
     const base = [...filteredRecords];
     base.sort((a, b) => {
+      const aFamilyKey = getFamilyKey(a.fields);
+      const bFamilyKey = getFamilyKey(b.fields);
+      if (aFamilyKey && bFamilyKey && aFamilyKey === bFamilyKey) {
+        const aMain = a.fields?.Main === true;
+        const bMain = b.fields?.Main === true;
+        if (aMain !== bMain) return aMain ? -1 : 1;
+      }
+
+      // Keep rows with empty Num/Variant Number at the end by default.
+      const aNumEmpty = getNumValue(a) === '';
+      const bNumEmpty = getNumValue(b) === '';
+      if (aNumEmpty !== bNumEmpty) return aNumEmpty ? 1 : -1;
+
       const av = getSortValue(a, sortKey);
       const bv = getSortValue(b, sortKey);
       let cmp = 0;
@@ -314,70 +365,47 @@ export function useProductFilters({
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return base;
-  }, [filteredRecords, sortKey, sortDir, getSortValue]);
+  }, [filteredRecords, sortKey, sortDir, getFamilyKey, getSortValue]);
 
   // Variant Counts
   const variantCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
     sortedRecords.forEach(r => {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
+      const key = getFamilyDisplayKey(r.fields);
       if (key) {
         counts[key] = (counts[key] || 0) + 1;
       }
     });
     return counts;
-  }, [sortedRecords]);
+  }, [getFamilyDisplayKey, sortedRecords]);
 
   // Visible Records (Grouped by Collection)
   const visibleRecords = React.useMemo(() => {
     if (familyMode !== 'main' || familyCollectionName) return sortedRecords;
 
-    const groupMap = new Map<string, ProductsRecord>();
+    const mainByFamily = new Map<string, ProductsRecord>();
     const out: ProductsRecord[] = [];
 
     for (const r of sortedRecords) {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
-
-      if (!key) {
-        out.push(r);
-        continue;
-      }
-
-      const isMain = r.fields?.Main === true;
-      const existing = groupMap.get(key);
-
-      if (!existing || (isMain && existing.fields?.Main !== true)) {
-        groupMap.set(key, r);
+      const familyKey = getFamilyKey(r.fields);
+      if (!familyKey) continue;
+      if (r.fields?.Main !== true) continue;
+      if (!mainByFamily.has(familyKey)) {
+        mainByFamily.set(familyKey, r);
       }
     }
 
-    const seenGroups = new Set<string>();
     for (const r of sortedRecords) {
-      const raw =
-        formatScalar(r.fields?.['Colecction Name']) ||
-        formatScalar(r.fields?.Name) ||
-        formatScalar(r.fields?.['Collection Name']) ||
-        '';
-      const key = raw.trim();
-      if (!key) continue;
-      if (seenGroups.has(key)) continue;
-      seenGroups.add(key);
-      const chosen = groupMap.get(key);
-      if (chosen) out.push(chosen);
+      const familyKey = getFamilyKey(r.fields);
+      if (!familyKey) continue;
+      const mainRecord = mainByFamily.get(familyKey);
+      if (mainRecord && mainRecord.id === r.id) {
+        out.push(r);
+      }
     }
 
     return out;
-  }, [familyMode, sortedRecords, familyCollectionName]);
+  }, [familyMode, sortedRecords, familyCollectionName, getFamilyKey]);
 
   // Helper for mapping records to gallery items
   const mapToGalleryItem = React.useCallback((r: ProductsRecord) => {
@@ -403,6 +431,16 @@ export function useProductFilters({
     });
 
     const collectionName = formatScalar(fields['Colecction Name']) || formatScalar(fields['Name']) || '';
+    const codeNumber =
+      formatScalar(fields['CODE NUMBER']) ||
+      formatScalar(fields['Code Number']) ||
+      formatScalar(fields['Code No']) ||
+      '';
+    const collectionCode =
+      formatScalar(fields['Collection Code']) ||
+      formatScalar(fields['Colecction Code']) ||
+      formatScalar(fields['Code']) ||
+      '';
     
     return {
       id: r.id,
@@ -412,14 +450,23 @@ export function useProductFilters({
       url: allMedia[0]?.url || '',
       driveId: allMedia[0]?.driveId || null,
       collectionName,
-      collectionNameNormalized: collectionName.trim(),
+      collectionNameNormalized: getFamilyDisplayKey(fields),
       title: collectionName || 'Product',
-      code: formatScalar(fields['Colecction Code']) || formatScalar(fields['Code']),
+      code: collectionCode,
       variant: formatScalar(fields['Variant Number']) || formatScalar(fields['Num']),
       price: formatPrice(fields.Price) ?? null,
       dimension: formatScalar(fields['DIMENSION (mm)']) || formatScalar(fields['Dimension (mm)']) || formatScalar(fields['DIMENSION']) || '',
+      note: formatScalar(fields['Note']),
+      category: formatScalar(fields['Category']),
+      space: formatScalar(fields['Space']),
+      color: formatScalar(fields['Color']),
+      material: formatScalar(fields['Material']),
+      codeNumber,
+      l000: formatScalar(fields['L000']),
+      num: formatScalar(fields['Num']),
+      isMain: fields['Main'] === true,
     };
-  }, []);
+  }, [getFamilyDisplayKey]);
 
   const allGalleryItems = React.useMemo(() => {
     return sortedRecords.map(mapToGalleryItem).filter(x => Boolean(x.url));

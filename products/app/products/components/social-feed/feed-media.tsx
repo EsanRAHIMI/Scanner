@@ -15,6 +15,17 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [shouldLoad, setShouldLoad] = useState(false);
+  const isVisibleVideo = isActive && isPrimary;
+  const [useIframeFallback, setUseIframeFallback] = useState(false);
+
+  useEffect(() => {
+    setUseIframeFallback(false);
+  }, [media.driveId, media.originalUrl, media.url]);
+
+  const driveStreamUrl = media.driveId
+    ? `https://drive.google.com/uc?export=download&id=${media.driveId}`
+    : '';
+  const nativeVideoSrc = media.driveId ? driveStreamUrl : media.originalUrl;
 
   // Set shouldLoad if parent says to preload
   useEffect(() => {
@@ -50,15 +61,21 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
   // Manage auto-playback of native videos based on activity
   useEffect(() => {
     if (media.isVideo && !media.driveId && videoRef.current) {
-      if (isActive && isPrimary) {
+      if (isVisibleVideo) {
         videoRef.current.play().catch(() => {
           // Ignore autoplay enforcement errors
         });
       } else {
         videoRef.current.pause();
+        // Stop playback position when leaving current slide.
+        try {
+          videoRef.current.currentTime = 0;
+        } catch {
+          // ignore seek issues
+        }
       }
     }
-  }, [isActive, isPrimary, media.isVideo, media.driveId]);
+  }, [isVisibleVideo, media.isVideo, media.driveId]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Detect double tap
@@ -91,30 +108,41 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
       onPointerDown={handlePointerDown}
     >
       {!shouldLoad ? null : media.isVideo ? (
-        media.driveId ? (
-          // Drive videos cannot be reliably autoplayed via URL params in iframe, but we can display them cleanly
-          <div className="relative h-full w-full pointer-events-none">
-            <iframe
-              src={`https://drive.google.com/file/d/${media.driveId}/preview`}
-              className="absolute inset-0 h-full w-full border-0 select-none"
-              allow="autoplay"
-              allowFullScreen
-              style={{ pointerEvents: isActive && isPrimary ? 'auto' : 'none' }}
-            />
-            {/* Overlay to catch vertical swipes over the iframe so it doesn't trap scroll */}
-            <div className="absolute inset-y-0 left-0 w-8 z-10 pointer-events-none" />
-            <div className="absolute inset-y-0 right-0 w-8 z-10 pointer-events-none" />
-            <div className="absolute inset-0 z-0 pointer-events-none" /> 
-          </div>
+        media.driveId && useIframeFallback ? (
+          isVisibleVideo ? (
+            // Keep iframe mounted only for active slide so playback stops when user swipes away.
+            <div className="relative h-full w-full pointer-events-none">
+              <iframe
+                src={`https://drive.google.com/file/d/${media.driveId}/preview?autoplay=1`}
+                className="absolute inset-0 h-full w-full border-0 select-none"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+                style={{ pointerEvents: 'auto' }}
+              />
+              {/* Overlay to catch vertical swipes over the iframe so it doesn't trap scroll */}
+              <div className="absolute inset-y-0 left-0 w-8 z-10 pointer-events-none" />
+              <div className="absolute inset-y-0 right-0 w-8 z-10 pointer-events-none" />
+              <div className="absolute inset-0 z-0 pointer-events-none" />
+            </div>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-black/30 text-white/50">
+              <span className="text-xs uppercase tracking-wide">Video</span>
+            </div>
+          )
         ) : (
           <video
             ref={videoRef}
-            src={media.originalUrl}
-            controls={isActive && isPrimary}
+            src={nativeVideoSrc}
+            controls={isVisibleVideo}
             loop
             playsInline
             muted
+            autoPlay={isVisibleVideo}
+            preload={isVisibleVideo ? 'auto' : 'metadata'}
             className="max-h-full w-auto max-w-full object-contain pointer-events-none"
+            onError={() => {
+              if (media.driveId) setUseIframeFallback(true);
+            }}
           />
         )
       ) : (

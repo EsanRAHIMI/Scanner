@@ -39,7 +39,6 @@ import { markLightboxTrace } from './lib/lightbox-perf';
 import { ActivityLogModal } from './components/activity-log-modal';
 import { TopProgressBar } from './components/top-progress-bar';
 import { AccountMenu } from './components/account-menu';
-import { ProductsSkeleton } from './components/products-skeleton';
 import { ProductFilters } from './components/product-filters';
 import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
@@ -249,10 +248,21 @@ export function ProductsView({
   React.useEffect(() => {
     if (!loading && records.length > 0 && !hasInitializedMain.current) {
       const getCollectionKey = (fields: any) => {
-        return (formatScalar(fields?.['Colecction Name']) || 
-                formatScalar(fields?.Name) || 
-                formatScalar(fields?.['Collection Name']) || 
-                '').trim();
+        const collectionName =
+          formatScalar(fields?.['Collection Name']) ||
+          formatScalar(fields?.['Colecction Name']) ||
+          formatScalar(fields?.Name) ||
+          '';
+        const nameKey = collectionName.trim();
+        if (nameKey) return `name:${nameKey.toLowerCase()}`;
+
+        const collectionCode =
+          formatScalar(fields?.['Collection Code']) ||
+          formatScalar(fields?.['Colecction Code']) ||
+          formatScalar(fields?.Code) ||
+          '';
+        const codeKey = collectionCode.trim();
+        return codeKey ? `code:${codeKey.toLowerCase()}` : '';
       };
       const groupHasMain = new Set<string>();
       const seenGroups = new Set<string>();
@@ -598,6 +608,7 @@ export function ProductsView({
     'inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm backdrop-blur-md transition-all active:scale-95';
 
   const hasActiveFilters = search.trim().length > 0 || selectedCategories.size > 0 || selectedColors.size > 0 || selectedSpaces.size > 0 || selectedMaterials.size > 0 || !!familyCollectionName;
+  const showInitialListSkeleton = loading && records.length === 0;
 
   const searchGroupNode = (
     <div
@@ -854,7 +865,39 @@ export function ProductsView({
         </div>
       ) : null}
 
-      {viewMode === 'list' ? (
+      {showInitialListSkeleton ? (
+        <ListView
+          loading
+          records={records}
+          visibleRecords={[]}
+          displayedColumns={displayedColumns}
+          selectedIds={selectedIds}
+          toggleSelected={toggleSelected}
+          toggleSort={toggleSort}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          openPreviewByUrl={openPreviewByUrl}
+          setEditingUrl={setEditingUrl}
+          handleMoveUrl={handleMoveUrl}
+          draggedUrlInfo={draggedUrlInfo}
+          setDraggedUrlInfo={setDraggedUrlInfo}
+          activeDropTargetRef={activeDropTargetRef}
+          linkHoverTimerRef={linkHoverTimerRef}
+          familyMode={familyMode}
+          variantCounts={variantCounts}
+          search={search}
+          setLinkHoverState={setLinkHoverState}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          handleDeleteProduct={handleDeleteProduct}
+          handleToggleMain={handleToggleMain}
+          handleSaveField={handleSaveField}
+          handleSaveUrl={handleSaveUrl}
+          editingUrl={editingUrl}
+          isSaving={isSaving}
+          scrollFooter={null}
+        />
+      ) : viewMode === 'list' ? (
         <>
           <ListView
             loading={loading}
@@ -913,22 +956,18 @@ export function ProductsView({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {loading && records.length === 0 ? (
-              <ProductsSkeleton viewMode="gallery" />
-            ) : (
-              renderedRecords.map((r) => (
-                <GalleryCard
-                  key={r.id}
-                  record={r}
-                  search={search}
-                  selectedIds={selectedIds}
-                  toggleSelected={toggleSelected}
-                  openPreviewByUrl={openPreviewByUrl}
-                  familyMode={familyMode}
-                  variantCounts={variantCounts}
-                />
-              ))
-            )}
+            {renderedRecords.map((r) => (
+              <GalleryCard
+                key={r.id}
+                record={r}
+                search={search}
+                selectedIds={selectedIds}
+                toggleSelected={toggleSelected}
+                openPreviewByUrl={openPreviewByUrl}
+                familyMode={familyMode}
+                variantCounts={variantCounts}
+              />
+            ))}
           </div>
 
           {!loading && visibleRecords.length === 0 && (

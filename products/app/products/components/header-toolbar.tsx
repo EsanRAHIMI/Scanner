@@ -41,8 +41,8 @@ export function HeaderToolbar({
 
       {/* Desktop Header */}
       <div className="hidden w-full sm:flex sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <div>
+        <div className="flex min-w-[340px] flex-none items-center gap-4">
+          <div className="min-w-0">
             {titleNode ?? <h1 className="text-2xl font-semibold">{title}</h1>}
             <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
           </div>

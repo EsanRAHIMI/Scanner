@@ -63,49 +63,68 @@ export default function ProductsPage() {
       <React.Suspense fallback={null}>
         <ProductsView
           titleNode={
-            <div className="flex h-10 min-w-0 max-w-[340px] items-center gap-3 overflow-hidden">
+            <div className="relative h-10 w-[340px] flex-none overflow-hidden">
+              <div
+                className={
+                  'absolute inset-0 flex items-center transition-opacity duration-200 ' +
+                  (logo1Loaded || logo2Loaded ? 'opacity-0' : 'opacity-100')
+                }
+              >
+                <span className="truncate text-[22px] font-semibold tracking-[0.08em] text-black/75 dark:text-white/70">
+                  LORENZO
+                </span>
+              </div>
+
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${basePath}/Logo1.png`}
-                alt="Lorenzo's products"
+                alt="Lorenzo products"
                 className={
-                  (logo1Loaded ? 'opacity-100 ' : 'opacity-0 ') +
-                  'h-9 w-auto max-w-full object-contain transition-opacity dark:hidden'
+                  'absolute inset-y-0 left-0 h-9 w-auto max-w-full object-contain transition-opacity duration-300 dark:hidden ' +
+                  (logo1Loaded ? 'opacity-100' : 'opacity-0')
                 }
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${basePath}/Logo2.png`}
-                alt="Lorenzo's products"
+                alt="Lorenzo products"
                 className={
-                  (logo2Loaded ? 'opacity-100 ' : 'opacity-0 ') +
-                  'hidden h-9 w-auto max-w-full object-contain transition-opacity dark:block'
+                  'absolute inset-y-0 left-0 hidden h-9 w-auto max-w-full object-contain transition-opacity duration-300 dark:block ' +
+                  (logo2Loaded ? 'opacity-100' : 'opacity-0')
                 }
               />
-              {!(logo1Loaded || logo2Loaded) ? <span className="text-2xl font-semibold">Lorenzo's products</span> : null}
             </div>
           }
           mobileTitleNode={
-            <span className="flex h-10 min-w-0 max-w-[140px] flex-none items-center overflow-hidden">
+            <span className="relative flex h-10 w-[140px] flex-none items-center overflow-hidden">
+              <span
+                className={
+                  'absolute inset-0 flex items-center transition-opacity duration-200 ' +
+                  (logoSignBlackLoaded || logoSignWhiteLoaded ? 'opacity-0' : 'opacity-100')
+                }
+              >
+                <span className="truncate text-sm font-semibold tracking-[0.14em] text-black/75 dark:text-white/70">
+                  LORENZO
+                </span>
+              </span>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${basePath}/Logo Sign Black.png`}
-                alt="Lorenzo's products"
+                alt="Lorenzo products"
                 className={
-                  (logoSignBlackLoaded ? 'opacity-100 ' : 'opacity-0 ') +
-                  'h-7 w-auto max-w-full object-contain transition-opacity dark:hidden'
+                  'absolute inset-y-0 left-0 h-7 w-auto max-w-full object-contain transition-opacity duration-300 dark:hidden ' +
+                  (logoSignBlackLoaded ? 'opacity-100' : 'opacity-0')
                 }
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${basePath}/Logo Sign White.png`}
-                alt="Lorenzo's products"
+                alt="Lorenzo products"
                 className={
-                  (logoSignWhiteLoaded ? 'opacity-100 ' : 'opacity-0 ') +
-                  'hidden h-7 w-auto max-w-full object-contain transition-opacity dark:block'
+                  'absolute inset-y-0 left-0 hidden h-7 w-auto max-w-full object-contain transition-opacity duration-300 dark:block ' +
+                  (logoSignWhiteLoaded ? 'opacity-100' : 'opacity-0')
                 }
               />
-              {!(logoSignBlackLoaded || logoSignWhiteLoaded) ? <span className="truncate text-lg font-semibold">Lorenzo's</span> : null}
             </span>
           }
           title="Lorenzo's products"
