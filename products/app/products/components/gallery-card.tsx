@@ -2,13 +2,23 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import { extractUrls, getDriveDirectLink, formatScalar, highlightMatches, formatPrice, supportsNextJsImageOptimization } from '../lib/product-utils';
+import {
+  extractUrls,
+  getDriveDirectLink,
+  formatScalar,
+  highlightMatches,
+  formatPrice,
+  supportsNextJsImageOptimization,
+  mergeProductMediaUrls,
+  filterUrlsForGalleryDisplay,
+} from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
 import { GalleryCardProps } from '../types/products-ui';
 
 export function GalleryCard({
   record,
+  columns,
   search,
   selectedIds,
   toggleSelected,
@@ -22,7 +32,12 @@ export function GalleryCard({
     return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
   });
   const urlValue = urlEntry?.[1];
-  const rawImg = extractUrls(urlValue || r.fields?.DAM || r.fields?.Image)[0] ?? '';
+  const visibleUrls = filterUrlsForGalleryDisplay(
+    extractUrls(mergeProductMediaUrls(urlValue, r.fields?.DAM, r.fields?.Image)),
+    r.fields,
+    columns,
+  );
+  const rawImg = visibleUrls[0] ?? '';
   const img = getDriveDirectLink(rawImg);
   const useNextImg = Boolean(img && supportsNextJsImageOptimization(img));
   const [imageFailed, setImageFailed] = React.useState(false);

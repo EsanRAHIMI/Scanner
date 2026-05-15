@@ -176,6 +176,66 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
     }
   }, [isSaving, setData, mutate, rollbackRecords]);
 
+  const handleSaveFields = React.useCallback(async (
+    recordId: string,
+    fieldsPatch: Record<string, unknown>,
+    records: ProductsRecord[]
+  ) => {
+    const keys = Object.keys(fieldsPatch);
+    if (keys.length === 0) return;
+
+    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
+    try {
+      setData(prev => {
+        if (!prev) return prev;
+        const existing = prev.records.find(r => r.id === recordId);
+        if (existing) {
+          previousFieldsById[recordId] = existing.fields;
+        }
+        const resolvedPatch: Record<string, unknown> = {};
+        for (const fieldName of keys) {
+          const exactFieldName =
+            columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
+          resolvedPatch[exactFieldName] = fieldsPatch[fieldName];
+        }
+        const next = {
+          ...prev,
+          records: prev.records.map(r =>
+            r.id === recordId ? { ...r, fields: { ...r.fields, ...resolvedPatch } } : r
+          ),
+        };
+        queueMicrotask(() => void mutate(next));
+        return next;
+      });
+
+      const resolvedForApi: Record<string, unknown> = {};
+      for (const fieldName of keys) {
+        const exactFieldName =
+          columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
+        resolvedForApi[exactFieldName] = fieldsPatch[fieldName];
+      }
+
+      const res = await apiFetch(`/products/assets/${recordId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: resolvedForApi }),
+      });
+      if (!res.ok) {
+        throw new Error('Save fields API failed');
+      }
+      try {
+        const json = (await res.json()) as { id?: string; fields?: Record<string, unknown> };
+        mergeServerRecord(json);
+      } catch {
+        // keep optimistic state
+      }
+    } catch (err) {
+      console.error('Save fields failed', err);
+      await rollbackRecords(previousFieldsById);
+      throw err;
+    }
+  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord]);
+
   const handleSaveField = React.useCallback(async (
     recordId: string, 
     fieldName: string, 
@@ -380,6 +440,7 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
     handleUpdateVariant,
     handleToggleMain,
     handleSaveField,
+    handleSaveFields,
     handleAddMediaToVariant,
     handleDeleteProduct,
     handleBulkDeleteProducts,

@@ -250,7 +250,7 @@ export default function ProductImportsPage() {
       if (fileInputRef.current) fileInputRef.current.value = '';
       await mutateImports();
       await mutateRows();
-      setMessage('فایل آپلود و به لیست جدید تبدیل شد.');
+      setMessage('File uploaded and converted to a new import list.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -260,7 +260,7 @@ export default function ProductImportsPage() {
 
   const deleteImport = async () => {
     if (!activeImportId) return;
-    const ok = window.confirm('این import staging حذف شود؟ جدول اصلی محصولات تغییر نمی‌کند.');
+    const ok = window.confirm('Delete this import staging? The main products table will not be changed.');
     if (!ok) return;
     setMessage(null);
     try {
@@ -270,7 +270,7 @@ export default function ProductImportsPage() {
       setSelectedImportId(null);
       await mutateImports();
       await mutateRows(undefined, { revalidate: false });
-      setMessage('Import حذف شد.');
+      setMessage('Import deleted.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Delete failed');
     }
@@ -341,11 +341,11 @@ export default function ProductImportsPage() {
     if (!activeImportId || isApplying) return;
     const selectedColumns = Array.from(selectedTransferColumns);
     if (selectedColumns.length === 0) {
-      setMessage('حداقل یک ستون را برای انتقال به Products انتخاب کن.');
+      setMessage('Select at least one column to transfer to Products.');
       return;
     }
     const ok = window.confirm(
-      `این import به جدول اصلی Products منتقل شود؟ فقط ${selectedColumns.length} ستون انتخاب‌شده منتقل می‌شوند.`
+      `Apply this import to the main Products table? Only ${selectedColumns.length} selected column(s) will be transferred.`
     );
     if (!ok) return;
 
@@ -364,7 +364,7 @@ export default function ProductImportsPage() {
       await mutateImports();
       await mutateProducts();
       setMessage(
-        `انتقال انجام شد: ${result.created_count} محصول جدید، ${result.updated_count} محصول آپدیت، ${result.changed_cells_count} سلول تغییرکرده، ${result.unchanged_count} ردیف بدون تغییر.`
+        `Transfer complete: ${result.created_count} new product(s), ${result.updated_count} updated, ${result.changed_cells_count} cell(s) changed, ${result.unchanged_count} row(s) unchanged.`
       );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Apply import failed');
@@ -385,7 +385,7 @@ export default function ProductImportsPage() {
       if (!res.ok) throw new Error(text || 'Refresh formulas failed');
       const result = JSON.parse(text) as ReprocessImportResponse;
       await mutateRows();
-      setMessage(`فرمول‌ها دوباره چک شدند: ${result.changed_count} ردیف از ${result.processed_count} ردیف اصلاح شد.`);
+      setMessage(`Formulas rechecked: ${result.changed_count} of ${result.processed_count} row(s) updated.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Refresh formulas failed');
     } finally {
@@ -468,7 +468,7 @@ export default function ProductImportsPage() {
             Excel Product Imports
           </h1>
           <p className="mt-1 max-w-3xl text-sm font-medium text-black/45 dark:text-white/45">
-            فایل اکسل در یک جدول staging جدا پاکسازی و نمایش داده می‌شود. جدول اصلی محصولات در این صفحه تغییر نمی‌کند.
+            Excel files are cleaned and shown in a separate staging table. The main products table is not changed on this page.
           </p>
         </div>
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs font-bold text-amber-700 dark:text-amber-300">
@@ -483,7 +483,7 @@ export default function ProductImportsPage() {
               Upload Spreadsheet
             </h2>
             <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-              فایل‌های xlsx، xlsm و numbers پشتیبانی می‌شوند.
+              xlsx, xlsm, and Numbers files are supported.
             </p>
           </div>
 
@@ -526,11 +526,11 @@ export default function ProductImportsPage() {
               </div>
             ) : importsError ? (
               <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-xs font-bold text-red-500">
-                دسترسی یا اتصال به importها ممکن نیست.
+                Cannot access or connect to imports.
               </div>
             ) : imports.length === 0 ? (
               <div className="rounded-xl bg-black/[0.03] p-4 text-xs font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
-                هنوز فایلی آپلود نشده است.
+                No files uploaded yet.
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -569,7 +569,7 @@ export default function ProductImportsPage() {
                 Staged Product List
               </h2>
               <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-                {rowsData ? `${rowsData.records.length} of ${rowsData.count} row(s) shown from ${rowsData.import.filename} • ${matchedRowsCount} matched old product(s) • ${selectedTransferColumns.size} column(s) selected for transfer` : 'یک import را انتخاب کن.'}
+                {rowsData ? `${rowsData.records.length} of ${rowsData.count} row(s) shown from ${rowsData.import.filename} • ${matchedRowsCount} matched old product(s) • ${selectedTransferColumns.size} column(s) selected for transfer` : 'Select an import.'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -602,7 +602,7 @@ export default function ProductImportsPage() {
 
           {rowsError ? (
             <div className="m-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-xs font-bold text-red-500">
-              ردیف‌های import قابل دریافت نیستند.
+              Could not load import rows.
             </div>
           ) : rowsLoading ? (
             <div className="m-4 rounded-xl bg-black/[0.03] p-4 text-xs font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
@@ -610,7 +610,7 @@ export default function ProductImportsPage() {
             </div>
           ) : !rowsData ? (
             <div className="m-4 rounded-xl bg-black/[0.03] p-4 text-xs font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
-              بعد از آپلود اکسل، لیست تبدیل‌شده اینجا نمایش داده می‌شود.
+              After uploading a spreadsheet, the converted list will appear here.
             </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto scrollbar-minimal">

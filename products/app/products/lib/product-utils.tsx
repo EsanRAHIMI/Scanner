@@ -233,6 +233,227 @@ export function sameGoogleHostedMediaUrl(aRaw: string, bRaw: string): boolean {
   return Boolean(da && db && da === db);
 }
 
+/** Stable key for trainer-hosted product images (/files/, product_images/). */
+export function extractHostedMediaKey(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  const googleId = extractGoogleHostedAssetId(u);
+  if (googleId) return `g:${googleId}`;
+  const productImg = u.match(/product_images\/[a-f0-9]+\/([a-f0-9]+)/i);
+  if (productImg?.[1]) return `t:${productImg[1]}`;
+  const files = u.match(/\/files\/([a-f0-9]+)/i);
+  if (files?.[1]) return `f:${files[1]}`;
+  return null;
+}
+
+/** Match Drive, lh3, or trainer-hosted URLs that refer to the same asset. */
+export function sameProductMediaUrl(aRaw: string, bRaw: string): boolean {
+  const a = aRaw.trim();
+  const b = bRaw.trim();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (sameGoogleHostedMediaUrl(a, b)) return true;
+  const ka = extractHostedMediaKey(a);
+  const kb = extractHostedMediaKey(b);
+  if (ka && kb && ka === kb) return true;
+  try {
+    const na = new URL(a, 'https://local.invalid').pathname;
+    const nb = new URL(b, 'https://local.invalid').pathname;
+    if (na === nb) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+export function findUrlFieldName(columns: string[]): string {
+  return columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
+}
+
+/** URL / Image / DAM / Video columns that may store media links. */
+export function resolveMediaFieldNames(columns: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (canonical: string) => {
+    const exact = columns.find(c => c.trim().toLowerCase() === canonical.toLowerCase());
+    if (exact && !seen.has(exact)) {
+      seen.add(exact);
+      out.push(exact);
+    }
+  };
+  add('URL');
+  add('Image');
+  add('DAM');
+  add('Video');
+  for (const c of columns) {
+    const kl = c.trim().toLowerCase();
+    if (
+      (kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url')) &&
+      !seen.has(c)
+    ) {
+      seen.add(c);
+      out.push(c);
+    }
+  }
+  return out;
+}
+
+export function mergeProductMediaUrls(...values: unknown[]): string {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const value of values) {
+    for (const url of extractUrls(value)) {
+      const key = url.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      urls.push(key);
+    }
+  }
+  return urls.join('\n');
+}
+
+export function findUrlFieldValue(fields: Record<string, unknown> | undefined): unknown {
+  if (!fields) return undefined;
+  const entry = Object.entries(fields).find(([k]) => {
+    const kl = k.trim().toLowerCase();
+    return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+  });
+  return entry?.[1];
+}
+
+/** Same merged list as the URL column in list view (URL + Image + DAM). */
+export function collectMergedProductMediaUrls(
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): string[] {
+  if (!fields) return [];
+  const urlFieldName = findUrlFieldName(columns);
+  const imageField = columns.find(c => c.trim().toLowerCase() === 'image');
+  const damField = columns.find(c => c.trim().toLowerCase() === 'dam');
+  return extractUrls(
+    mergeProductMediaUrls(
+      fields[urlFieldName] ?? findUrlFieldValue(fields),
+      imageField ? fields[imageField] : undefined,
+      damField ? fields[damField] : undefined,
+    ),
+  );
+}
+
+export function removeUrlFromFieldValue(fieldValue: unknown, urlToRemove: string): string {
+  const filtered = extractUrls(fieldValue).filter(u => !sameProductMediaUrl(u, urlToRemove));
+  return filtered.length === 0 ? '' : filtered.join('\n');
+}
+
+export function buildFieldsAfterRemovingMediaUrl(
+  fields: Record<string, unknown>,
+  urlToRemove: string,
+  fieldNames: string[],
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const name of fieldNames) {
+    const before = extractUrls(fields[name]).join('\n');
+    const after = removeUrlFromFieldValue(fields[name], urlToRemove);
+    if (before !== after) {
+      patch[name] = after;
+    }
+  }
+  return patch;
+}
+
+export function buildFieldsAfterReplacingMediaUrl(
+  fields: Record<string, unknown>,
+  oldUrl: string,
+  newUrl: string,
+  fieldNames: string[],
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const trimmed = newUrl.trim();
+  for (const name of fieldNames) {
+    const urls = extractUrls(fields[name]);
+    if (!urls.some(u => sameProductMediaUrl(u, oldUrl))) continue;
+    const next = urls.map(u => (sameProductMediaUrl(u, oldUrl) ? trimmed : u));
+    patch[name] = next.join('\n');
+  }
+  return patch;
+}
+
+/** Internal field: URLs hidden from Image column / Feed (still listed under URL). */
+export const GALLERY_HIDDEN_FIELD = 'Gallery Hidden';
+
+export function resolveGalleryHiddenFieldName(columns: string[]): string {
+  return (
+    columns.find(c => c.trim().toLowerCase() === GALLERY_HIDDEN_FIELD.toLowerCase()) ??
+    GALLERY_HIDDEN_FIELD
+  );
+}
+
+export function isGalleryHiddenFieldName(fieldName: string): boolean {
+  return fieldName.trim().toLowerCase() === GALLERY_HIDDEN_FIELD.toLowerCase();
+}
+
+export function extractGalleryHiddenUrls(
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): string[] {
+  if (!fields) return [];
+  const key = resolveGalleryHiddenFieldName(columns);
+  return extractUrls(fields[key]);
+}
+
+export function isGalleryMediaHidden(
+  url: string,
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): boolean {
+  const hidden = extractGalleryHiddenUrls(fields, columns);
+  return hidden.some(h => sameProductMediaUrl(h, url));
+}
+
+/** Drop URLs marked hidden — for Image column, PhotoDeck, and Feed only. */
+export function filterUrlsForGalleryDisplay(
+  urls: string[],
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): string[] {
+  return urls.filter(u => !isGalleryMediaHidden(u, fields, columns));
+}
+
+export function buildFieldsAfterHidingGalleryMedia(
+  fields: Record<string, unknown>,
+  urlToHide: string,
+  columns: string[],
+): Record<string, unknown> {
+  const key = resolveGalleryHiddenFieldName(columns);
+  const hidden = extractGalleryHiddenUrls(fields, columns);
+  if (hidden.some(h => sameProductMediaUrl(h, urlToHide))) return {};
+  const next = [...hidden, urlToHide.trim()].join('\n');
+  return { [key]: next };
+}
+
+export function buildFieldsAfterUnhidingGalleryMedia(
+  fields: Record<string, unknown>,
+  urlToShow: string,
+  columns: string[],
+): Record<string, unknown> {
+  const key = resolveGalleryHiddenFieldName(columns);
+  const hidden = extractGalleryHiddenUrls(fields, columns);
+  const next = hidden.filter(h => !sameProductMediaUrl(h, urlToShow));
+  return { [key]: next.length === 0 ? '' : next.join('\n') };
+}
+
+/** Trainer-hosted paths (/api/trainer/files/, product_images/). */
+export function isTrainerHostedMediaUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const lower = url.trim().toLowerCase();
+  return (
+    lower.includes('trainer.ehsanrahimi.com/api/static/product_images/') ||
+    lower.startsWith('/api/trainer/files/') ||
+    lower.startsWith('/files/') ||
+    lower.includes('/api/trainer/files/') ||
+    Boolean(extractHostedMediaKey(url)?.startsWith('t:') || extractHostedMediaKey(url)?.startsWith('f:'))
+  );
+}
+
 const GALLERY_LOOKUP_ASSET_PREFIX = '__gallery_asset__:';
 
 /**

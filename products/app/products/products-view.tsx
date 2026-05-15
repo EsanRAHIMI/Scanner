@@ -21,6 +21,15 @@ import {
   extractUrls, 
   getDriveDirectLink,
   collectNumOnlyStubIds,
+  findUrlFieldName,
+  resolveMediaFieldNames,
+  collectMergedProductMediaUrls,
+  buildFieldsAfterRemovingMediaUrl,
+  buildFieldsAfterReplacingMediaUrl,
+  buildFieldsAfterHidingGalleryMedia,
+  buildFieldsAfterUnhidingGalleryMedia,
+  sameProductMediaUrl,
+  isTrainerHostedMediaUrl,
 } from './lib/product-utils';
 
 import { 
@@ -301,39 +310,149 @@ export function ProductsView({
     if (!canDelete || mutations.isSaving) return;
     const ids = collectNumOnlyStubIds(records, columns);
     if (ids.length === 0) {
-      window.alert('هیچ ردیفی با فقط فیلد «Num» (بقیه خالی) در لیست بارگذاری‌شده پیدا نشد.');
+      window.alert('No rows with only the Num field filled (all other fields empty) were found in the loaded list.');
       return;
     }
     const ok = window.confirm(
-      `${ids.length} ردیف که تنها فیلد Num آن‌ها پر است از سرور حذف شود؟\n\n` +
-        '(ردیف‌هایی که هر فیلد دیگری—even یک کاراکتر یا تصویر—دارند حذف نمی‌شوند.)'
+      `Delete ${ids.length} row(s) where only Num is filled from the server?\n\n` +
+        '(Rows with any other field filled—including a single character or image—will not be deleted.)'
     );
     if (!ok) return;
     void mutations.handleBulkDeleteProducts(ids).catch(() => {
-      window.alert('حذف دسته‌ای با خطا مواجه شد؛ لیست در صورت نیاز با رفرش همگام می‌شود.');
+      window.alert('Bulk delete failed. Refresh the page to sync the list if needed.');
     });
   }, [canDelete, columns, mutations, records]);
 
+  const mediaFieldNames = React.useMemo(() => resolveMediaFieldNames(columns), [columns]);
+
+  /** Hide from Image / Feed only; URL column keeps the link for recovery. */
+  const handleHideMediaFromGallery = React.useCallback(
+    async (recordId: string, urlToHide: string) => {
+      if (!urlToHide.trim() || mutations.isSaving) return;
+      const record = records.find(r => r.id === recordId);
+      if (!record) return;
+      const patch = buildFieldsAfterHidingGalleryMedia(record.fields, urlToHide, columns);
+      if (Object.keys(patch).length === 0) return;
+      try {
+        await mutations.handleSaveFields(recordId, patch, records);
+      } catch {
+        window.alert('Could not hide image from gallery. Please try again.');
+      }
+    },
+    [records, columns, mutations],
+  );
+
+  const handleUnhideMediaFromGallery = React.useCallback(
+    async (recordId: string, urlToShow: string) => {
+      if (!urlToShow.trim() || mutations.isSaving) return;
+      const record = records.find(r => r.id === recordId);
+      if (!record) return;
+      const patch = buildFieldsAfterUnhidingGalleryMedia(record.fields, urlToShow, columns);
+      if (Object.keys(patch).length === 0) return;
+      try {
+        await mutations.handleSaveFields(recordId, patch, records);
+      } catch {
+        window.alert('Could not restore image in gallery. Please try again.');
+      }
+    },
+    [records, columns, mutations],
+  );
+
+  const handleRemoveUrl = React.useCallback(
+    async (recordId: string, urlToRemove: string) => {
+      if (!urlToRemove.trim() || mutations.isSaving) return;
+      if (isTrainerHostedMediaUrl(urlToRemove)) {
+        await handleHideMediaFromGallery(recordId, urlToRemove);
+        return;
+      }
+      const record = records.find(r => r.id === recordId);
+      if (!record) return;
+      const urlFieldName = findUrlFieldName(columns);
+      const patch = buildFieldsAfterRemovingMediaUrl(record.fields, urlToRemove, [urlFieldName]);
+      if (Object.keys(patch).length === 0) return;
+      try {
+        await mutations.handleSaveFields(recordId, patch, records);
+      } catch {
+        window.alert('Could not remove link. Please try again.');
+      }
+    },
+    [records, columns, mediaFieldNames, mutations, handleHideMediaFromGallery],
+  );
+
   const handleSaveUrl = async () => {
-    if (!editingUrl || isSaving) return;
-    const urlFieldName = columns.find(c => c.trim().toLowerCase() === 'url') || 'URL';
+    if (!editingUrl || mutations.isSaving) return;
+    const urlFieldName = findUrlFieldName(columns);
     let finalValueToSave = editingUrl.value;
     if (editingUrl.column?.trim().toLowerCase() === 'video' && finalValueToSave && !isVideoUrl(finalValueToSave)) {
       finalValueToSave = finalValueToSave.trim() + '#video';
     }
     const record = records.find(r => r.id === editingUrl.id);
-    if (typeof editingUrl.index === 'number' && record) {
-      const urls = extractUrls(record.fields[urlFieldName]);
-      if (editingUrl.index >= 0 && editingUrl.index < urls.length) {
-        urls[editingUrl.index] = editingUrl.value;
-        finalValueToSave = urls.join('\n');
+    if (!record) return;
+
+    if (typeof editingUrl.index === 'number') {
+      const merged = collectMergedProductMediaUrls(record.fields, columns);
+      const targetUrl =
+        editingUrl.originalValue ??
+        (editingUrl.index >= 0 && editingUrl.index < merged.length ? merged[editingUrl.index] : '');
+      if (!targetUrl) {
+        setEditingUrl(null);
+        return;
       }
-    } else if (record) {
-      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
-      if (editingUrl.mode === 'prepend') finalValueToSave = currentFieldValue ? (finalValueToSave + '\n' + currentFieldValue) : finalValueToSave;
-      else finalValueToSave = currentFieldValue ? (currentFieldValue + '\n' + finalValueToSave) : finalValueToSave;
+      try {
+        if (!editingUrl.value.trim()) {
+          if (isTrainerHostedMediaUrl(targetUrl)) {
+            const patch = buildFieldsAfterHidingGalleryMedia(record.fields, targetUrl, columns);
+            await mutations.handleSaveFields(editingUrl.id, patch, records);
+          } else {
+            const patch = buildFieldsAfterRemovingMediaUrl(record.fields, targetUrl, [urlFieldName]);
+            await mutations.handleSaveFields(editingUrl.id, patch, records);
+          }
+        } else {
+          const patch = buildFieldsAfterReplacingMediaUrl(
+            record.fields,
+            targetUrl,
+            finalValueToSave,
+            mediaFieldNames,
+          );
+          if (Object.keys(patch).length === 0) {
+            await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
+          } else {
+            await mutations.handleSaveFields(editingUrl.id, patch, records);
+          }
+        }
+      } catch {
+        window.alert('Could not save link. Please try again.');
+        return;
+      }
+      setEditingUrl(null);
+      return;
     }
-    await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
+
+    if (!finalValueToSave.trim() && !editingUrl.mode) {
+      try {
+        await mutations.handleSaveField(editingUrl.id, urlFieldName, '', records);
+      } catch {
+        window.alert('Could not save link. Please try again.');
+        return;
+      }
+      setEditingUrl(null);
+      return;
+    }
+
+    if (editingUrl.mode === 'prepend') {
+      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
+      finalValueToSave = currentFieldValue ? `${finalValueToSave}\n${currentFieldValue}` : finalValueToSave;
+    } else if (!editingUrl.mode) {
+      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
+      finalValueToSave = currentFieldValue ? `${currentFieldValue}\n${finalValueToSave}` : finalValueToSave;
+    }
+
+    try {
+      await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
+    } catch {
+      window.alert('Could not save link. Please try again.');
+      return;
+    }
     setEditingUrl(null);
   };
 
@@ -893,8 +1012,12 @@ export function ProductsView({
           handleToggleMain={handleToggleMain}
           handleSaveField={handleSaveField}
           handleSaveUrl={handleSaveUrl}
+          handleRemoveUrl={handleRemoveUrl}
+          handleHideMediaFromGallery={handleHideMediaFromGallery}
+          handleUnhideMediaFromGallery={handleUnhideMediaFromGallery}
+          columns={columns}
           editingUrl={editingUrl}
-          isSaving={isSaving}
+          isSaving={mutations.isSaving}
           scrollFooter={null}
         />
       ) : viewMode === 'list' ? (
@@ -926,8 +1049,12 @@ export function ProductsView({
             handleToggleMain={handleToggleMain}
             handleSaveField={handleSaveField}
             handleSaveUrl={handleSaveUrl}
+            handleRemoveUrl={handleRemoveUrl}
+            handleHideMediaFromGallery={handleHideMediaFromGallery}
+            handleUnhideMediaFromGallery={handleUnhideMediaFromGallery}
+            columns={columns}
             editingUrl={editingUrl}
-            isSaving={isSaving}
+            isSaving={mutations.isSaving}
             scrollFooter={
               !loading && remainingRecordsCount > 0 ? (
                 <div className="border-t border-black/5 bg-zinc-50/80 px-4 py-3 dark:border-white/10 dark:bg-zinc-950/40">
@@ -960,6 +1087,7 @@ export function ProductsView({
               <GalleryCard
                 key={r.id}
                 record={r}
+                columns={columns}
                 search={search}
                 selectedIds={selectedIds}
                 toggleSelected={toggleSelected}

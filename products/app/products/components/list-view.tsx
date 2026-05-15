@@ -8,7 +8,10 @@ import {
   getDriveDirectLink, 
   highlightMatches,
   isVideoUrl,
-  formatPrice
+  formatPrice,
+  filterUrlsForGalleryDisplay,
+  isGalleryMediaHidden,
+  isTrainerHostedMediaUrl,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { getTagColorStyles, getTagMaterialStyles } from '../lib/constants';
@@ -44,6 +47,10 @@ export function ListView({
   handleToggleMain,
   handleSaveField,
   handleSaveUrl,
+  handleRemoveUrl,
+  handleHideMediaFromGallery,
+  handleUnhideMediaFromGallery,
+  columns,
   editingUrl,
   isSaving,
   scrollFooter,
@@ -168,12 +175,17 @@ export function ListView({
       const isPhotoCol = col === 'image' || isDAM || isVideoCol;
 
       if (isPhotoCol) {
+        const recordFields = recordById.get(recordId)?.fields;
         const allUrls = extractUrls(value);
-        const urls = isVideoCol 
-          ? allUrls.filter(isVideoUrl) 
-          : col === 'image' || isDAM 
-            ? allUrls.filter(u => !isVideoUrl(u))
-            : allUrls;
+        const urls = filterUrlsForGalleryDisplay(
+          isVideoCol
+            ? allUrls.filter(isVideoUrl)
+            : col === 'image' || isDAM
+              ? allUrls.filter(u => !isVideoUrl(u))
+              : allUrls,
+          recordFields,
+          columns,
+        );
 
         if (urls.length === 0) {
           if ((col === 'image' || isDAM || isVideoCol) && canEdit) {
@@ -383,6 +395,8 @@ export function ListView({
                     </div>
                   )}
                   {urls.map((u, i) => {
+                    const recordFields = recordById.get(recordId)?.fields;
+                    const isHiddenFromGallery = isGalleryMediaHidden(u, recordFields, columns);
                     const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
                     const sourceBadge = getUrlSourceBadge(u);
                     if (isBeingEdited) {
@@ -415,8 +429,19 @@ export function ListView({
                             </button>
                             <button
                               type="button"
-                              onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                              className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
+                              disabled={isSaving}
+                              title={isTrainerHostedMediaUrl(editingUrl.originalValue ?? u) ? 'Hide from Image and Feed' : 'Remove from URL'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const target = editingUrl.originalValue ?? u;
+                                if (isTrainerHostedMediaUrl(target)) {
+                                  void handleHideMediaFromGallery(recordId, target);
+                                } else {
+                                  void handleRemoveUrl(recordId, target);
+                                }
+                                setEditingUrl(null);
+                              }}
+                              className="flex h-6 w-6 items-center justify-center rounded bg-red-500/15 text-red-600 hover:bg-red-500/25 disabled:opacity-50 dark:text-red-400"
                             >
                               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
                                 <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
@@ -498,23 +523,66 @@ export function ListView({
                               </svg>
                             )}
                             <span className="truncate">{u}</span>
+                            {isHiddenFromGallery ? (
+                              <span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                                Hidden
+                              </span>
+                            ) : null}
                           </div>
                         </a>
                         {canEdit && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingUrl({ id: recordId, value: u, column, index: i });
-                            }}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                            title="Edit this link"
-                          >
-                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
-                              <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </button>
+                          <>
+                            {isHiddenFromGallery ? (
+                              <button
+                                type="button"
+                                disabled={isSaving}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleUnhideMediaFromGallery(recordId, u);
+                                }}
+                                className="absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-emerald-500/10 text-emerald-700 opacity-0 transition-opacity hover:bg-emerald-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-emerald-300"
+                                title="Show again in Image and Feed"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" strokeLinecap="round" strokeLinejoin="round" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={isSaving}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isTrainerHostedMediaUrl(u)) {
+                                    void handleHideMediaFromGallery(recordId, u);
+                                  } else {
+                                    void handleRemoveUrl(recordId, u);
+                                  }
+                                }}
+                                className="absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-red-500/10 text-red-600 opacity-0 transition-opacity hover:bg-red-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-red-400"
+                                title={isTrainerHostedMediaUrl(u) ? 'Hide from Image and Feed (link stays in URL)' : 'Remove from URL column'}
+                              >
+                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingUrl({ id: recordId, value: u, originalValue: u, column, index: i });
+                              }}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                              title="Edit this link"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
+                                <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </button>
+                          </>
                         )}
                       </div>
                     );
@@ -748,7 +816,7 @@ export function ListView({
 
       return String(value ?? '');
     },
-    [recordById, search, familyMode, variantCounts, setEditingUrl, handleSaveUrl, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
+    [recordById, search, familyMode, variantCounts, columns, setEditingUrl, handleSaveUrl, handleRemoveUrl, handleHideMediaFromGallery, handleUnhideMediaFromGallery, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
   );
 
   return (

@@ -29,6 +29,10 @@ export interface ListViewProps {
   handleToggleMain?: (id: string) => void;
   handleSaveField?: (id: string, field: string, value: unknown) => void;
   handleSaveUrl: () => void;
+  handleRemoveUrl: (recordId: string, url: string) => void | Promise<void>;
+  handleHideMediaFromGallery: (recordId: string, url: string) => void | Promise<void>;
+  handleUnhideMediaFromGallery: (recordId: string, url: string) => void | Promise<void>;
+  columns: string[];
   editingUrl: EditingUrlState | null;
   isSaving: boolean;
   /** Rendered inside the list scroll area (e.g. infinite-scroll sentinel). */
@@ -37,6 +41,7 @@ export interface ListViewProps {
 
 export interface GalleryCardProps {
   record: ProductsRecord;
+  columns: string[];
   search: string;
   selectedIds: Set<string>;
   toggleSelected: (id: string) => void;

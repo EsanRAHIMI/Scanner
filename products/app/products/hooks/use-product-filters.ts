@@ -1,6 +1,14 @@
 import * as React from 'react';
 import type { ProductsRecord } from '@/types/trainer';
-import { extractUrls, formatScalar, getDriveDirectLink, isVideoUrl, formatPrice } from '../lib/product-utils';
+import {
+  extractUrls,
+  formatScalar,
+  getDriveDirectLink,
+  isVideoUrl,
+  formatPrice,
+  filterUrlsForGalleryDisplay,
+  isGalleryHiddenFieldName,
+} from '../lib/product-utils';
 
 interface UseProductFiltersProps {
   records: ProductsRecord[];
@@ -132,7 +140,17 @@ export function useProductFilters({
 
     const orderedSet = new Set(out);
     const extras = columns
-      .filter((c) => !orderedSet.has(c) && c !== 'DAM' && c !== 'URL' && c !== 'Main' && c !== 'Content Calendar' && c !== 'Video' && c !== 'L000')
+      .filter(
+        (c) =>
+          !orderedSet.has(c) &&
+          c !== 'DAM' &&
+          c !== 'URL' &&
+          c !== 'Main' &&
+          c !== 'Content Calendar' &&
+          c !== 'Video' &&
+          c !== 'L000' &&
+          !isGalleryHiddenFieldName(c),
+      )
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
@@ -419,8 +437,10 @@ export function useProductFilters({
     
     const damUrls = extractUrls(urlKey ? fields[urlKey] : undefined);
     const imageUrls = extractUrls(fields.Image);
-    
-    const allMedia = [...damUrls, ...imageUrls].map(u => {
+    const visibleDam = filterUrlsForGalleryDisplay(damUrls, fields, columns);
+    const visibleImage = filterUrlsForGalleryDisplay(imageUrls, fields, columns);
+
+    const allMedia = [...visibleDam, ...visibleImage].map(u => {
       const directUrl = getDriveDirectLink(u);
       return {
         originalUrl: u,
@@ -466,7 +486,7 @@ export function useProductFilters({
       num: formatScalar(fields['Num']),
       isMain: fields['Main'] === true,
     };
-  }, [getFamilyDisplayKey]);
+  }, [columns, getFamilyDisplayKey]);
 
   const allGalleryItems = React.useMemo(() => {
     return sortedRecords.map(mapToGalleryItem).filter(x => Boolean(x.url));
