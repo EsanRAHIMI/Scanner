@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { formatScalar, extractUrls, getDriveDirectLink, highlightMatches } from '../lib/product-utils';
+import { formatScalar, extractUrls, getDriveDirectLink, DRIVE_IMAGE_WIDTH_LIST, highlightMatches } from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
 interface CommandPaletteProps {
@@ -145,8 +145,10 @@ export function CommandPalette({
                            return (
                              /* eslint-disable-next-line @next/next/no-img-element */
                              <img 
-                               src={getDriveDirectLink(raw)} 
+                               src={getDriveDirectLink(raw, DRIVE_IMAGE_WIDTH_LIST)} 
                                alt="" 
+                               loading="lazy"
+                               decoding="async"
                                className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" 
                              />
                            );

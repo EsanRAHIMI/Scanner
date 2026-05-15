@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { isVideoUrl, getDriveDirectLink } from '../lib/product-utils';
+import { DRIVE_IMAGE_WIDTH_HOVER, isVideoUrl, getDriveDirectLink } from '../lib/product-utils';
 import type { LinkHoverState } from '../types/shared-types';
 
 interface LinkHoverPreviewProps {
@@ -31,7 +31,7 @@ export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
           {isVideoUrl(state.url) ? (
             <div className="flex h-full w-full items-center justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={getDriveDirectLink(state.url)} alt="Video Preview" className="h-full w-full object-cover opacity-50" />
+              <img src={getDriveDirectLink(state.url, DRIVE_IMAGE_WIDTH_HOVER)} alt="Video Preview" className="h-full w-full object-cover opacity-50" loading="lazy" decoding="async" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/30 backdrop-blur-md border border-white/50">
                   <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" xmlns="http://www.w3.org/2000/svg">
@@ -43,8 +43,10 @@ export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img 
-              src={getDriveDirectLink(state.url)} 
+              src={getDriveDirectLink(state.url, DRIVE_IMAGE_WIDTH_HOVER)} 
               alt="Preview" 
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = state.url;

@@ -2,7 +2,13 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import { getDriveDirectLink, isVideoUrl, supportsNextJsImageOptimization } from '../lib/product-utils';
+import {
+  DRIVE_IMAGE_WIDTH_FULL,
+  DRIVE_IMAGE_WIDTH_LIST,
+  getDriveDirectLink,
+  isVideoUrl,
+  supportsNextJsImageOptimization,
+} from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 
 import { PhotoDeckProps } from '../types/products-ui';
@@ -39,8 +45,7 @@ function DeckRaster({
         alt={`Product view ${revIdx + 1}`}
         fill
         sizes="96px"
-        loading={revIdx === 0 ? 'eager' : 'lazy'}
-        priority={revIdx === 0}
+        loading="lazy"
         placeholder="empty"
         referrerPolicy="no-referrer"
         className="object-cover"
@@ -54,9 +59,9 @@ function DeckRaster({
     <img
       src={finalUrl}
       alt={`Product view ${revIdx + 1}`}
-      loading={revIdx === 0 ? 'eager' : 'lazy'}
+      loading="lazy"
       decoding="async"
-      fetchPriority={revIdx === 0 ? 'high' : 'low'}
+      fetchPriority="low"
       referrerPolicy="no-referrer"
       onError={() => setBroken(true)}
       className="block h-full w-full object-cover"
@@ -87,7 +92,8 @@ const PhotoDeck = React.memo(({
         .map((u, i) => {
           const revIdx = visibleUrls.length - 1 - i;
           const isVideo = isVideoUrl(u);
-          const finalUrl = getDriveDirectLink(u);
+          const previewUrl = getDriveDirectLink(u, DRIVE_IMAGE_WIDTH_FULL);
+          const thumbUrl = getDriveDirectLink(u, DRIVE_IMAGE_WIDTH_LIST);
           
           return (
             <button
@@ -98,9 +104,9 @@ const PhotoDeck = React.memo(({
                 e.stopPropagation();
                 beginLightboxTrace('photo-deck');
                 markLightboxTrace('click:handler');
-                onOpenPreview?.(finalUrl);
+                onOpenPreview?.(previewUrl);
               }}
-              title={finalUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}
+              title={previewUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}
               aria-label={`View ${isVideo ? 'video' : 'image'} ${revIdx + 1} of ${urls.length}`}
               style={{
                 '--idx': revIdx,
@@ -123,7 +129,7 @@ const PhotoDeck = React.memo(({
               tabIndex={0}
             >
               <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
-                <DeckRaster finalUrl={finalUrl} revIdx={revIdx} isVideo={isVideo} />
+                <DeckRaster finalUrl={thumbUrl} revIdx={revIdx} isVideo={isVideo} />
                 {isVideo && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">

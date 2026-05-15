@@ -144,11 +144,27 @@ export function collectNumOnlyStubIds(records: ProductsRecord[], columns: string
   return records.filter(r => isNumOnlyStubRow(r.fields, columns)).map(r => r.id);
 }
 
+/** Full-size lh3 width for lightbox / downloads. */
+export const DRIVE_IMAGE_WIDTH_FULL = 1200;
+/** List / deck thumbnails (~96px cell, 2× retina). */
+export const DRIVE_IMAGE_WIDTH_LIST = 256;
+/** Hover popover (~200px, 2× retina). */
+export const DRIVE_IMAGE_WIDTH_HOVER = 420;
+
+function lh3DirectUrl(fileId: string, width: number): string {
+  const id = fileId.split('=')[0] ?? fileId;
+  return `https://lh3.googleusercontent.com/d/${id}=w${width}`;
+}
+
 /**
  * Converts a Google Drive link into a high-performance direct link via lh3.
  * Handles /d/ paths, ?id= query params, and existing lh3 URLs.
+ * @param width — lh3 max width; use `DRIVE_IMAGE_WIDTH_LIST` for small previews.
  */
-export function getDriveDirectLink(url: string | null | undefined): string {
+export function getDriveDirectLink(
+  url: string | null | undefined,
+  width: number = DRIVE_IMAGE_WIDTH_FULL,
+): string {
   if (!url) return '';
   const u = url.trim();
 
@@ -159,7 +175,7 @@ export function getDriveDirectLink(url: string | null | undefined): string {
 
   const lh3Match = u.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
   if (lh3Match && lh3Match[1]) {
-    return `https://lh3.googleusercontent.com/d/${lh3Match[1]}=w1200`;
+    return lh3DirectUrl(lh3Match[1], width);
   }
 
   let id = '';
@@ -174,7 +190,7 @@ export function getDriveDirectLink(url: string | null | undefined): string {
   }
 
   if (id) {
-    return `https://lh3.googleusercontent.com/d/${id}=w1200`;
+    return lh3DirectUrl(id, width);
   }
   return u;
 }
