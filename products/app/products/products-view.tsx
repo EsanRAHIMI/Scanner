@@ -91,7 +91,7 @@ export function ProductsView({
   const records: ProductsRecord[] = data?.records ?? [];
 
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
-  const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('main');
+  const [familyMode, setFamilyMode] = React.useState<'collection' | 'main'>('collection');
   const [maxMode, setMaxMode] = React.useState<'classic' | 'social'>('social');
   const [lightboxDetailsCollapsed, setLightboxDetailsCollapsed] = React.useState<boolean>(true);
   const [user, setUser] = React.useState<UserSession | null>(null);
