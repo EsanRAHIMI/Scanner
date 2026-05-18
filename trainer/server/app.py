@@ -1848,6 +1848,7 @@ async def public_products_assets(db=Depends(_get_db)):
   columns_set.add("Space")
   columns_set.add("Color")
   columns_set.add("Material")
+  columns_set.add("Content Status")
 
   columns = sorted(columns_set)
 
@@ -2725,6 +2726,7 @@ async def products_assets(
   columns_set.add("Space")
   columns_set.add("Color")
   columns_set.add("Material")
+  columns_set.add("Content Status")
   columns = sorted(columns_set)
   return {"columns": columns, "records": records, "count": len(records)}
 

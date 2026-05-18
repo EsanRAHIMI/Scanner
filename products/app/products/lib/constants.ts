@@ -3,6 +3,34 @@ export const CATEGORY_OPTIONS = ['Chandeliers', 'Pendant', 'Cascade Light', 'Flo
 export const COLOR_OPTIONS = ['Transparent', 'Chrome', 'White', 'Black', 'Bronze', 'Blue', 'Gold', 'Pink'];
 export const MATERIAL_OPTIONS = ['Stone', 'Fabric', 'Metal', 'Glass', 'Wood'];
 
+/** Allowed values for the Content Status column (sales + admin only). */
+export const CONTENT_STATUS_OPTIONS = ['complete', 'image', 'Product info'] as const;
+
+export type ContentStatusValue = (typeof CONTENT_STATUS_OPTIONS)[number];
+
+export const CONTENT_STATUS_DEFAULT: ContentStatusValue = 'image';
+
+export function resolveContentStatusValue(raw: string | null | undefined): ContentStatusValue {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return CONTENT_STATUS_DEFAULT;
+  const found = CONTENT_STATUS_OPTIONS.find(opt => opt.toLowerCase() === trimmed.toLowerCase());
+  return found ?? CONTENT_STATUS_DEFAULT;
+}
+
+export function getContentStatusStyles(status: string) {
+  const s = status.trim().toLowerCase();
+  switch (s) {
+    case 'complete':
+      return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300';
+    case 'image':
+      return 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-300';
+    case 'product info':
+      return 'border-amber-500/25 bg-amber-500/10 text-amber-800 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-300';
+    default:
+      return 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/60';
+  }
+}
+
 export const getTagColorStyles = (color: string) => {
   const c = color.toLowerCase().trim();
   switch (c) {

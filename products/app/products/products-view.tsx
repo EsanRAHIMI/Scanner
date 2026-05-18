@@ -24,12 +24,10 @@ import {
   findUrlFieldName,
   resolveMediaFieldNames,
   collectMergedProductMediaUrls,
-  buildFieldsAfterRemovingMediaUrl,
   buildFieldsAfterReplacingMediaUrl,
   buildFieldsAfterHidingGalleryMedia,
   buildFieldsAfterUnhidingGalleryMedia,
   sameProductMediaUrl,
-  isTrainerHostedMediaUrl,
 } from './lib/product-utils';
 
 import { 
@@ -304,7 +302,8 @@ export function ProductsView({
   }, [data, loading, records, setData]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
-  const canDelete = user?.is_admin || user?.role === 'admin';
+  /** Row delete and bulk purge: admin role only (not sales or other roles). */
+  const canDelete = user?.role === 'admin';
 
   const handleBulkDeleteNumOnlyStubs = React.useCallback(() => {
     if (!canDelete || mutations.isSaving) return;
@@ -358,25 +357,12 @@ export function ProductsView({
     [records, columns, mutations],
   );
 
+  /** URL column ✕: hide from Image/Feed only — never remove links from the URL field. */
   const handleRemoveUrl = React.useCallback(
     async (recordId: string, urlToRemove: string) => {
-      if (!urlToRemove.trim() || mutations.isSaving) return;
-      if (isTrainerHostedMediaUrl(urlToRemove)) {
-        await handleHideMediaFromGallery(recordId, urlToRemove);
-        return;
-      }
-      const record = records.find(r => r.id === recordId);
-      if (!record) return;
-      const urlFieldName = findUrlFieldName(columns);
-      const patch = buildFieldsAfterRemovingMediaUrl(record.fields, urlToRemove, [urlFieldName]);
-      if (Object.keys(patch).length === 0) return;
-      try {
-        await mutations.handleSaveFields(recordId, patch, records);
-      } catch {
-        window.alert('Could not remove link. Please try again.');
-      }
+      await handleHideMediaFromGallery(recordId, urlToRemove);
     },
-    [records, columns, mediaFieldNames, mutations, handleHideMediaFromGallery],
+    [handleHideMediaFromGallery],
   );
 
   const handleSaveUrl = async () => {
@@ -400,13 +386,8 @@ export function ProductsView({
       }
       try {
         if (!editingUrl.value.trim()) {
-          if (isTrainerHostedMediaUrl(targetUrl)) {
-            const patch = buildFieldsAfterHidingGalleryMedia(record.fields, targetUrl, columns);
-            await mutations.handleSaveFields(editingUrl.id, patch, records);
-          } else {
-            const patch = buildFieldsAfterRemovingMediaUrl(record.fields, targetUrl, [urlFieldName]);
-            await mutations.handleSaveFields(editingUrl.id, patch, records);
-          }
+          const patch = buildFieldsAfterHidingGalleryMedia(record.fields, targetUrl, columns);
+          await mutations.handleSaveFields(editingUrl.id, patch, records);
         } else {
           const patch = buildFieldsAfterReplacingMediaUrl(
             record.fields,
@@ -731,9 +712,9 @@ export function ProductsView({
 
   const searchGroupNode = (
     <div
-      className={`group flex min-h-10 items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all dark:border-white/10 dark:bg-black/40 ${
+      className={`group flex min-h-10 w-full min-w-0 max-w-full items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all dark:border-white/10 dark:bg-black/40 ${
         hasActiveFilters ? 'pr-1' : 'pr-0'
-      } min-w-[40px] sm:min-w-[440px]`}
+      }`}
     >
       <div
         className={`overflow-hidden transition-[width,opacity] duration-300 ease-out flex items-center ${

@@ -8,6 +8,8 @@ import {
   formatPrice,
   filterUrlsForGalleryDisplay,
   isGalleryHiddenFieldName,
+  isContentStatusFieldName,
+  resolveContentStatusFieldName,
 } from '../lib/product-utils';
 
 interface UseProductFiltersProps {
@@ -83,6 +85,10 @@ export function useProductFilters({
   const colorFieldName = columns.find(c => c.trim().toLowerCase() === 'color') || 'Color';
   const spaceFieldName = columns.find(c => c.trim().toLowerCase() === 'space') || 'Space';
   const materialFieldName = columns.find(c => c.trim().toLowerCase() === 'material') || 'Material';
+  const contentStatusFieldName = resolveContentStatusFieldName(columns);
+
+  const canViewContentStatus =
+    user?.role === 'admin' || user?.role === 'sales';
 
   // Debounced search drives URL sync and filtering (highlights still use live `search`).
   const [debouncedSearch, setDebouncedSearch] = React.useState(search);
@@ -149,13 +155,18 @@ export function useProductFilters({
           c !== 'Content Calendar' &&
           c !== 'Video' &&
           c !== 'L000' &&
-          !isGalleryHiddenFieldName(c),
+          !isGalleryHiddenFieldName(c) &&
+          !isContentStatusFieldName(c),
       )
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
 
-    return out;
-  }, [columns, loading, user]);
+    const withoutContentStatus = out.filter(c => !isContentStatusFieldName(c));
+    if (canViewContentStatus) {
+      return [...withoutContentStatus, contentStatusFieldName];
+    }
+    return withoutContentStatus;
+  }, [canViewContentStatus, columns, contentStatusFieldName, loading]);
 
   // Search Logic
   const getSearchText = React.useCallback((r: ProductsRecord, usedColumns: string[]) => {
@@ -540,6 +551,8 @@ export function useProductFilters({
     categoryFieldName,
     colorFieldName,
     spaceFieldName,
-    materialFieldName
+    materialFieldName,
+    contentStatusFieldName,
+    canViewContentStatus,
   };
 }

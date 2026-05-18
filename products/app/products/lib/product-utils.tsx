@@ -380,6 +380,18 @@ export function buildFieldsAfterReplacingMediaUrl(
 /** Internal field: URLs hidden from Image column / Feed (still listed under URL). */
 export const GALLERY_HIDDEN_FIELD = 'Gallery Hidden';
 
+export const CONTENT_STATUS_FIELD = 'Content Status';
+
+export function isContentStatusFieldName(fieldName: string): boolean {
+  return fieldName.trim().toLowerCase() === CONTENT_STATUS_FIELD.toLowerCase();
+}
+
+export function resolveContentStatusFieldName(columns: string[]): string {
+  return (
+    columns.find(c => isContentStatusFieldName(c)) ?? CONTENT_STATUS_FIELD
+  );
+}
+
 export function resolveGalleryHiddenFieldName(columns: string[]): string {
   return (
     columns.find(c => c.trim().toLowerCase() === GALLERY_HIDDEN_FIELD.toLowerCase()) ??

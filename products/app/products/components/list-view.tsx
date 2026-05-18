@@ -11,14 +11,62 @@ import {
   formatPrice,
   filterUrlsForGalleryDisplay,
   isGalleryMediaHidden,
-  isTrainerHostedMediaUrl,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
-import { getTagColorStyles, getTagMaterialStyles } from '../lib/constants';
+import {
+  CONTENT_STATUS_OPTIONS,
+  resolveContentStatusValue,
+  getTagColorStyles,
+  getTagMaterialStyles,
+  getContentStatusStyles,
+} from '../lib/constants';
+import { isContentStatusFieldName } from '../lib/product-utils';
 import { PhotoDeck } from './photo-deck';
 import { ProductsSkeleton } from './products-skeleton';
 
 import { ListViewProps } from '../types/products-ui';
+
+function ContentStatusSelect({
+  recordId,
+  column,
+  value,
+  canEdit,
+  isSaving,
+  handleSaveField,
+}: {
+  recordId: string;
+  column: string;
+  value: unknown;
+  canEdit: boolean | undefined;
+  isSaving: boolean;
+  handleSaveField?: (id: string, field: string, val: unknown) => void;
+}) {
+  const matched = resolveContentStatusValue(formatScalar(value));
+
+  return (
+    <select
+      value={matched}
+      disabled={!canEdit || isSaving}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onChange={(event) => {
+        event.stopPropagation();
+        void handleSaveField?.(recordId, column, event.target.value);
+      }}
+      className={
+        'w-full min-w-[9.5rem] cursor-pointer rounded-lg border px-2 py-1.5 text-[11px] font-semibold outline-none transition-colors focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-50 ' +
+        getContentStatusStyles(matched)
+      }
+      aria-label="Content Status"
+    >
+      {CONTENT_STATUS_OPTIONS.map(opt => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function ListView({
   loading,
@@ -126,6 +174,7 @@ export function ListView({
     if (normalized === 'colecction code' || normalized === 'collection code') return 'Collection Code';
     if (normalized === 'code number') return 'Code Number';
     if (normalized === 'dimension (mm)' || normalized === 'dimension') return 'Dimension (mm)';
+    if (normalized === 'content status') return 'Content Status';
     return column;
   }, []);
 
@@ -430,15 +479,11 @@ export function ListView({
                             <button
                               type="button"
                               disabled={isSaving}
-                              title={isTrainerHostedMediaUrl(editingUrl.originalValue ?? u) ? 'Hide from Image and Feed' : 'Remove from URL'}
+                              title="Hide from Image and Feed (link stays in URL)"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const target = editingUrl.originalValue ?? u;
-                                if (isTrainerHostedMediaUrl(target)) {
-                                  void handleHideMediaFromGallery(recordId, target);
-                                } else {
-                                  void handleRemoveUrl(recordId, target);
-                                }
+                                void handleHideMediaFromGallery(recordId, target);
                                 setEditingUrl(null);
                               }}
                               className="flex h-6 w-6 items-center justify-center rounded bg-red-500/15 text-red-600 hover:bg-red-500/25 disabled:opacity-50 dark:text-red-400"
@@ -554,14 +599,10 @@ export function ListView({
                                 disabled={isSaving}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (isTrainerHostedMediaUrl(u)) {
-                                    void handleHideMediaFromGallery(recordId, u);
-                                  } else {
-                                    void handleRemoveUrl(recordId, u);
-                                  }
+                                  void handleHideMediaFromGallery(recordId, u);
                                 }}
                                 className="absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-red-500/10 text-red-600 opacity-0 transition-opacity hover:bg-red-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-red-400"
-                                title={isTrainerHostedMediaUrl(u) ? 'Hide from Image and Feed (link stays in URL)' : 'Remove from URL column'}
+                                title="Hide from Image and Feed (link stays in URL)"
                               >
                                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
                                   <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
@@ -725,6 +766,19 @@ export function ListView({
         );
       }
 
+      if (col === 'content status') {
+        return (
+          <ContentStatusSelect
+            recordId={recordId}
+            column={column}
+            value={value}
+            canEdit={canEdit}
+            isSaving={isSaving}
+            handleSaveField={handleSaveField}
+          />
+        );
+      }
+
       if (col === 'color' || col === 'material' || col === 'category') {
         const displayValue = formatScalar(value);
         const activeValues = (displayValue || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -827,14 +881,16 @@ export function ListView({
             {displayedColumns.map((c, idx) => {
               const normalizedCol = c.trim().toLowerCase();
               const isURL = normalizedCol === 'url';
+              const isContentStatus = isContentStatusFieldName(c);
               return (
                 <th
                   key={c}
                   className={
                     'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
                     (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
-                    (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' : 
-                     normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' : '') +
+                    (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' :
+                     normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' :
+                     isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
                     'px-4 py-3 text-left'
                   }
                 >
@@ -896,6 +952,7 @@ export function ListView({
                     const isDAM = normalizedCol === 'dam';
                     const isVideoCol = normalizedCol === 'video';
                     const isURL = normalizedCol === 'url';
+                    const isContentStatus = isContentStatusFieldName(c);
                     const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
                     const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name' || normalizedCol === 'name' || normalizedCol === 'code number';
                     let cellValue = r.fields?.[c];
@@ -927,12 +984,15 @@ export function ListView({
                             : '') +
                           (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
                           (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
-                          (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' : 
-                           normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' : '') +
+                          (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' :
+                           normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' :
+                           isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
                           (isFirstCol
                             ? 'px-4 py-1 whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
-                            : (isEditableTag 
-                                ? 'p-0' 
+                            : (isEditableTag
+                                ? 'p-0'
+                                : isContentStatus
+                                  ? 'px-2 py-2 whitespace-nowrap text-xs'
                                 : (isDAM
                                   ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
                                   : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80'))))
