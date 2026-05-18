@@ -323,9 +323,9 @@ https://scanner.ehsanrahimi.com
 | `/trainer/*`     | trainer/web:3010    |
 | `/trainer/api/*` | trainer/server:8010 |
 
-## Root Directory (مهم)
+## Root Directory (monorepo)
 
-این ریپو monorepo است. برای هر Application در Dokploy حتماً **Root Directory** (یا Build Path) را درست ست کنید؛ در غیر این صورت Nixpacks از ریشهٔ ریپو `npm ci` می‌زند و خطای «package-lock.json not found» می‌گیرید.
+برای هر سرویس در Dokploy **Build Path / Root Directory** را روی پوشهٔ همان اپ بگذارید (مثلاً trainer web روی `trainer/web`). اگر خالی بماند، context بیلد کل ریپو است؛ در آن حالت Nixpacks ممکن است `package.json`/`package-lock.json` درست اپ را در `/app` نبیند و `npm ci` با خطای نبودن lockfile بخورد.
 
 | سرویس | Root Directory |
 | ----- | -------------- |
@@ -336,20 +336,13 @@ https://scanner.ehsanrahimi.com
 | products | `products` |
 | marketing | `marketing` |
 
-برای **trainer/web** همچنین:
+### trainer/web و Nixpacks (پیش‌فرض Dokploy)
 
-- **Build Path / Root Directory**: `trainer/web` (بدون `/` اول — مقدار دقیق: `trainer/web`)
+دیپلوی موفق با **Nixpacks به‌صورت پیش‌فرض** (بدون `nixpacks.toml` داخل `trainer/web`) پلنی شبیه زیر می‌سازد: `nodejs_18`, `npm ci`, سپس `npm run build`. یک **`trainer/web/nixpacks.toml` سفارشی** (مثلاً اجبار به `nodejs_22` یا `onlyIncludeFiles` روی فاز install) می‌تواند همان رفتار ثابت را بشکند؛ برای همین این فایل در ریپو نگه‌داری نمی‌شود.
+
+اگر خواستی از **Dockerfile** استفاده کنی: `trainer/web/Dockerfile`، Build Path = `trainer/web`، Dockerfile Path = `Dockerfile`، Context = `.`
+
 - **Port**: `3010`
-
-اگر با Nixpacks خطای `package-lock.json not found` می‌گیرید (حتی بعد از ست کردن Build Path):
-
-1. **Build Type** را از Nixpacks به **Dockerfile** عوض کنید
-2. **Build Path**: `trainer/web`
-3. **Dockerfile Path**: `Dockerfile`
-4. **Docker Context**: `.`
-5. دوباره Deploy
-
-یا با Nixpacks این env را اضافه کنید: `NIXPACKS_INSTALL_CMD=npm install --no-audit --no-fund`
 
 متغیرهای محیطی:
 
