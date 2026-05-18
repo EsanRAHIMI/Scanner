@@ -2,6 +2,11 @@
   "name": "lorenzo-trainer-web",
   "private": true,
   "version": "0.1.0",
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
+  "packageManager": "npm@10.9.7",
   "scripts": {
     "dev": "next dev -p 3010",
     "build": "next build",
