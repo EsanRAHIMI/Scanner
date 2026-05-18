@@ -323,24 +323,17 @@ https://scanner.ehsanrahimi.com
 | `/trainer/*`     | trainer/web:3010    |
 | `/trainer/api/*` | trainer/server:8010 |
 
-## Root Directory (monorepo)
+## منبع Git و ریشهٔ بیلد (Dokploy)
 
-برای هر سرویس در Dokploy **Build Path / Root Directory** را روی پوشهٔ همان اپ بگذارید (مثلاً trainer web روی `trainer/web`). اگر خالی بماند، context بیلد کل ریپو است؛ در آن حالت Nixpacks ممکن است `package.json`/`package-lock.json` درست اپ را در `/app` نبیند و `npm ci` با خطای نبودن lockfile بخورد.
+در Dokploy برای هر اپ، **اتصال به GitHub** طوری تنظیم می‌شود که همان **زیرپوشهٔ اپ** (مثلاً `trainer/web`) مستقیم ریشهٔ بیلد و محتوای کانتینر باشد؛ **نیازی به تعریف یا اصلاح مسیر داخل فایل‌های این ریپو برای دیپلوی نیست.**
 
-| سرویس | Root Directory |
-| ----- | -------------- |
-| frontend (Scanner UI) | `frontend` |
-| backend (YOLO API) | `backend` |
-| trainer/web (Dashboard) | `trainer/web` |
-| trainer/server | `trainer/server` |
-| products | `products` |
-| marketing | `marketing` |
+### trainer/web و Nixpacks
 
-### trainer/web و Nixpacks (پیش‌فرض Dokploy)
+پیش‌فرض Nixpacks برای npm وقتی `package-lock.json` هنگام **تولید پلن** دیده شود، دستور **`npm ci`** می‌گذارد؛ گاهی در مرحلهٔ **`COPY` روی بیلدسرور** همان lockfile در `/app` نیست و `npm ci` با خطای نبودن lock می‌خورد، در حالی که فایل در گیت وجود دارد.
 
-دیپلوی موفق با **Nixpacks به‌صورت پیش‌فرض** (بدون `nixpacks.toml` داخل `trainer/web`) پلنی شبیه زیر می‌سازد: `nodejs_18`, `npm ci`, سپس `npm run build`. یک **`trainer/web/nixpacks.toml` سفارشی** (مثلاً اجبار به `nodejs_22` یا `onlyIncludeFiles` روی فاز install) می‌تواند همان رفتار ثابت را بشکند؛ برای همین این فایل در ریپو نگه‌داری نمی‌شود.
+برای جلوگیری از این شکستن، در `trainer/web/nixpacks.toml` فقط فاز نصب با **`npm install --no-audit --no-fund`** override شده است (بدون تغییر ورژن Node و بدون `onlyIncludeFiles`). اگر lock در context باشد، npm از همان استفاده می‌کند.
 
-اگر خواستی از **Dockerfile** استفاده کنی: `trainer/web/Dockerfile`، Build Path = `trainer/web`، Dockerfile Path = `Dockerfile`، Context = `.`
+برای ساخت با **`npm ci`** می‌توانی در Dokploy **Build Type** را **Dockerfile** بگذاری و از `Dockerfile` داخل همان پوشه استفاده کنی.
 
 - **Port**: `3010`
 

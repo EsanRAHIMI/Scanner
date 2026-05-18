@@ -1,0 +1,3 @@
+# پایداری نصب روی بیلدسرور (جایگزین پیش‌فرض «npm ci» وقتی lock در لایهٔ Docker نمی‌رسد)
+[phases.install]
+cmds = ["npm install --no-audit --no-fund"]
