@@ -323,6 +323,25 @@ https://scanner.ehsanrahimi.com
 | `/trainer/*`     | trainer/web:3010    |
 | `/trainer/api/*` | trainer/server:8010 |
 
+## Root Directory (مهم)
+
+این ریپو monorepo است. برای هر Application در Dokploy حتماً **Root Directory** (یا Build Path) را درست ست کنید؛ در غیر این صورت Nixpacks از ریشهٔ ریپو `npm ci` می‌زند و خطای «package-lock.json not found» می‌گیرید.
+
+| سرویس | Root Directory |
+| ----- | -------------- |
+| frontend (Scanner UI) | `frontend` |
+| backend (YOLO API) | `backend` |
+| trainer/web (Dashboard) | `trainer/web` |
+| trainer/server | `trainer/server` |
+| products | `products` |
+| marketing | `marketing` |
+
+برای **trainer/web** همچنین:
+
+- **Build Command**: (خالی بگذارید — Nixpacks خودش `npm run build` را اجرا می‌کند)
+- **Start Command**: (خالی — `npm run start` روی پورت 3010)
+- **Port**: `3010`
+
 متغیرهای محیطی:
 
 ### frontend

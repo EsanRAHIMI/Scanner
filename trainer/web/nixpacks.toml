@@ -1,0 +1,6 @@
+# Dokploy / Nixpacks: set application Root Directory to `trainer/web`.
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[variables]
+NODE_ENV = "production"
