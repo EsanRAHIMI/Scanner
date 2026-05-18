@@ -338,9 +338,18 @@ https://scanner.ehsanrahimi.com
 
 برای **trainer/web** همچنین:
 
-- **Build Command**: (خالی بگذارید — Nixpacks خودش `npm run build` را اجرا می‌کند)
-- **Start Command**: (خالی — `npm run start` روی پورت 3010)
+- **Build Path / Root Directory**: `trainer/web` (بدون `/` اول — مقدار دقیق: `trainer/web`)
 - **Port**: `3010`
+
+اگر با Nixpacks خطای `package-lock.json not found` می‌گیرید (حتی بعد از ست کردن Build Path):
+
+1. **Build Type** را از Nixpacks به **Dockerfile** عوض کنید
+2. **Build Path**: `trainer/web`
+3. **Dockerfile Path**: `Dockerfile`
+4. **Docker Context**: `.`
+5. دوباره Deploy
+
+یا با Nixpacks این env را اضافه کنید: `NIXPACKS_INSTALL_CMD=npm install --no-audit --no-fund`
 
 متغیرهای محیطی:
 

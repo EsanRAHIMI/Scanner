@@ -1,6 +1,11 @@
-# Dokploy / Nixpacks: set application Root Directory to `trainer/web`.
+# Dokploy: Build Path MUST be `trainer/web` (not repo root).
+# If Nixpacks still fails, switch Build Type to Dockerfile and use ./Dockerfile.
 [phases.setup]
 nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = ["npm install --no-audit --no-fund"]
+onlyIncludeFiles = ["package.json", "package-lock.json", "npm-shrinkwrap.json"]
 
 [variables]
 NODE_ENV = "production"
