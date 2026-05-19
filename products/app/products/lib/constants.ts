@@ -3,6 +3,41 @@ export const CATEGORY_OPTIONS = ['Chandeliers', 'Pendant', 'Cascade Light', 'Flo
 export const COLOR_OPTIONS = ['Transparent', 'Chrome', 'White', 'Black', 'Bronze', 'Blue', 'Gold', 'Pink'];
 export const MATERIAL_OPTIONS = ['Stone', 'Fabric', 'Metal', 'Glass', 'Wood'];
 
+/** Product fields the sales role must not edit (admin / platform admin can). */
+const SALES_RESTRICTED_FIELD_KEYS = new Set([
+  'code number',
+  'code no',
+  'code',
+  'collection name',
+  'colecction name',
+  'name',
+  'price',
+  'collection code',
+  'colecction code',
+  'variant number',
+  'num',
+  'factory code',
+]);
+
+export function normalizeProductFieldKey(fieldName: string): string {
+  return fieldName.trim().toLowerCase();
+}
+
+export function isSalesRestrictedProductField(fieldName: string): boolean {
+  return SALES_RESTRICTED_FIELD_KEYS.has(normalizeProductFieldKey(fieldName));
+}
+
+export function canEditProductField(
+  user: { role?: string; is_admin?: boolean } | null | undefined,
+  fieldName: string,
+): boolean {
+  if (!user) return false;
+  const isPlatformAdmin = user.is_admin === true || user.role === 'admin';
+  if (isPlatformAdmin) return true;
+  if (user.role === 'sales') return !isSalesRestrictedProductField(fieldName);
+  return false;
+}
+
 /** Allowed values for the Content Status column (sales + admin only). */
 export const CONTENT_STATUS_OPTIONS = ['complete', 'image', 'Product info'] as const;
 

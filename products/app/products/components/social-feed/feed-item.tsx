@@ -18,6 +18,7 @@ interface FeedItemProps {
   activeCollectionFilter?: string | null;
   selectedCount: number;
   canEdit?: boolean;
+  canEditField?: (fieldName: string) => boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
   onUpdateVariant?: (id: string, fields: Record<string, any>) => Promise<void>;
   triggerFilterHint?: boolean;
@@ -36,6 +37,7 @@ function FeedItemInner({
   activeCollectionFilter,
   selectedCount,
   canEdit,
+  canEditField,
   onAddMedia,
   onUpdateVariant,
   triggerFilterHint,
@@ -184,7 +186,12 @@ function FeedItemInner({
         triggerFilterHint={triggerFilterHint}
       />
 
-      <FeedCaption variant={variant} canEdit={canEdit} onUpdateVariant={onUpdateVariant} />
+      <FeedCaption
+        variant={variant}
+        canEdit={canEdit}
+        canEditField={canEditField}
+        onUpdateVariant={onUpdateVariant}
+      />
     </div>
   );
 }

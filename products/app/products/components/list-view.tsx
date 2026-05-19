@@ -24,6 +24,7 @@ import { isContentStatusFieldName } from '../lib/product-utils';
 import { PhotoDeck } from './photo-deck';
 import { ProductsSkeleton } from './products-skeleton';
 
+import { CellChangeAudit } from './field-change-indicator';
 import { ListViewProps } from '../types/products-ui';
 
 function ContentStatusSelect({
@@ -90,6 +91,7 @@ export function ListView({
   search,
   setLinkHoverState,
   canEdit,
+  canEditField,
   canDelete,
   handleDeleteProduct,
   handleToggleMain,
@@ -102,6 +104,8 @@ export function ListView({
   editingUrl,
   isSaving,
   scrollFooter,
+  moderationMode = false,
+  changeAudit,
 }: ListViewProps) {
   const recordById = React.useMemo(() => {
     const map = new Map<string, ProductsRecord>();
@@ -180,7 +184,7 @@ export function ListView({
 
   const isInlineEditableColumn = React.useCallback((column: string) => {
     const normalized = getColumnLabel(column).trim().toLowerCase();
-    return [
+    const inlineEditable = [
       'code number',
       'collection name',
       'price',
@@ -194,12 +198,15 @@ export function ListView({
       'l',
       'w',
     ].includes(normalized);
-  }, [getColumnLabel]);
+    if (!inlineEditable) return false;
+    return canEditField ? canEditField(column) : true;
+  }, [getColumnLabel, canEditField]);
 
   const startInlineEdit = React.useCallback((recordId: string, column: string, value: unknown) => {
+    if (canEditField && !canEditField(column)) return;
     const displayValue = formatScalar(value);
     setEditingUrl({ id: recordId, value: displayValue, originalValue: displayValue, column });
-  }, [setEditingUrl]);
+  }, [setEditingUrl, canEditField]);
 
   const rowGroupMeta = React.useMemo(() => {
     const keys = visibleRecords.map(getCollectionKey);
@@ -1039,7 +1046,14 @@ export function ListView({
                           toggleSelected(r.id);
                         }}
                       >
-                        {renderCell(c, cellValue, r.id)}
+                        <CellChangeAudit
+                          enabled={moderationMode}
+                          recordId={r.id}
+                          fieldName={c}
+                          changeAudit={changeAudit}
+                        >
+                          {renderCell(c, cellValue, r.id)}
+                        </CellChangeAudit>
                       </td>
                     );
                   })}

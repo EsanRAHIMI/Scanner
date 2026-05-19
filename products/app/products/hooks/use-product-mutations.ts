@@ -9,6 +9,8 @@ interface UseProductMutationsProps {
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
   notePendingDelete: (recordId: string) => void;
   columns: string[];
+  /** When provided, blocks save for fields sales cannot edit. */
+  canEditField?: (fieldName: string) => boolean;
 }
 
 /** Extracts a collection name key from a record's fields. */
@@ -21,7 +23,24 @@ function getCollectionKey(fields: Record<string, unknown> | undefined): string {
   ).trim();
 }
 
-export function useProductMutations({ setData, mutate, notePendingDelete, columns }: UseProductMutationsProps) {
+function assertCanEditFields(
+  canEditField: ((fieldName: string) => boolean) | undefined,
+  fieldNames: string[],
+): boolean {
+  if (!canEditField) return true;
+  const blocked = fieldNames.filter((f) => !canEditField(f));
+  if (blocked.length === 0) return true;
+  window.alert(`You do not have permission to edit: ${blocked.join(', ')}`);
+  return false;
+}
+
+export function useProductMutations({
+  setData,
+  mutate,
+  notePendingDelete,
+  columns,
+  canEditField,
+}: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
   const rollbackRecords = React.useCallback(
@@ -62,6 +81,8 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
 
     const targetRecord = records.find(r => r.id === id);
     if (!targetRecord) return;
+
+    if (!assertCanEditFields(canEditField, Object.keys(fields))) return;
 
     const isNameUpdate = 'Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields;
     let idsToUpdate = [id];
@@ -174,7 +195,7 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, rollbackRecords]);
+  }, [isSaving, setData, mutate, rollbackRecords, canEditField]);
 
   const handleSaveFields = React.useCallback(async (
     recordId: string,
@@ -183,6 +204,7 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
   ) => {
     const keys = Object.keys(fieldsPatch);
     if (keys.length === 0) return;
+    if (!assertCanEditFields(canEditField, keys)) return;
 
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
@@ -234,7 +256,7 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
       await rollbackRecords(previousFieldsById);
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord]);
+  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord, canEditField]);
 
   const handleSaveField = React.useCallback(async (
     recordId: string, 
@@ -242,6 +264,8 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
     newValue: unknown, 
     records: ProductsRecord[]
   ) => {
+    if (!assertCanEditFields(canEditField, [fieldName])) return;
+
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
       const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
@@ -281,7 +305,7 @@ export function useProductMutations({ setData, mutate, notePendingDelete, column
       await rollbackRecords(previousFieldsById);
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord]);
+  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord, canEditField]);
 
   const handleAddMediaToVariant = React.useCallback(async (
     variantId: string, 

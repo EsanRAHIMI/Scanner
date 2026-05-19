@@ -1,5 +1,6 @@
 import type { ProductsRecord } from '@/types/trainer';
 import type * as React from 'react';
+import type { FieldChangeAuditApi } from '../hooks/use-field-change-audit';
 import type { EditingUrlState, DraggedUrlInfo } from './shared-types';
 
 export interface ListViewProps {
@@ -24,6 +25,8 @@ export interface ListViewProps {
   search: string;
   setLinkHoverState: (state: { url: string; x: number; y: number; title: string; code: string; variant: string } | null) => void;
   canEdit: boolean | undefined;
+  /** Per-field edit permission (e.g. sales cannot edit price/code fields). */
+  canEditField?: (fieldName: string) => boolean;
   canDelete?: boolean;
   handleDeleteProduct?: (id: string) => void;
   handleToggleMain?: (id: string) => void;
@@ -37,6 +40,9 @@ export interface ListViewProps {
   isSaving: boolean;
   /** Rendered inside the list scroll area (e.g. infinite-scroll sentinel). */
   scrollFooter?: React.ReactNode;
+  /** Admin moderation: highlight cells with edit history. */
+  moderationMode?: boolean;
+  changeAudit?: FieldChangeAuditApi;
 }
 
 export interface GalleryCardProps {

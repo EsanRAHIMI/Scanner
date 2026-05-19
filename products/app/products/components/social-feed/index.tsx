@@ -15,6 +15,7 @@ export interface SocialFeedProps {
   activeCollectionName?: string | null;
   selectedCount: number;
   canEdit?: boolean;
+  canEditField?: (fieldName: string) => boolean;
   onAddMedia?: (variantId: string, url: string) => Promise<void>;
   onUpdateVariant?: (id: string, fields: Record<string, any>) => Promise<void>;
 }
@@ -30,6 +31,7 @@ export function SocialFeed({
   activeCollectionName,
   selectedCount,
   canEdit,
+  canEditField,
   onAddMedia,
   onUpdateVariant
 }: SocialFeedProps) {
@@ -494,6 +496,7 @@ export function SocialFeed({
                 activeCollectionFilter={activeCollectionName}
                 selectedCount={selectedCount}
                 canEdit={canEdit}
+                canEditField={canEditField}
                 onAddMedia={onAddMedia}
                 onUpdateVariant={onUpdateVariant}
                 triggerFilterHint={idx === activeIndex ? showFilterHint : false}

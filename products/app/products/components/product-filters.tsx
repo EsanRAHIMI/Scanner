@@ -25,6 +25,14 @@ interface ProductFiltersProps {
   /** Admin: bulk-delete rows where only `Num` is filled. */
   onPurgeNumOnlyStubs?: () => void;
   purgeNumOnlyDisabled?: boolean;
+  /** Change control mode: filter list rows by editor username. */
+  moderationEditorFilter?: {
+    usernames: string[];
+    value: string;
+    onChange: (value: string) => void;
+    disabled?: boolean;
+    matchingRowCount?: number;
+  };
 }
 
 export function ProductFilters({
@@ -47,6 +55,7 @@ export function ProductFilters({
   setActiveFilterDropdown,
   onPurgeNumOnlyStubs,
   purgeNumOnlyDisabled,
+  moderationEditorFilter,
 }: ProductFiltersProps) {
   const hasActiveFilters = 
     selectedCategories.size > 0 || 
@@ -164,6 +173,30 @@ export function ProductFilters({
               setActiveDropdown={setActiveFilterDropdown}
               onChange={setSelectedMaterials}
             />
+            {moderationEditorFilter ? (
+              <label className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/35 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-900 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-100">
+                <span className="uppercase tracking-wide opacity-80">Editor</span>
+                <select
+                  value={moderationEditorFilter.value}
+                  disabled={moderationEditorFilter.disabled}
+                  onChange={(event) => moderationEditorFilter.onChange(event.target.value)}
+                  className="max-w-[9rem] cursor-pointer bg-transparent text-[10px] font-bold outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Filter rows by editor"
+                >
+                  <option value="">All editors</option>
+                  {moderationEditorFilter.usernames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {moderationEditorFilter.value ? (
+                  <span className="tabular-nums text-amber-800/80 dark:text-amber-200/80">
+                    ({moderationEditorFilter.matchingRowCount ?? 0})
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
           </div>
           {hasActiveFilters && (
             <button

@@ -32,7 +32,8 @@ import {
 
 import { 
   getTagColorStyles,
-  getTagMaterialStyles
+  getTagMaterialStyles,
+  canEditProductField,
 } from './lib/constants';
 
 import { HeaderToolbar } from './components/header-toolbar';
@@ -51,6 +52,7 @@ import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
 import { GalleryCard } from './components/gallery-card';
 import { ListView } from './components/list-view';
+import { useFieldChangeAudit } from './hooks/use-field-change-audit';
 import type { AuthMe } from './types';
 
 
@@ -128,7 +130,18 @@ export function ProductsView({
     searchInputRef,
   });
 
-  const mutations = useProductMutations({ setData, mutate, notePendingDelete, columns });
+  const canEditFieldForUser = React.useCallback(
+    (fieldName: string) => canEditProductField(user, fieldName),
+    [user],
+  );
+
+  const mutations = useProductMutations({
+    setData,
+    mutate,
+    notePendingDelete,
+    columns,
+    canEditField: canEditFieldForUser,
+  });
   const dnd = useProductDragDrop({ 
     handleSaveField: mutations.handleSaveField, 
     records, 
@@ -304,6 +317,25 @@ export function ProductsView({
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
   /** Row delete and bulk purge: admin role only (not sales or other roles). */
   const canDelete = user?.role === 'admin';
+  /** Moderation audit UI: platform admin only (not sales or role-based admin without is_admin). */
+  const isAdminModerator = user?.is_admin === true;
+  const [moderationMode, setModerationMode] = React.useState(false);
+  const [moderationEditorFilter, setModerationEditorFilter] = React.useState('');
+  const changeAudit = useFieldChangeAudit(
+    isAdminModerator && moderationMode,
+    moderationEditorFilter || null,
+  );
+
+  React.useEffect(() => {
+    if (!isAdminModerator) {
+      setModerationMode(false);
+      setModerationEditorFilter('');
+    }
+  }, [isAdminModerator]);
+
+  React.useEffect(() => {
+    if (!moderationMode) setModerationEditorFilter('');
+  }, [moderationMode]);
 
   const handleBulkDeleteNumOnlyStubs = React.useCallback(() => {
     if (!canDelete || mutations.isSaving) return;
@@ -450,6 +482,27 @@ export function ProductsView({
 
   const displayedColumns = filters.displayedColumns;
   const visibleRecords = filters.visibleRecords;
+
+  const moderationListRecords = React.useMemo(() => {
+    if (!isAdminModerator || !moderationMode || !moderationEditorFilter) {
+      return visibleRecords;
+    }
+    const ids = changeAudit.recordIdsForEditor;
+    if (!ids) return visibleRecords;
+    return visibleRecords.filter((record) => ids.has(record.id));
+  }, [
+    visibleRecords,
+    isAdminModerator,
+    moderationMode,
+    moderationEditorFilter,
+    changeAudit.recordIdsForEditor,
+  ]);
+
+  const listVisibleRecords =
+    isAdminModerator && moderationMode && moderationEditorFilter ?
+      moderationListRecords
+    : visibleRecords;
+
   const baseGalleryItems = filters.baseGalleryItems;
   const allGalleryItems = filters.allGalleryItems;
   const variantCounts = filters.variantCounts;
@@ -471,19 +524,20 @@ export function ProductsView({
     familyCollectionName,
     showSelectedOnly,
     familyMode,
+    moderationEditorFilter,
   ]);
 
   const renderedRecords = React.useMemo(
-    () => visibleRecords.slice(0, Math.max(1, renderLimit)),
-    [visibleRecords, renderLimit]
+    () => listVisibleRecords.slice(0, Math.max(1, renderLimit)),
+    [listVisibleRecords, renderLimit]
   );
-  const remainingRecordsCount = Math.max(0, visibleRecords.length - renderedRecords.length);
+  const remainingRecordsCount = Math.max(0, listVisibleRecords.length - renderedRecords.length);
 
   const loadMoreRecords = React.useCallback(() => {
     startLoadMoreTransition(() => {
-      setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, visibleRecords.length));
+      setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, listVisibleRecords.length));
     });
-  }, [visibleRecords.length, startLoadMoreTransition]);
+  }, [listVisibleRecords.length, startLoadMoreTransition]);
 
   React.useEffect(() => {
     if (loading || remainingRecordsCount <= 0) return;
@@ -504,7 +558,7 @@ export function ProductsView({
 
     obs.observe(target);
     return () => obs.disconnect();
-  }, [loading, remainingRecordsCount, loadMoreRecords, renderLimit, viewMode, visibleRecords.length]);
+  }, [loading, remainingRecordsCount, loadMoreRecords, renderLimit, viewMode, listVisibleRecords.length]);
 
 
 
@@ -866,6 +920,27 @@ export function ProductsView({
     </button>
   );
 
+  const moderationToggleNode = isAdminModerator ? (
+    <button
+      type="button"
+      onClick={() => setModerationMode((v) => !v)}
+      aria-pressed={moderationMode}
+      title={moderationMode ? 'Exit change control mode' : 'Change control mode (admin only)'}
+      className={
+        headerToggleBase +
+        (moderationMode
+          ? ' border-amber-400/40 bg-amber-400/20 text-amber-800 ring-2 ring-amber-400/30 dark:border-amber-400/30 dark:bg-amber-400/15 dark:text-amber-200'
+          : ' border-black/10 bg-white/50 text-black/60 hover:bg-white/80 hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/60 dark:hover:bg-black/60 dark:hover:text-white')
+      }
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      </svg>
+    </button>
+  ) : null;
+
   const maxModeToggleNode = (
     <button
       type="button"
@@ -908,7 +983,12 @@ export function ProductsView({
         searchGroupNode={searchGroupNode}
         familyToggleNode={familyToggleNode}
         viewToggleNode={viewToggleNode}
-        maxModeToggleNode={maxModeToggleNode}
+        maxModeToggleNode={
+          <>
+            {moderationToggleNode}
+            {maxModeToggleNode}
+          </>
+        }
         themeToggleNode={themeToggleNode}
         fetchUserSession={fetchUserSession}
       />
@@ -916,7 +996,7 @@ export function ProductsView({
       <ProductFilters
         data={data}
         isStaleOfflineSnapshot={isStaleOfflineSnapshot}
-        visibleCount={visibleRecords.length}
+        visibleCount={listVisibleRecords.length}
         uniqueCategories={editableCategories}
         selectedCategories={selectedCategories}
         setSelectedCategories={setSelectedCategories}
@@ -933,6 +1013,17 @@ export function ProductsView({
         setActiveFilterDropdown={setActiveFilterDropdown}
         onPurgeNumOnlyStubs={canDelete ? handleBulkDeleteNumOnlyStubs : undefined}
         purgeNumOnlyDisabled={mutations.isSaving || loading}
+        moderationEditorFilter={
+          isAdminModerator && moderationMode
+            ? {
+                usernames: changeAudit.editorUsernames,
+                value: moderationEditorFilter,
+                onChange: setModerationEditorFilter,
+                disabled: changeAudit.loading,
+                matchingRowCount: moderationListRecords.length,
+              }
+            : undefined
+        }
       />
 
       {error ? (
@@ -962,6 +1053,30 @@ export function ProductsView({
               <p className="mt-1">{error}</p>
             </>
           }
+        </div>
+      ) : null}
+
+      {isAdminModerator && moderationMode ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/50 bg-amber-50/90 px-3 py-2 text-xs text-amber-950 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-100"
+          role="status"
+        >
+          <span className="font-semibold">
+            Change control mode is on — click the yellow ! badge to see who edited each cell.
+            {moderationEditorFilter ?
+              ` Showing rows edited by ${moderationEditorFilter}.`
+            : ' Use the Editor filter to narrow rows by user.'}
+            {viewMode !== 'list' ? ' (Switch to list view to see indicators.)' : ''}
+          </span>
+          <span className="text-[11px] text-amber-900/70 dark:text-amber-100/70">
+            {changeAudit.loading
+              ? 'Loading change history…'
+              : changeAudit.error
+                ? changeAudit.error
+                : moderationEditorFilter
+                  ? `${changeAudit.changedCellCount.toLocaleString('en-US')} cells · ${moderationListRecords.length.toLocaleString('en-US')} rows`
+                  : `${changeAudit.changedCellCount.toLocaleString('en-US')} cells with edit history`}
+          </span>
         </div>
       ) : null}
 
@@ -1000,6 +1115,9 @@ export function ProductsView({
           editingUrl={editingUrl}
           isSaving={mutations.isSaving}
           scrollFooter={null}
+          moderationMode={isAdminModerator && moderationMode}
+          changeAudit={changeAudit}
+          canEditField={canEditFieldForUser}
         />
       ) : viewMode === 'list' ? (
         <>
@@ -1036,6 +1154,9 @@ export function ProductsView({
             columns={columns}
             editingUrl={editingUrl}
             isSaving={mutations.isSaving}
+            moderationMode={isAdminModerator && moderationMode}
+            changeAudit={changeAudit}
+            canEditField={canEditFieldForUser}
             scrollFooter={
               !loading && remainingRecordsCount > 0 ? (
                 <div className="border-t border-black/5 bg-zinc-50/80 px-4 py-3 dark:border-white/10 dark:bg-zinc-950/40">
@@ -1079,7 +1200,7 @@ export function ProductsView({
             ))}
           </div>
 
-          {!loading && visibleRecords.length === 0 && (
+          {!loading && listVisibleRecords.length === 0 && (
             <div className="col-span-full py-40 flex flex-col items-center justify-center animate-fade-in text-center px-6">
                <div className="h-24 w-24 items-center justify-center rounded-full bg-zinc-100 dark:bg-white/5 flex mb-8 text-black/10 dark:text-white/10 ring-8 ring-zinc-50 dark:ring-white/5">
                   <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
@@ -1156,6 +1277,7 @@ export function ProductsView({
           activeCollectionName={familyCollectionName}
           selectedCount={selectedIds.size}
           canEdit={canEdit}
+          canEditField={canEditFieldForUser}
           onAddMedia={handleAddMediaToVariant}
           onUpdateVariant={handleUpdateVariant}
         />

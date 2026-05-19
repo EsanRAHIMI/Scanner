@@ -1145,6 +1145,40 @@ def _parse_user_agent(ua: str | None) -> str:
   return f"{browser} on {os_name}"
 
 
+def _serialize_field_value(value: Any) -> str:
+  if value is None:
+    return ""
+  if isinstance(value, (dict, list)):
+    try:
+      return json.dumps(value, ensure_ascii=False)
+    except Exception:
+      return str(value)
+  return str(value)
+
+
+def _infer_field_change_type(old_value: str, new_value: str) -> str:
+  if not old_value and new_value:
+    return "add"
+  if old_value and not new_value:
+    return "clear"
+  if old_value != new_value:
+    return "update"
+  return "unchanged"
+
+
+_PRODUCT_EDIT_FIELDS_RE = re.compile(r"Fields:\s*([^.]+)", re.IGNORECASE)
+_PRODUCT_INLINE_FIELDS_RE = re.compile(r"Updated fields:\s*([^.]+)", re.IGNORECASE)
+
+
+def _parse_product_edit_fields_from_details(details: str) -> list[str]:
+  if not details:
+    return []
+  match = _PRODUCT_EDIT_FIELDS_RE.search(details) or _PRODUCT_INLINE_FIELDS_RE.search(details)
+  if not match:
+    return []
+  return [part.strip() for part in match.group(1).split(",") if part.strip()]
+
+
 async def log_activity(
   req: FastAPIRequest,
   action: str,
@@ -1152,6 +1186,7 @@ async def log_activity(
   resource_id: str | None = None,
   user: dict[str, Any] | None = None,
   db: Any = None,
+  field_changes: list[dict[str, Any]] | None = None,
 ):
   if db is None:
     return
@@ -1172,6 +1207,8 @@ async def log_activity(
     "user_agent": ua,
     "device": device,
   }
+  if field_changes:
+    doc["field_changes"] = field_changes
 
   try:
     print(f"[Logging] Attempting to log: {action} by {user.get('email') if user else 'anonymous'}", flush=True)
@@ -1779,6 +1816,73 @@ async def admin_activity_logs(
   return {"logs": logs, "total": total}
 
 
+@api.get("/admin/products/field-changes")
+async def admin_product_field_changes(
+  limit: int = 5000,
+  record_ids: str | None = None,
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  """Return per-product, per-field edit history for admin moderation UI."""
+  limit = max(1, min(limit, 10000))
+  query: dict[str, Any] = {"action": {"$in": ["PRODUCT_EDIT", "PRODUCT_INLINE_EDIT"]}}
+  if record_ids:
+    ids = [part.strip() for part in record_ids.split(",") if part.strip()]
+    if ids:
+      query["resource_id"] = {"$in": ids}
+
+  cursor = db["activity_logs"].find(query).sort("timestamp", -1).limit(limit)
+  changes: dict[str, dict[str, list[dict[str, Any]]]] = {}
+
+  async for doc in cursor:
+    rid = doc.get("resource_id")
+    if not rid:
+      continue
+    rid = str(rid)
+    if rid not in changes:
+      changes[rid] = {}
+
+    base_entry = {
+      "id": str(doc.get("_id")),
+      "username": doc.get("username") or "unknown",
+      "timestamp": doc.get("timestamp"),
+      "action": doc.get("action") or "PRODUCT_EDIT",
+    }
+
+    structured = doc.get("field_changes")
+    if isinstance(structured, list) and structured:
+      for fc in structured:
+        if not isinstance(fc, dict):
+          continue
+        field_name = str(fc.get("field") or "").strip()
+        if not field_name:
+          continue
+        old_value = _serialize_field_value(fc.get("old_value"))
+        new_value = _serialize_field_value(fc.get("new_value"))
+        change_type = fc.get("change_type") or _infer_field_change_type(old_value, new_value)
+        entry = {
+          **base_entry,
+          "field": field_name,
+          "change_type": change_type,
+          "old_value": old_value,
+          "new_value": new_value,
+        }
+        changes[rid].setdefault(field_name, []).append(entry)
+      continue
+
+    for field_name in _parse_product_edit_fields_from_details(doc.get("details") or ""):
+      entry = {
+        **base_entry,
+        "field": field_name,
+        "change_type": "update",
+        "old_value": "",
+        "new_value": "",
+      }
+      changes[rid].setdefault(field_name, []).append(entry)
+
+  return {"changes": changes}
+
+
 @api.post("/admin/log-event")
 async def admin_log_event(
   payload: dict[str, Any],
@@ -1863,6 +1967,26 @@ async def public_product_field_options(db=Depends(_get_db)):
 
 
 
+_SALES_RESTRICTED_PRODUCT_FIELDS = {
+  "code number",
+  "code no",
+  "code",
+  "collection name",
+  "colecction name",
+  "name",
+  "price",
+  "collection code",
+  "colecction code",
+  "variant number",
+  "num",
+  "factory code",
+}
+
+
+def _is_sales_restricted_product_field(field_name: str) -> bool:
+  return field_name.strip().lower() in _SALES_RESTRICTED_PRODUCT_FIELDS
+
+
 @api.patch("/products/assets/{record_id}")
 async def patch_product_asset(
   record_id: str,
@@ -1871,12 +1995,48 @@ async def patch_product_asset(
   user: dict[str, Any] = Depends(_get_current_user),
   db: Any = Depends(_get_db),
 ):
-  if _normalize_role(user.get("role")) not in ["admin", "sales"]:
+  role = _normalize_role(user.get("role"))
+  if role not in ["admin", "sales"]:
     raise HTTPException(status_code=403, detail="FORBIDDEN_ROLE")
 
   fields_to_update = payload.get("fields")
   if not isinstance(fields_to_update, dict):
     raise HTTPException(status_code=400, detail="INVALID_PAYLOAD_EXPECTED_FIELDS")
+
+  is_platform_admin = user.get("is_admin") is True or role == "admin"
+  if role == "sales" and not is_platform_admin:
+    for field_key in fields_to_update.keys():
+      if _is_sales_restricted_product_field(str(field_key)):
+        raise HTTPException(
+          status_code=403,
+          detail=f"FIELD_NOT_EDITABLE_BY_SALES:{field_key}",
+        )
+
+  doc_before = await db["products"].find_one({"_id": record_id})
+  if not doc_before:
+    raise HTTPException(status_code=404, detail="PRODUCT_NOT_FOUND")
+
+  old_fields = doc_before.get("fields") or {}
+  field_changes: list[dict[str, Any]] = []
+  for k, v in fields_to_update.items():
+    old_v = old_fields.get(k)
+    if old_v is None:
+      for ok, ov in old_fields.items():
+        if ok.strip().lower() == k.strip().lower():
+          old_v = ov
+          break
+    old_s = _serialize_field_value(old_v)
+    new_s = _serialize_field_value(v)
+    if old_s == new_s:
+      continue
+    field_changes.append(
+      {
+        "field": k,
+        "old_value": old_s,
+        "new_value": new_s,
+        "change_type": _infer_field_change_type(old_s, new_s),
+      }
+    )
 
   update_doc = {"updated_at": _utc_now_iso()}
   for k, v in fields_to_update.items():
@@ -1897,7 +2057,8 @@ async def patch_product_asset(
     details=f"Edited product: {item_label}. Fields: {', '.join(fields_to_update.keys())}",
     resource_id=record_id,
     user=user,
-    db=db
+    db=db,
+    field_changes=field_changes or None,
   )
 
   return {"id": doc["_id"], "fields": doc["fields"]}
