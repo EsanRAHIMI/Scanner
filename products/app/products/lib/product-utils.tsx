@@ -539,6 +539,65 @@ export function formatPrice(value: unknown): string | null {
   return null;
 }
 
+/** Main variant for a collection family key; falls back to first sibling when Main is unset. */
+export function findMainGalleryItemForCollection<
+  T extends {
+    id: string;
+    collectionNameNormalized?: string;
+    fields?: Record<string, unknown>;
+    isMain?: boolean;
+  },
+>(items: T[], collectionKey: string): T | null {
+  const key = collectionKey.trim().toLowerCase();
+  if (!key) return null;
+  const siblings = items.filter(
+    (x) => (x.collectionNameNormalized || '').trim().toLowerCase() === key,
+  );
+  if (siblings.length === 0) return null;
+  return (
+    siblings.find((x) => x.isMain === true || x.fields?.Main === true) ?? siblings[0]
+  );
+}
+
+/** Scroll a row into view inside a scrollable container (more reliable than scrollIntoView). */
+export function scrollElementIntoContainer(container: HTMLElement, row: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const offset = rowRect.top - containerRect.top + container.scrollTop;
+  const target = offset - (container.clientHeight - rowRect.height) / 2;
+  container.scrollTop = Math.max(0, target);
+}
+
+/** Keep a row at the same distance from the top of the scroll container's viewport. */
+export function scrollRowToViewportOffset(
+  container: HTMLElement,
+  row: HTMLElement,
+  viewportTop: number,
+) {
+  const containerRect = container.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
+  const target = rowRect.top - containerRect.top + container.scrollTop - viewportTop;
+  container.scrollTop = Math.max(0, target);
+}
+
+/** Topmost visible list row (DOM order) — what the user sees without scrolling. */
+export function getFirstVisibleListRecordId(container: HTMLElement | null): string | null {
+  if (!container) return null;
+  const containerRect = container.getBoundingClientRect();
+  const rows = container.querySelectorAll('[data-product-row-id]');
+
+  for (const row of rows) {
+    if (!(row instanceof HTMLElement)) continue;
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom > containerRect.top + 8 && rect.top < containerRect.bottom - 8) {
+      const id = row.getAttribute('data-product-row-id');
+      if (id) return id;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Highlight matching text in a string for search results.
  */

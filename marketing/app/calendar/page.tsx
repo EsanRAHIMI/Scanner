@@ -7,6 +7,11 @@ import { CalendarHeader } from '../../components/calendar/CalendarHeader';
 import { StatsSection } from '../../components/calendar/StatsSection';
 import { FilterControls } from '../../components/calendar/FilterControls';
 import { CalendarGrid } from '../../components/calendar/CalendarGrid';
+import { useInsightsPanel } from '../../hooks/use-insights-panel';
+import {
+  CALENDAR_GRID_MAX_H_COLLAPSED,
+  CALENDAR_GRID_MAX_H_EXPANDED,
+} from '../../lib/calendar/constants';
 import { AuthGuard } from '../../components/calendar/AuthGuard';
 import { AssetsPickerModal } from '../../components/calendar/AssetsPickerModal';
 import { isImageUrl } from '../../lib/calendar/utils';
@@ -16,6 +21,7 @@ import { useProductsAssets } from '../../hooks/use-products-assets';
 function CalendarContent() {
   const logic = useCalendarLogic();
   const products = useProductsAssets();
+  const insightsPanel = useInsightsPanel(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ContentItem } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [assetsModalItem, setAssetsModalItem] = useState<ContentItem | null>(null);
@@ -95,7 +101,7 @@ function CalendarContent() {
   }
 
   return (
-    <div className="min-h-dvh relative flex flex-col overflow-hidden bg-background selection:bg-primary/10 selection:text-primary">
+    <div className="relative flex min-h-dvh flex-col overflow-hidden bg-background selection:bg-primary/10 selection:text-primary">
       <div className="pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle_at_top_right,rgba(0,0,0,0.03),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(0,0,0,0.03),transparent_35%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.05),transparent_35%)]" />
 
       <CalendarHeader
@@ -109,23 +115,42 @@ function CalendarContent() {
         onLogout={logic.logout}
         accountOpen={accountOpen}
         onCloseAccount={() => setAccountOpen(false)}
-        totalCount={logic.contentItems.length}
-        filteredCount={logic.filteredItems.length}
+        insightsExpanded={insightsPanel.expanded}
+        onToggleInsights={insightsPanel.toggle}
+        insightsSummary={{
+          totalCount: logic.contentItems.length,
+          filteredCount: logic.filteredItems.length,
+          selectedStatus: logic.selectedStatus,
+          hasSearch: logic.searchTerm.trim().length > 0,
+          published: logic.stats.published,
+          scheduled: logic.stats.scheduled,
+        }}
+        insightsContent={
+          <>
+            <StatsSection stats={logic.stats} />
+            <FilterControls
+              searchTerm={logic.searchTerm}
+              onSearchChange={logic.setSearchTerm}
+              selectedStatus={logic.selectedStatus}
+              onStatusChange={logic.setSelectedStatus}
+              statusOptions={logic.statusOptions}
+              filteredCount={logic.filteredItems.length}
+              totalCount={logic.contentItems.length}
+            />
+          </>
+        }
       />
 
-      <main className="relative z-10 mx-auto flex w-full max-w-[1700px] flex-1 flex-col gap-5 p-4 md:gap-6 md:p-6">
-        <StatsSection stats={logic.stats} />
-        
-        <FilterControls
-          searchTerm={logic.searchTerm}
-          onSearchChange={logic.setSearchTerm}
-          selectedStatus={logic.selectedStatus}
-          onStatusChange={logic.setSelectedStatus}
-          statusOptions={logic.statusOptions}
-          filteredCount={logic.filteredItems.length}
-          totalCount={logic.contentItems.length}
-        />
-
+      <main
+        className="relative z-10 mx-auto flex w-full max-w-[1700px] flex-1 flex-col min-h-0 p-3 sm:p-4 md:p-6"
+        style={
+          {
+            '--calendar-grid-max-h': insightsPanel.expanded
+              ? CALENDAR_GRID_MAX_H_EXPANDED
+              : CALENDAR_GRID_MAX_H_COLLAPSED,
+          } as React.CSSProperties
+        }
+      >
         <CalendarGrid
           items={logic.filteredItems}
           allColumns={logic.allColumns}
@@ -140,6 +165,7 @@ function CalendarContent() {
             setAssetsModalItem(item);
             void products.fetchAssets();
           }}
+          className="min-h-0 flex-1"
         />
       </main>
 

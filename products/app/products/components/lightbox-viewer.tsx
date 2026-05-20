@@ -43,6 +43,14 @@ export function LightboxViewer({
   const isVideoPreview = isVideoUrl(currentItem.originalUrl);
   const resolvedStillUrl = isVideoPreview ? '' : getDriveDirectLink(currentItem.url);
 
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePreview();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closePreview]);
+
   const onGalleryImgPointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     if (swipeRef.current.swiped) return;

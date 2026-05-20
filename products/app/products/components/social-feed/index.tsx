@@ -12,6 +12,8 @@ export interface SocialFeedProps {
   onToggleSelect: (id: string) => void;
   onClose: () => void;
   onFilterCollection: (collectionName: string | null) => void;
+  /** Keeps parent preview id/index aligned when the user scrolls or collection filter toggles. */
+  onActiveVariantChange?: (variantId: string) => void;
   activeCollectionName?: string | null;
   selectedCount: number;
   canEdit?: boolean;
@@ -28,6 +30,7 @@ export function SocialFeed({
   onToggleSelect,
   onClose,
   onFilterCollection,
+  onActiveVariantChange,
   activeCollectionName,
   selectedCount,
   canEdit,
@@ -36,20 +39,34 @@ export function SocialFeed({
   onUpdateVariant
 }: SocialFeedProps) {
 
-  // Resolve initial index — prefer explicit index (O(1)) over scanning all variants by id (O(n))
-  const initialIndex = useMemo(() => {
-    if (
-      typeof initialVariantIndex === 'number' &&
-      Number.isFinite(initialVariantIndex) &&
-      initialVariantIndex >= 0 &&
-      initialVariantIndex < variants.length
-    ) {
-      return initialVariantIndex;
-    }
-    if (!initialVariantId) return 0;
-    const idx = variants.findIndex((v) => v.id === initialVariantId);
-    return idx >= 0 ? idx : 0;
-  }, [variants, initialVariantId, initialVariantIndex]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const variantsRef = useRef(variants);
+  variantsRef.current = variants;
+
+  const resolveVariantIndex = useCallback(
+    (variantId: string | null, indexHint?: number | null) => {
+      if (variantId) {
+        const byId = variants.findIndex((v) => v.id === variantId);
+        if (byId >= 0) return byId;
+      }
+      if (
+        typeof indexHint === 'number' &&
+        Number.isFinite(indexHint) &&
+        indexHint >= 0 &&
+        indexHint < variants.length
+      ) {
+        return indexHint;
+      }
+      return 0;
+    },
+    [variants],
+  );
+
+  // Product id wins over index hint — index becomes stale after collection filter toggles.
+  const initialIndex = useMemo(
+    () => resolveVariantIndex(initialVariantId, initialVariantIndex),
+    [resolveVariantIndex, initialVariantId, initialVariantIndex],
+  );
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [hydrationRadius, setHydrationRadius] = useState(2);
@@ -63,11 +80,36 @@ export function SocialFeed({
     variantsLengthRef.current = variants.length;
   }, [variants.length]);
 
+  const notifyActiveVariant = useCallback(
+    (index: number) => {
+      const variant = variantsRef.current[index];
+      if (variant?.id) onActiveVariantChange?.(variant.id);
+    },
+    [onActiveVariantChange],
+  );
+
+  const notifyActiveVariantRef = useRef(notifyActiveVariant);
+  notifyActiveVariantRef.current = notifyActiveVariant;
+
+  const initialVariantIdRef = useRef(initialVariantId);
+  initialVariantIdRef.current = initialVariantId;
+
+  // Re-anchor scroll when collection filter toggles (not on every in-feed scroll).
+  useLayoutEffect(() => {
+    const idx = resolveVariantIndex(initialVariantIdRef.current, null);
+    activeIndexRef.current = idx;
+    setActiveIndex(idx);
+    const el = containerRef.current;
+    if (el && el.clientHeight > 0) {
+      el.scrollTop = idx * el.clientHeight;
+    }
+    notifyActiveVariantRef.current(idx);
+  }, [activeCollectionName, variants, resolveVariantIndex]);
+
   const [showFilterHint, setShowFilterHint] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  const containerRef = useRef<HTMLDivElement>(null);
   const hintTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const triggerHint = () => {
@@ -169,6 +211,7 @@ export function SocialFeed({
         if (clamped !== activeIndexRef.current) {
           activeIndexRef.current = clamped;
           startTransition(() => setActiveIndex(clamped));
+          notifyActiveVariantRef.current(clamped);
         }
       });
     };
@@ -197,6 +240,7 @@ export function SocialFeed({
           });
           activeIndexRef.current = nextIndex;
           setActiveIndex(nextIndex);
+          notifyActiveVariantRef.current(nextIndex);
         } else if (activeCollectionName) {
           triggerHint();
         }
@@ -211,6 +255,7 @@ export function SocialFeed({
           });
           activeIndexRef.current = prevIndex;
           setActiveIndex(prevIndex);
+          notifyActiveVariantRef.current(prevIndex);
         }
       } else if (e.key === 'Escape') {
         if (showSearch) {
@@ -249,6 +294,7 @@ export function SocialFeed({
       });
       activeIndexRef.current = foundIdx;
       setActiveIndex(foundIdx);
+      notifyActiveVariantRef.current(foundIdx);
     }
   };
 

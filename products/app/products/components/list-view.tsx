@@ -103,6 +103,7 @@ export function ListView({
   columns,
   editingUrl,
   isSaving,
+  scrollContainerRef,
   scrollFooter,
   moderationMode = false,
   changeAudit,
@@ -881,7 +882,10 @@ export function ListView({
   );
 
   return (
-    <div className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
+    <div
+      ref={scrollContainerRef}
+      className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in"
+    >
       <table className="min-w-full table-auto text-left text-sm border-separate border-spacing-0">
         <thead className="bg-transparent text-[10px] uppercase tracking-wider text-black/40 dark:text-white/35 font-bold">
           <tr>
@@ -941,6 +945,7 @@ export function ListView({
               return (
                 <tr
                   key={r.id}
+                  data-product-row-id={r.id}
                   className={
                     'align-middle transition-colors ' +
                     (isGroupStart ? `border-t-2 ${groupBorderClass} ` : 

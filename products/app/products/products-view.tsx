@@ -28,6 +28,10 @@ import {
   buildFieldsAfterHidingGalleryMedia,
   buildFieldsAfterUnhidingGalleryMedia,
   sameProductMediaUrl,
+  findMainGalleryItemForCollection,
+  scrollElementIntoContainer,
+  scrollRowToViewportOffset,
+  getFirstVisibleListRecordId,
 } from './lib/product-utils';
 
 import { 
@@ -159,10 +163,24 @@ export function ProductsView({
     galleryItems
   } = filters;
 
+  const listScrollRef = React.useRef<HTMLDivElement>(null);
+  const galleryScrollRef = React.useRef<HTMLDivElement>(null);
+  /** Last product id shown in feed/lightbox — survives close for list scroll restore. */
+  const feedViewedRecordIdRef = React.useRef<string | null>(null);
+  const [scrollTargetRecordId, setScrollTargetRecordId] = React.useState<string | null>(null);
+  /** Wait for debouncedSearch to clear before scrolling (filter × / Reset All). */
+  const pendingFilterClearScrollRef = React.useRef(false);
+  /** Viewport offset of anchor row before filters clear — keeps the row in the same spot. */
+  const scrollAnchorViewportTopRef = React.useRef<number | null>(null);
+
   const {
     previewIndex, setPreviewIndex, previewId, setPreviewId,
     openPreviewByUrl, closePreview, goPrev, goNext
   } = useLightbox(galleryItems);
+
+  React.useEffect(() => {
+    if (previewId) feedViewedRecordIdRef.current = previewId;
+  }, [previewId]);
 
   const { selectedIds, setSelectedIds, showSelectedOnly, setShowSelectedOnly, familyCollectionName, setFamilyCollectionName } = selection;
 
@@ -513,6 +531,7 @@ export function ProductsView({
   const loadMoreThrottleRef = React.useRef(0);
 
   React.useEffect(() => {
+    if (scrollTargetRecordId) return;
     setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
   }, [
     viewMode,
@@ -521,10 +540,9 @@ export function ProductsView({
     selectedColors,
     selectedSpaces,
     selectedMaterials,
-    familyCollectionName,
     showSelectedOnly,
-    familyMode,
     moderationEditorFilter,
+    scrollTargetRecordId,
   ]);
 
   const renderedRecords = React.useMemo(
@@ -631,10 +649,231 @@ export function ProductsView({
     if (previewId) {
       const found = galleryItems.find((x: any) => x.id === previewId);
       if (found) return found;
+      return allGalleryItems.find((x: any) => x.id === previewId) ?? null;
     }
     if (previewIndex === null) return null;
     return galleryItems[previewIndex] ?? null;
-  }, [galleryItems, previewId, previewIndex]);
+  }, [galleryItems, allGalleryItems, previewId, previewIndex]);
+
+  /** Keep preview index aligned with stable product id when feed filters change. */
+  React.useEffect(() => {
+    if (!previewId) return;
+    const idx = galleryItems.findIndex((x: any) => x.id === previewId);
+    if (idx >= 0) {
+      setPreviewIndex((prev) => (prev === idx ? prev : idx));
+    }
+  }, [galleryItems, previewId, setPreviewIndex]);
+
+  /** Ensure infinite-scroll window includes the product currently open in feed. */
+  React.useEffect(() => {
+    if (!previewId) return;
+    let idx = listVisibleRecords.findIndex((r) => r.id === previewId);
+    if (idx < 0) {
+      idx = sortedRecords.findIndex((r) => r.id === previewId);
+    }
+    if (idx < 0) return;
+    const floor = viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT;
+    setRenderLimit((prev) => Math.max(prev, floor, idx + 1));
+  }, [previewId, listVisibleRecords, sortedRecords, viewMode]);
+
+  const resolveListIndexForRecord = React.useCallback(
+    (recordId: string, rows: ProductsRecord[]) => rows.findIndex((r) => r.id === recordId),
+    [],
+  );
+
+  const prepareScrollToRecord = React.useCallback(
+    (recordId: string) => {
+      const record = records.find((r) => r.id === recordId);
+      if (record && familyMode === 'main' && record.fields?.Main !== true) {
+        setFamilyMode('collection');
+      }
+      setScrollTargetRecordId(recordId);
+    },
+    [records, familyMode],
+  );
+
+  const handleClosePreview = React.useCallback(() => {
+    const restoreId = previewId ?? feedViewedRecordIdRef.current;
+    if (!restoreId) {
+      closePreview();
+      return;
+    }
+
+    feedViewedRecordIdRef.current = restoreId;
+
+    if (familyCollectionName) {
+      setFamilyCollectionName(null);
+    }
+
+    prepareScrollToRecord(restoreId);
+    closePreview();
+  }, [
+    previewId,
+    familyCollectionName,
+    closePreview,
+    setFamilyCollectionName,
+    prepareScrollToRecord,
+  ]);
+
+  const prepareFilterClearScrollAnchor = React.useCallback(() => {
+    const container = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+    const anchorId =
+      listVisibleRecords.length === 1 ? listVisibleRecords[0].id
+      : getFirstVisibleListRecordId(container) ??
+        renderedRecords[0]?.id ??
+        listVisibleRecords[0]?.id ??
+        null;
+
+    if (!anchorId) return;
+
+    if (container) {
+      const row = container.querySelector(
+        `[data-product-row-id="${CSS.escape(anchorId)}"]`,
+      ) as HTMLElement | null;
+      if (row) {
+        scrollAnchorViewportTopRef.current =
+          row.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      }
+    }
+    pendingFilterClearScrollRef.current = true;
+    prepareScrollToRecord(anchorId);
+  }, [viewMode, renderedRecords, listVisibleRecords, prepareScrollToRecord]);
+
+  const handleClearSearch = React.useCallback(() => {
+    if (!search.trim()) return;
+    prepareFilterClearScrollAnchor();
+    setSearch('');
+    searchInputRef.current?.focus();
+  }, [search, prepareFilterClearScrollAnchor, setSearch, searchInputRef]);
+
+  const handleClearAllFilters = React.useCallback(() => {
+    prepareFilterClearScrollAnchor();
+
+    setSearch('');
+    setSelectedCategories(new Set());
+    setSelectedColors(new Set());
+    setSelectedSpaces(new Set());
+    setSelectedMaterials(new Set());
+    setFamilyCollectionName(null);
+    searchInputRef.current?.focus();
+  }, [
+    prepareFilterClearScrollAnchor,
+    setSearch,
+    setSelectedCategories,
+    setSelectedColors,
+    setSelectedSpaces,
+    setSelectedMaterials,
+    setFamilyCollectionName,
+    searchInputRef,
+  ]);
+
+  /** After feed closes or filters clear: expand rows then scroll to the target product. */
+  React.useEffect(() => {
+    if (previewId !== null || !scrollTargetRecordId) return;
+
+    if (pendingFilterClearScrollRef.current && debouncedSearch.trim() !== '') {
+      return;
+    }
+
+    const targetId = scrollTargetRecordId;
+    const preserveViewportTop = scrollAnchorViewportTopRef.current;
+    let cancelled = false;
+
+    const run = (attempt = 0) => {
+      if (cancelled) return;
+
+      const idx = resolveListIndexForRecord(targetId, listVisibleRecords);
+      if (idx >= 0) {
+        const floor = viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT;
+        setRenderLimit((prev) => Math.max(prev, floor, idx + 1));
+      }
+
+      const container = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+      if (!container) {
+        if (attempt < 30) window.setTimeout(() => run(attempt + 1), 32);
+        return;
+      }
+
+      const row = container.querySelector(
+        `[data-product-row-id="${CSS.escape(targetId)}"]`,
+      ) as HTMLElement | null;
+
+      if (row) {
+        if (preserveViewportTop !== null) {
+          scrollRowToViewportOffset(container, row, preserveViewportTop);
+        } else {
+          scrollElementIntoContainer(container, row);
+        }
+        pendingFilterClearScrollRef.current = false;
+        scrollAnchorViewportTopRef.current = null;
+        setScrollTargetRecordId(null);
+        return;
+      }
+
+      if (attempt < 30) {
+        window.setTimeout(() => run(attempt + 1), 32);
+      } else {
+        pendingFilterClearScrollRef.current = false;
+        scrollAnchorViewportTopRef.current = null;
+        setScrollTargetRecordId(null);
+      }
+    };
+
+    requestAnimationFrame(() => run());
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    previewId,
+    scrollTargetRecordId,
+    debouncedSearch,
+    listVisibleRecords,
+    renderedRecords.length,
+    viewMode,
+    familyMode,
+    familyCollectionName,
+    resolveListIndexForRecord,
+  ]);
+
+  const handleActiveVariantChange = React.useCallback(
+    (variantId: string) => {
+      setPreviewId((prev) => (prev === variantId ? prev : variantId));
+      feedViewedRecordIdRef.current = variantId;
+      const idx = galleryItems.findIndex((x: any) => x.id === variantId);
+      if (idx >= 0) {
+        setPreviewIndex((prev) => (prev === idx ? prev : idx));
+      }
+    },
+    [galleryItems, setPreviewId, setPreviewIndex],
+  );
+
+  const handleFilterCollection = React.useCallback(
+    (name: string | null) => {
+      if (name === null && familyCollectionName) {
+        const current =
+          allGalleryItems.find((x) => x.id === previewId) ??
+          allGalleryItems.find(
+            (x) =>
+              (x.collectionNameNormalized || '').trim().toLowerCase() ===
+              familyCollectionName.trim().toLowerCase(),
+          );
+        const collectionKey =
+          current?.collectionNameNormalized?.trim() || familyCollectionName.trim();
+        const mainItem = findMainGalleryItemForCollection(allGalleryItems, collectionKey);
+        if (mainItem?.id) {
+          setPreviewId(mainItem.id);
+          feedViewedRecordIdRef.current = mainItem.id;
+        }
+      }
+      setFamilyCollectionName(name);
+      logFrontendEvent(
+        'COLLECTION_VIEW_SOCIAL',
+        name ? `Switched to collection: ${name}` : 'Cleared collection filter',
+      );
+    },
+    [familyCollectionName, previewId, allGalleryItems, setPreviewId, setFamilyCollectionName],
+  );
 
   const currentCollectionVariants = React.useMemo(() => {
     const key = (currentItem?.collectionNameNormalized || '').trim();
@@ -777,15 +1016,7 @@ export function ProductsView({
       >
         <button
           type="button"
-          onClick={() => {
-            setSearch('');
-            setSelectedCategories(new Set());
-            setSelectedColors(new Set());
-            setSelectedSpaces(new Set());
-            setSelectedMaterials(new Set());
-            setFamilyCollectionName(null);
-            searchInputRef.current?.focus();
-          }}
+          onClick={handleClearAllFilters}
           title="Clear all filters & search"
           className="flex h-10 w-10 shrink-0 items-center justify-center text-red-600 transition-all hover:scale-110 active:scale-95 dark:text-red-400"
         >
@@ -815,6 +1046,12 @@ export function ProductsView({
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && search.trim()) {
+              e.preventDefault();
+              handleClearSearch();
+            }
+          }}
           placeholder="Search products, codes, collections…"
           autoComplete="off"
           autoCorrect="off"
@@ -1154,6 +1391,7 @@ export function ProductsView({
             columns={columns}
             editingUrl={editingUrl}
             isSaving={mutations.isSaving}
+            scrollContainerRef={listScrollRef}
             moderationMode={isAdminModerator && moderationMode}
             changeAudit={changeAudit}
             canEditField={canEditFieldForUser}
@@ -1183,20 +1421,24 @@ export function ProductsView({
           />
         </>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in">
+        <div
+          ref={galleryScrollRef}
+          className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in"
+        >
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {renderedRecords.map((r) => (
-              <GalleryCard
-                key={r.id}
-                record={r}
-                columns={columns}
-                search={search}
-                selectedIds={selectedIds}
-                toggleSelected={toggleSelected}
-                openPreviewByUrl={openPreviewByUrl}
-                familyMode={familyMode}
-                variantCounts={variantCounts}
-              />
+              <div key={r.id} data-product-row-id={r.id}>
+                <GalleryCard
+                  record={r}
+                  columns={columns}
+                  search={search}
+                  selectedIds={selectedIds}
+                  toggleSelected={toggleSelected}
+                  openPreviewByUrl={openPreviewByUrl}
+                  familyMode={familyMode}
+                  variantCounts={variantCounts}
+                />
+              </div>
             ))}
           </div>
 
@@ -1208,7 +1450,7 @@ export function ProductsView({
                <h3 className="text-2xl font-black text-black dark:text-white tracking-tight">Product Not Found</h3>
                <p className="mt-2 text-zinc-500 max-w-[280px]">We couldn't find any items matching your specific search or filters.</p>
                <button 
-                 onClick={() => { setSearch(''); setSelectedCategories(new Set()); setSelectedColors(new Set()); setSelectedSpaces(new Set()); setSelectedMaterials(new Set()); }}
+                 onClick={handleClearAllFilters}
                  className="mt-10 rounded-full bg-zinc-950 px-10 py-3.5 text-sm font-black text-white hover:bg-black shadow-2xl dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 transition-all active:scale-95 uppercase tracking-widest"
                >
                  Reset All
@@ -1269,11 +1511,9 @@ export function ProductsView({
           initialVariantIndex={previewIndex === null ? undefined : previewIndex}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelected}
-          onClose={closePreview}
-          onFilterCollection={(name) => {
-            setFamilyCollectionName(name);
-            logFrontendEvent('COLLECTION_VIEW_SOCIAL', name ? `Switched to collection: ${name}` : 'Cleared collection filter');
-          }}
+          onClose={handleClosePreview}
+          onActiveVariantChange={handleActiveVariantChange}
+          onFilterCollection={handleFilterCollection}
           activeCollectionName={familyCollectionName}
           selectedCount={selectedIds.size}
           canEdit={canEdit}
@@ -1290,7 +1530,7 @@ export function ProductsView({
           currentIndex={currentIndex as number}
           selectedIds={selectedIds}
           toggleSelected={toggleSelected}
-          closePreview={closePreview}
+          closePreview={handleClosePreview}
           goPrev={goPrev}
           goNext={goNext}
           swipeRef={swipeRef}

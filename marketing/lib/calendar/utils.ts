@@ -94,24 +94,35 @@ export function extractUrls(v: unknown): string[] {
   return [];
 }
 
+const GOOGLE_FILE_ID = /^[a-zA-Z0-9_-]{10,}$/;
+
+/** Extract Google Drive / lh3 file id from common URL shapes. */
 export function getGoogleDriveFileId(url: string): string | null {
   if (!url) return null;
-  // Patterns: /file/d/ID, /open?id=ID, /uc?id=ID, /d/ID
-  const match = url.match(/[\/=]d\/([^\/=\?&#\s]+)/) || 
-                url.match(/[?&]id=([^\/=\?&#\s]+)/);
-  
-  if (match?.[1]) return match[1];
-  
-  // Handle lh3.googleusercontent.com/d/ID
-  if (url.includes('lh3.googleusercontent.com/d/')) {
-    const parts = url.split('lh3.googleusercontent.com/d/');
-    if (parts[1]) {
-      const id = parts[1].split(/[=\?&#\s]/)[0];
-      return id || null;
-    }
+  const u = url.trim();
+
+  const lh3 = u.match(/lh3\.googleusercontent\.com\/d\/([^/?#\s]+)/i);
+  if (lh3?.[1]) {
+    const id = (lh3[1].split('=')[0] ?? '').trim();
+    if (GOOGLE_FILE_ID.test(id)) return id;
   }
 
+  const dPath = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{10,})/);
+  if (dPath?.[1]) return dPath[1];
+
+  const idParam = u.match(/[?&](?:id|fileId|docid|fileid)=([a-zA-Z0-9_-]{10,})/i);
+  if (idParam?.[1]) return idParam[1];
+
   return null;
+}
+
+/** Thumbnail width for lh3.googleusercontent.com embeds. */
+export const DRIVE_IMAGE_WIDTH_THUMB = 512;
+export const DRIVE_IMAGE_WIDTH_FULL = 1200;
+
+function lh3DirectUrl(fileId: string, width: number): string {
+  const id = fileId.split('=')[0]?.trim() ?? fileId;
+  return `https://lh3.googleusercontent.com/d/${id}=w${width}`;
 }
 
 export function isVideoUrl(url: string): boolean {
@@ -125,23 +136,39 @@ export function isImageUrl(url: string): boolean {
   if (!url) return false;
   const l = url.toLowerCase();
   const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.heic'];
-  
-  // Google Drive links (if not explicitly tagged as video) are candidates for image preview
-  if (l.includes('drive.google.com') || l.includes('lh3.googleusercontent.com/d/')) {
+
+  if (l.includes('googleusercontent.com')) return !isVideoUrl(url);
+  if (l.includes('drive.google.com') || l.includes('google.com/file/d/')) {
     return !isVideoUrl(url);
   }
 
   return imageExts.some((ext) => l.includes(ext));
 }
 
-export function getMediaPreviewUrl(url: string): string {
+/**
+ * Normalizes Google Drive / lh3 URLs for <img src> — keeps =w / =s size params when present.
+ */
+export function getMediaPreviewUrl(url: string, width = DRIVE_IMAGE_WIDTH_THUMB): string {
   if (!url) return '';
-  
-  const driveId = getGoogleDriveFileId(url);
-  if (driveId) {
-    // lh3.googleusercontent.com/d/ID is generally more robust for embedding in <img> tags
-    return `https://lh3.googleusercontent.com/d/${driveId}`;
+  const u = url.trim();
+
+  if (!u.includes('drive.google.com') && !u.includes('googleusercontent.com')) {
+    return u;
   }
 
-  return url;
+  // Already a sized lh3 URL — use as-is (e.g. …/d/ID=w1000)
+  if (/lh3\.googleusercontent\.com\/d\/[^/?#\s]+=[ws]\d+/i.test(u)) {
+    return u;
+  }
+
+  const driveId = getGoogleDriveFileId(u);
+  if (driveId) {
+    return lh3DirectUrl(driveId, width);
+  }
+
+  return u;
+}
+
+export function canPreviewMediaUrl(url: string): boolean {
+  return isImageUrl(url) || Boolean(getGoogleDriveFileId(url)) || isVideoUrl(url);
 }

@@ -85,7 +85,7 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
         e.preventDefault();
       }
 
-      if (e.key === 'Escape') closePreview();
+      // Escape is handled by SocialFeed / LightboxViewer so close can restore list scroll.
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         goPrev();
@@ -97,7 +97,7 @@ export function useLightbox(visibleGalleryItems: GalleryItem[]) {
     };
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [closePreview, goNext, goPrev, previewIndex]);
+  }, [goNext, goPrev, previewIndex]);
 
   useEffect(() => {
     if (previewIndex !== null) {

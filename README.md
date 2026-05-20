@@ -367,3 +367,7 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 # License
 
 Private internal project.
+
+git add .
+git commit -m "Add admin change control mode and sales field restrictions"
+git push

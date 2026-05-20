@@ -23,6 +23,7 @@ interface CalendarGridProps {
   toneOfVoiceOptions: string[];
   targetAudienceOptions: string[];
   onPickAssets: (item: ContentItem) => void;
+  className?: string;
 }
 
 export function CalendarGrid({
@@ -36,6 +37,7 @@ export function CalendarGrid({
   toneOfVoiceOptions,
   targetAudienceOptions,
   onPickAssets,
+  className = '',
 }: CalendarGridProps) {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [editingCell, setEditingCell] = useState<{ id: string; column: string } | null>(null);
@@ -100,15 +102,15 @@ export function CalendarGrid({
   };
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card/80 shadow-sm">
-      <div className="border-b border-border bg-muted/30 px-4 py-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold tracking-wide text-muted-foreground">Calendar Matrix</p>
-          <p className="text-[11px] text-muted-foreground/60 font-medium">Resize columns from header edges • Click cell to edit</p>
-        </div>
+    <section className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/80 shadow-sm ${className}`}>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2">
+        <p className="text-xs font-semibold tracking-wide text-muted-foreground">Calendar Matrix</p>
+        <p className="hidden text-[11px] font-medium text-muted-foreground/60 sm:block">
+          Resize columns · Click to edit
+        </p>
       </div>
 
-      <div className="cc-scroll overflow-x-auto overflow-y-auto max-h-[calc(100dvh-360px)]">
+      <div className="cc-scroll min-h-0 flex-1 overflow-x-auto overflow-y-auto max-h-[var(--calendar-grid-max-h,calc(100dvh-360px))]">
         <table className="min-w-max w-max text-sm border-collapse table-fixed">
           <colgroup>
             {allColumns.map(col => (

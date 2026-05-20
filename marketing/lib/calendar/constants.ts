@@ -48,5 +48,10 @@ export const PLATFORM_ICONS: Record<string, string> = {
 };
 
 export const COLUMN_WIDTHS_STORAGE_KEY = 'contentCalendar.columnWidths.v1';
+export const INSIGHTS_PANEL_STORAGE_KEY = 'contentCalendar.insightsPanel.expanded.v1';
+/** Viewport offset when insights panel is expanded inside sticky header. */
+export const CALENDAR_GRID_MAX_H_EXPANDED = 'calc(100dvh - 20rem)';
+/** Compact sticky header only — insights collapsed. */
+export const CALENDAR_GRID_MAX_H_COLLAPSED = 'calc(100dvh - 7rem)';
 export const MIN_COL_PX = 120;
 export const MAX_COL_PX = 420;

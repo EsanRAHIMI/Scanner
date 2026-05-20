@@ -9,10 +9,10 @@ import {
   alignClassForValue, 
   getInstagramEmbedUrl,
   extractUrls,
-  isImageUrl,
   isVideoUrl,
   getMediaPreviewUrl,
-  getGoogleDriveFileId
+  canPreviewMediaUrl,
+  DRIVE_IMAGE_WIDTH_THUMB,
 } from '../../lib/calendar/utils';
 
 interface CalendarCellProps {
@@ -58,11 +58,24 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPic
 
   if (col === 'product image') {
     const url = typeof value === 'string' ? value : (value as any)?.url;
-    if (url) return (
-      <div className="w-full h-full min-h-[80px] flex items-center justify-center p-0.5">
-        <img src={url} alt="" className="w-full h-full max-h-32 object-contain rounded-md shadow-md ring-1 ring-border/50" />
-      </div>
-    );
+    if (url) {
+      const previewSrc = getMediaPreviewUrl(url, DRIVE_IMAGE_WIDTH_THUMB);
+      return (
+        <div className="flex h-full min-h-[80px] w-full items-center justify-center p-0.5">
+          <img
+            src={previewSrc}
+            alt=""
+            className="max-h-32 w-full object-contain rounded-md shadow-md ring-1 ring-border/50"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const el = e.currentTarget;
+              if (el.src !== url) el.src = url;
+            }}
+          />
+        </div>
+      );
+    }
     return <span className="text-muted-foreground/30">—</span>;
   }
 
@@ -78,9 +91,19 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPic
         <div className="flex items-center -space-x-2">
           {preview.map((u) => (
             <div key={u} className="h-9 w-9 overflow-hidden rounded-lg border border-border bg-background shadow-sm relative group">
-              {isImageUrl(u) || getGoogleDriveFileId(u) ? (
+              {canPreviewMediaUrl(u) ? (
                 <>
-                  <img src={getMediaPreviewUrl(u)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  <img
+                    src={getMediaPreviewUrl(u, DRIVE_IMAGE_WIDTH_THUMB)}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      if (el.src !== u) el.src = u;
+                    }}
+                  />
                   {isVideoUrl(u) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
                       <svg className="w-3 h-3 text-white fill-current" viewBox="0 0 24 24">

@@ -38,6 +38,8 @@ export interface ListViewProps {
   columns: string[];
   editingUrl: EditingUrlState | null;
   isSaving: boolean;
+  /** Optional ref for the scrollable list container (used to restore scroll after closing feed). */
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** Rendered inside the list scroll area (e.g. infinite-scroll sentinel). */
   scrollFooter?: React.ReactNode;
   /** Admin moderation: highlight cells with edit history. */
