@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ContentItem } from '../lib/calendar/types';
 import { useToast } from '../components/ui/toast-provider';
 import {
@@ -49,6 +49,7 @@ export function useCalendarActions({
   registerFieldOptions,
 }: UseCalendarActionsProps) {
   const [isSaving, setIsSaving] = useState(false);
+  const planningSyncInFlightRef = useRef(false);
   const { success, error: toastError } = useToast();
 
   const createNew = async () => {
@@ -219,9 +220,12 @@ export function useCalendarActions({
     campaigns: MarketingCampaign[],
     currentItems: ContentItem[],
   ) => {
+    if (planningSyncInFlightRef.current) return;
+
     const needed = getCampaignsNeedingPlanningDraft(campaigns, currentItems);
     if (needed.length === 0) return;
 
+    planningSyncInFlightRef.current = true;
     try {
       setIsSaving(true);
       const created: ContentItem[] = [];
@@ -241,7 +245,10 @@ export function useCalendarActions({
       }
 
       if (created.length > 0) {
-        setItems((prev) => [...created, ...prev]);
+        setItems((prev) => {
+          const merged = [...created, ...prev];
+          return merged;
+        });
         if (registerFieldOptions) {
           await registerFieldOptions('Status', [CAMPAIGN_PLANNING_STATUS]);
         }
@@ -250,14 +257,8 @@ export function useCalendarActions({
       toastError('Failed to create campaign planning rows');
     } finally {
       setIsSaving(false);
+      planningSyncInFlightRef.current = false;
     }
-  };
-
-  const ensureCampaignPlanningDraftForCampaign = async (
-    campaign: MarketingCampaign,
-    currentItems: ContentItem[],
-  ) => {
-    await syncCampaignPlanningDrafts([campaign], currentItems);
   };
 
   return {
@@ -268,6 +269,5 @@ export function useCalendarActions({
     commitCellEdit,
     deleteFieldOption,
     syncCampaignPlanningDrafts,
-    ensureCampaignPlanningDraftForCampaign,
   };
 }

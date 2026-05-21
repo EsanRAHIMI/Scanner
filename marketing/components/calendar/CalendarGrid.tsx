@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ContentItem } from '../../lib/calendar/types';
 import { 
   COLUMN_WIDTHS_STORAGE_KEY, 
-  MIN_COL_PX, 
   MAX_COL_PX,
+  getColumnDefaultWidthPx,
+  getColumnMinWidthPx,
 } from '../../lib/calendar/constants';
-import { INSTAGRAM_FRAME_WIDTH_PX } from '../../lib/calendar/instagram';
 import { CAMPAIGN_RAIL_WIDTH_PX } from '../../lib/calendar/campaigns/constants';
 import type { MarketingCampaign } from '../../lib/calendar/campaigns/types';
 import { isCampaignPlanningDraft } from '../../lib/calendar/campaigns/planning-drafts';
@@ -57,15 +57,26 @@ export function CalendarGrid({
   const inlineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isResizingRef = useRef(false);
 
+  const clampColumnWidth = useCallback((col: string, width: number) => {
+    return Math.min(MAX_COL_PX, Math.max(getColumnMinWidthPx(col), width));
+  }, []);
+
   // Load widths
   useEffect(() => {
     try {
       const raw = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
       if (raw) {
-        setColumnWidths(JSON.parse(raw));
+        const parsed = JSON.parse(raw) as Record<string, number>;
+        const clamped = Object.fromEntries(
+          Object.entries(parsed).map(([col, w]) => [
+            col,
+            clampColumnWidth(col, typeof w === 'number' ? w : getColumnDefaultWidthPx(col)),
+          ]),
+        );
+        setColumnWidths(clamped);
       }
     } catch {}
-  }, []);
+  }, [clampColumnWidth]);
 
   // Save widths
   useEffect(() => {
@@ -74,23 +85,32 @@ export function CalendarGrid({
     }
   }, [columnWidths]);
 
-  const defaultColWidth = useCallback((col: string) => {
-    if (col === 'Content Link') {
-      return Math.min(MAX_COL_PX, INSTAGRAM_FRAME_WIDTH_PX + 32);
-    }
-    const estimated = col.length * 8 + 40;
-    return Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, estimated));
-  }, []);
+  const defaultColWidth = useCallback(
+    (col: string) => getColumnDefaultWidthPx(col),
+    [],
+  );
+
+  const tableWidthPx = useMemo(() => {
+    const colsSum = allColumns.reduce(
+      (sum, col) => sum + (columnWidths[col] ?? defaultColWidth(col)),
+      0,
+    );
+    return CAMPAIGN_RAIL_WIDTH_PX + colsSum + 48;
+  }, [allColumns, columnWidths, defaultColWidth]);
 
   const startResizeColumn = (e: React.PointerEvent, col: string) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = columnWidths[col] ?? defaultColWidth(col);
+    const minW = getColumnMinWidthPx(col);
     isResizingRef.current = true;
 
     const onMove = (ev: PointerEvent) => {
       const delta = ev.clientX - startX;
-      setColumnWidths(prev => ({ ...prev, [col]: Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, startWidth + delta)) }));
+      setColumnWidths(prev => ({
+        ...prev,
+        [col]: Math.min(MAX_COL_PX, Math.max(minW, startWidth + delta)),
+      }));
     };
     const onUp = () => {
       isResizingRef.current = false;
@@ -125,7 +145,10 @@ export function CalendarGrid({
       </div>
 
       <div className="cc-scroll min-h-0 flex-1 overflow-x-auto overflow-y-auto max-h-[var(--calendar-grid-max-h,calc(100dvh-360px))]">
-        <table className="min-w-max w-max text-sm border-collapse table-fixed">
+        <table
+          className="table-fixed border-collapse text-sm"
+          style={{ width: `${tableWidthPx}px`, minWidth: '100%' }}
+        >
           <colgroup>
             <col style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px` }} />
             {allColumns.map(col => (
@@ -142,8 +165,11 @@ export function CalendarGrid({
                 Campaign
               </th>
               {allColumns.map(col => (
-                <th key={col} className="relative border-b border-border px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {col}
+                <th
+                  key={col}
+                  className="relative overflow-hidden border-b border-border px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground"
+                >
+                  <span className="block truncate">{col}</span>
                   <div className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50 transition-colors" onPointerDown={e => startResizeColumn(e, col)} />
                 </th>
               ))}
@@ -199,7 +225,7 @@ export function CalendarGrid({
                   return (
                     <td 
                       key={col} 
-                      className={`relative align-top transition-all duration-200 ${isAssets ? 'cursor-pointer' : !isReadOnly ? 'cursor-text' : 'cursor-default'} ${isEditing ? 'p-0 shadow-inner' : 'px-4 py-3'} group-hover:bg-transparent ${isUpdating ? 'opacity-50 grayscale-[0.5]' : ''}`}
+                      className={`relative max-w-0 overflow-hidden align-top transition-all duration-200 ${isAssets ? 'cursor-pointer' : !isReadOnly ? 'cursor-text' : 'cursor-default'} ${isEditing ? 'p-0 shadow-inner' : 'px-4 py-3'} group-hover:bg-transparent ${isUpdating ? 'opacity-50 grayscale-[0.5]' : ''}`}
                       onClick={(e) => {
                         if (isReadOnly || isUpdating) return;
                         if (isAssets) {
@@ -280,7 +306,7 @@ export function CalendarGrid({
                         </div>
 
                       ) : (
-                        <div className="min-h-[1.5rem] leading-relaxed">
+                        <div className="min-h-[1.5rem] min-w-0 overflow-hidden leading-relaxed">
                           <CalendarCell 
                             column={col} 
                             value={item.fields[col]} 

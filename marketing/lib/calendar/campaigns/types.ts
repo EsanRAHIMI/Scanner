@@ -7,6 +7,8 @@ export interface MarketingCampaign {
   color: string;
   goal: string;
   channels: string;
+  /** High-priority campaign — surfaced prominently in the calendar. */
+  is_critical: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -24,6 +26,7 @@ export type CampaignFormValues = {
   color: string;
   goal: string;
   channels: string;
+  is_critical: boolean;
 };
 
 export type CampaignLinkedPost = {

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 
 import type { CampaignListResponse, MarketingCampaign } from '../lib/calendar/campaigns/types';
+import { sortCampaignsByStartDate } from '../lib/calendar/campaigns/utils';
 import { useToast } from '../components/ui/toast-provider';
 
 export function useCampaignsData() {
@@ -25,7 +26,9 @@ export function useCampaignsData() {
       if (!response.ok) throw new Error(`Request failed (${response.status})`);
 
       const data = (await response.json()) as CampaignListResponse;
-      setCampaigns(Array.isArray(data.items) ? data.items : []);
+      setCampaigns(
+        sortCampaignsByStartDate(Array.isArray(data.items) ? data.items : []),
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load campaigns';
       setError(msg);

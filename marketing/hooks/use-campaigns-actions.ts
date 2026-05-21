@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 
 import type { CampaignFormValues, MarketingCampaign } from '../lib/calendar/campaigns/types';
+import { sortCampaignsByStartDate } from '../lib/calendar/campaigns/utils';
 import { useToast } from '../components/ui/toast-provider';
 
 type UseCampaignsActionsOptions = {
@@ -18,6 +19,7 @@ function buildPayload(values: CampaignFormValues) {
     color: values.color,
     goal: values.goal.trim(),
     channels: values.channels.trim(),
+    is_critical: values.is_critical,
   };
 }
 
@@ -41,7 +43,7 @@ export function useCampaignsActions({ setCampaigns, refresh }: UseCampaignsActio
         }
 
         const created = (await response.json()) as MarketingCampaign;
-        setCampaigns((prev) => [created, ...prev]);
+        setCampaigns((prev) => sortCampaignsByStartDate([created, ...prev]));
         success('Campaign created');
         return created;
       } catch (err) {
@@ -71,7 +73,9 @@ export function useCampaignsActions({ setCampaigns, refresh }: UseCampaignsActio
         }
 
         const updated = (await response.json()) as MarketingCampaign;
-        setCampaigns((prev) => prev.map((c) => (c.id === id ? updated : c)));
+        setCampaigns((prev) =>
+          sortCampaignsByStartDate(prev.map((c) => (c.id === id ? updated : c))),
+        );
         success('Campaign updated');
         return updated;
       } catch (err) {

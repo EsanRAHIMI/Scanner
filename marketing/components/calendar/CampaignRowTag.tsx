@@ -49,8 +49,11 @@ export function CampaignRowTag({ campaigns }: CampaignRowTagProps) {
     return <span className="block h-6" aria-hidden />;
   }
 
-  const visible = campaigns.slice(0, 2);
-  const overflow = campaigns.length - visible.length;
+  const sorted = [...campaigns].sort(
+    (a, b) => Number(b.is_critical) - Number(a.is_critical),
+  );
+  const visible = sorted.slice(0, 2);
+  const overflow = sorted.length - visible.length;
 
   return (
     <div className="flex min-h-[1.5rem] flex-col gap-2 py-0.5">
@@ -64,24 +67,43 @@ export function CampaignRowTag({ campaigns }: CampaignRowTagProps) {
           <div key={campaign.id} className="group/tag max-w-full">
             <div
               className="relative flex max-w-full items-center"
-              title={`${campaign.name} · ${campaign.start_date} → ${end}${daysLabel ? ` · ${daysLabel}` : ''}`}
+              title={`${campaign.name}${campaign.is_critical ? ' · Critical' : ''} · ${campaign.start_date} → ${end}${daysLabel ? ` · ${daysLabel}` : ''}`}
             >
               <span
-                className="pointer-events-none absolute -inset-y-0.5 -left-1 w-1 rounded-full opacity-90 shadow-sm"
+                className={`pointer-events-none absolute -inset-y-0.5 -left-1 w-1 rounded-full opacity-90 shadow-sm ${
+                  campaign.is_critical ? 'ring-1 ring-rose-400/60' : ''
+                }`}
                 style={{ backgroundColor: campaign.color }}
                 aria-hidden
               />
               <span
-                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-bold leading-tight text-foreground shadow-sm backdrop-blur-sm transition-all group-hover/tag:shadow-md"
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background/80 px-2 py-0.5 text-[10px] font-bold leading-tight text-foreground shadow-sm backdrop-blur-sm transition-all group-hover/tag:shadow-md ${
+                  campaign.is_critical
+                    ? 'border-rose-500/35 ring-1 ring-rose-500/15'
+                    : 'border-border/60'
+                }`}
                 style={{
-                  boxShadow: `inset 0 0 0 1px ${campaign.color}22, 0 1px 2px ${campaign.color}18`,
+                  boxShadow: campaign.is_critical
+                    ? `inset 0 0 0 1px ${campaign.color}22, 0 0 0 1px rgba(244,63,94,0.12), 0 1px 2px ${campaign.color}18`
+                    : `inset 0 0 0 1px ${campaign.color}22, 0 1px 2px ${campaign.color}18`,
                 }}
               >
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-white/40"
-                  style={{ backgroundColor: campaign.color }}
-                  aria-hidden
-                />
+                {campaign.is_critical ? (
+                  <svg
+                    className="h-3 w-3 shrink-0 text-rose-600 dark:text-rose-400"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-label="Critical"
+                  >
+                    <path d="M12 2l2.4 7.4h7.8l-6.3 4.6 2.4 7.4L12 17.2l-6.3 4.6 2.4-7.4L1.8 9.4h7.8z" />
+                  </svg>
+                ) : (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full ring-1 ring-white/40"
+                    style={{ backgroundColor: campaign.color }}
+                    aria-hidden
+                  />
+                )}
                 <span className="truncate">{campaign.name}</span>
               </span>
             </div>

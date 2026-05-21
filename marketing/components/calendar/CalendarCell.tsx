@@ -58,15 +58,17 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPic
         : 'border-border/70 bg-muted/40 text-foreground';
 
     return (
-      <div className="flex flex-wrap gap-1 py-0.5">
-        {items.map((item) => (
-          <span
-            key={item}
-            className={`inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-tight ${chipClass}`}
-          >
-            <span className="truncate">{item}</span>
-          </span>
-        ))}
+      <div className="min-w-0 overflow-hidden py-0.5">
+        <div className="flex flex-wrap gap-1">
+          {items.map((item) => (
+            <span
+              key={item}
+              className={`inline-flex max-w-full min-w-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-tight ${chipClass}`}
+            >
+              <span className="truncate">{item}</span>
+            </span>
+          ))}
+        </div>
       </div>
     );
   }

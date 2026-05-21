@@ -24,13 +24,36 @@ export function hasPlanningDraftForCampaign(
   return items.some((item) => getPlanningDraftCampaignId(item) === campaignId);
 }
 
+/** Matches auto-created placeholder rows even if the hidden marker was not persisted. */
+export function isCampaignPlanningPlaceholder(
+  item: ContentItem,
+  campaign: MarketingCampaign,
+): boolean {
+  if (getPlanningDraftCampaignId(item) === campaign.id) return true;
+  const title = String(item.fields?.Title ?? '').trim();
+  const status = String(item.fields?.Status ?? '').trim();
+  const publishDate = getContentPublishDate(item);
+  return (
+    title === '' &&
+    status === CAMPAIGN_PLANNING_STATUS &&
+    publishDate === campaign.start_date
+  );
+}
+
+export function hasPlanningPlaceholderForCampaign(
+  campaign: MarketingCampaign,
+  items: ContentItem[],
+): boolean {
+  return items.some((item) => isCampaignPlanningPlaceholder(item, campaign));
+}
+
 /** Campaigns that need an auto-created empty planning row in the content calendar. */
 export function getCampaignsNeedingPlanningDraft(
   campaigns: MarketingCampaign[],
   items: ContentItem[],
 ): MarketingCampaign[] {
   return campaigns.filter((campaign) => {
-    if (hasPlanningDraftForCampaign(campaign.id, items)) return false;
+    if (hasPlanningPlaceholderForCampaign(campaign, items)) return false;
     return !campaignHasLinkedContent(campaign, items);
   });
 }

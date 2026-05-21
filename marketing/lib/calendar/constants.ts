@@ -71,11 +71,40 @@ export const PLATFORM_ICONS: Record<string, string> = {
   tiktok: '🎵',
 };
 
-export const COLUMN_WIDTHS_STORAGE_KEY = 'contentCalendar.columnWidths.v1';
+export const COLUMN_WIDTHS_STORAGE_KEY = 'contentCalendar.columnWidths.v2';
 export const INSIGHTS_PANEL_STORAGE_KEY = 'contentCalendar.insightsPanel.expanded.v1';
 /** Viewport offset when insights panel is expanded inside sticky header. */
 export const CALENDAR_GRID_MAX_H_EXPANDED = 'calc(100dvh - 20rem)';
 /** Compact sticky header only — insights collapsed. */
 export const CALENDAR_GRID_MAX_H_COLLAPSED = 'calc(100dvh - 7rem)';
-export const MIN_COL_PX = 120;
+export const MIN_COL_PX = 96;
 export const MAX_COL_PX = 420;
+
+/** Per-column minimum width (resize floor). */
+export const COLUMN_MIN_WIDTH_PX: Partial<Record<string, number>> = {
+  '# Hashtag': 72,
+  Status: 88,
+  Format: 88,
+  CTA: 88,
+  'Day of Week': 100,
+};
+
+/** Sensible default width when nothing is stored yet. */
+export const COLUMN_DEFAULT_WIDTH_PX: Partial<Record<string, number>> = {
+  '# Hashtag': 112,
+  Title: 200,
+  'Caption Idea': 220,
+  Assets: 160,
+};
+
+export function getColumnMinWidthPx(column: string): number {
+  return COLUMN_MIN_WIDTH_PX[column] ?? MIN_COL_PX;
+}
+
+export function getColumnDefaultWidthPx(column: string): number {
+  if (column === 'Content Link') return 358;
+  const preset = COLUMN_DEFAULT_WIDTH_PX[column];
+  if (preset) return preset;
+  const estimated = column.length * 8 + 40;
+  return Math.min(MAX_COL_PX, Math.max(getColumnMinWidthPx(column), estimated));
+}

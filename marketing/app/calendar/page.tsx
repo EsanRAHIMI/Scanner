@@ -225,15 +225,7 @@ function CalendarContent() {
         loading={campaignsData.loading}
         isSaving={campaignsActions.isSaving}
         onClose={() => setCampaignsModalOpen(false)}
-        onCreate={async (values) => {
-          const created = await campaignsActions.createCampaign(values);
-          if (created) {
-            await logic.ensureCampaignPlanningDraftForCampaign(
-              created,
-              logic.contentItems,
-            );
-          }
-        }}
+        onCreate={campaignsActions.createCampaign}
         onUpdate={campaignsActions.updateCampaign}
         onDelete={campaignsActions.deleteCampaign}
       />

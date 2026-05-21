@@ -129,3 +129,8 @@ export function parseChannelsList(raw: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+/** Sort campaigns by start date (newest / latest start first — matches content calendar rows). */
+export function sortCampaignsByStartDate(campaigns: MarketingCampaign[]): MarketingCampaign[] {
+  return [...campaigns].sort((a, b) => b.start_date.localeCompare(a.start_date));
+}

@@ -13,6 +13,7 @@ import {
   formatCampaignDateRange,
   getLinkedPostsForCampaign,
   parseChannelsList,
+  sortCampaignsByStartDate,
 } from '../../lib/calendar/campaigns/utils';
 import { FormDateField } from './FormDateField';
 import { FormMultiSelectField } from './FormMultiSelectField';
@@ -39,6 +40,7 @@ function campaignToForm(campaign: MarketingCampaign): CampaignFormValues {
     color: campaign.color,
     goal: campaign.goal,
     channels: campaign.channels,
+    is_critical: campaign.is_critical,
   };
 }
 
@@ -68,6 +70,22 @@ function CampaignFormFields({
           placeholder="e.g. Summer Launch 2026"
         />
       </div>
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/80 bg-muted/20 px-3 py-3 transition-colors hover:bg-muted/40 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50">
+        <input
+          type="checkbox"
+          checked={form.is_critical}
+          disabled={disabled}
+          onChange={(e) => setForm((prev) => ({ ...prev, is_critical: e.target.checked }))}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-input text-rose-600 focus:ring-rose-500/30"
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-bold text-foreground">Critical campaign</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+            Mark as high priority — highlighted in the calendar matrix
+          </span>
+        </span>
+      </label>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -165,9 +183,14 @@ export function CampaignsModal({
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('list');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const sortedCampaigns = useMemo(
+    () => sortCampaignsByStartDate(campaigns),
+    [campaigns],
+  );
+
   const selectedCampaign = useMemo(
-    () => campaigns.find((c) => c.id === selectedId) ?? null,
-    [campaigns, selectedId],
+    () => sortedCampaigns.find((c) => c.id === selectedId) ?? null,
+    [sortedCampaigns, selectedId],
   );
 
   const linkedPosts = useMemo(
@@ -185,11 +208,11 @@ export function CampaignsModal({
 
   useEffect(() => {
     if (!open) return;
-    if (campaigns.length > 0 && !selectedId && mode !== 'create') {
-      setSelectedId(campaigns[0].id);
-      setForm(campaignToForm(campaigns[0]));
+    if (sortedCampaigns.length > 0 && !selectedId && mode !== 'create') {
+      setSelectedId(sortedCampaigns[0].id);
+      setForm(campaignToForm(sortedCampaigns[0]));
     }
-  }, [open, campaigns, selectedId, mode]);
+  }, [open, sortedCampaigns, selectedId, mode]);
 
   useEffect(() => {
     if (!open) {
@@ -331,7 +354,7 @@ export function CampaignsModal({
                     <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
                   ))}
                 </div>
-              ) : campaigns.length === 0 ? (
+              ) : sortedCampaigns.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
                     <svg className="h-6 w-6 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
@@ -349,7 +372,7 @@ export function CampaignsModal({
                 </div>
               ) : (
                 <ul className="space-y-1.5">
-                  {campaigns.map((campaign) => {
+                  {sortedCampaigns.map((campaign) => {
                     const active = selectedId === campaign.id && mode !== 'create';
                     const postCount = getLinkedPostsForCampaign(campaign, contentItems).length;
                     return (
@@ -370,7 +393,20 @@ export function CampaignsModal({
                             aria-hidden
                           />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-bold">{campaign.name}</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-bold">{campaign.name}</span>
+                              {campaign.is_critical ? (
+                                <span
+                                  className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-700 dark:text-rose-300"
+                                  title="Critical campaign"
+                                >
+                                  <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                                    <path d="M12 2l2.4 7.4h7.8l-6.3 4.6 2.4 7.4L12 17.2l-6.3 4.6 2.4-7.4L1.8 9.4h7.8z" />
+                                  </svg>
+                                  Critical
+                                </span>
+                              ) : null}
+                            </span>
                             <span className="mt-0.5 block text-[11px] text-muted-foreground">
                               {formatCampaignDateRange(campaign)}
                             </span>

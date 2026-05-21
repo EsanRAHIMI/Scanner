@@ -18,4 +18,5 @@ export const DEFAULT_CAMPAIGN_FORM = {
   color: CAMPAIGN_COLOR_PRESETS[0],
   goal: '',
   channels: '',
+  is_critical: false,
 };

@@ -1108,6 +1108,7 @@ _CONTENT_CALENDAR_FIELDS = [
   "Product",
   "Product Image",
   "Assets",
+  "_campaign_planning_id",
 ]
 
 
@@ -2083,6 +2084,14 @@ def _sanitize_campaign_payload(raw: Any) -> dict[str, Any]:
   elif isinstance(channels_raw, list):
     channels_out = ", ".join(str(c).strip() for c in channels_raw if str(c).strip())
 
+  is_critical = raw.get("is_critical")
+  if isinstance(is_critical, bool):
+    is_critical_out = is_critical
+  elif isinstance(is_critical, str):
+    is_critical_out = is_critical.strip().lower() in ("1", "true", "yes", "on")
+  else:
+    is_critical_out = bool(is_critical)
+
   return {
     "name": name.strip(),
     "start_date": start_date,
@@ -2090,6 +2099,7 @@ def _sanitize_campaign_payload(raw: Any) -> dict[str, Any]:
     "color": _normalize_campaign_color(raw.get("color")),
     "goal": goal_out,
     "channels": channels_out,
+    "is_critical": is_critical_out,
   }
 
 
@@ -2106,6 +2116,7 @@ def _campaign_to_response(doc: dict[str, Any]) -> dict[str, Any]:
     "color": doc.get("color") or "#6366f1",
     "goal": doc.get("goal") or "",
     "channels": doc.get("channels") or "",
+    "is_critical": bool(doc.get("is_critical")),
     "created_at": doc.get("created_at"),
     "updated_at": doc.get("updated_at"),
   }
