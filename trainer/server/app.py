@@ -38,6 +38,20 @@ CLASSES_COLLECTION = "trainer_classes"
 QUEUE_COLLECTION = "trainer_queue"
 PRODUCT_FIELD_OPTIONS_COLLECTION = "product_field_options"
 PRODUCT_FIELD_OPTIONS_DOC_ID = "selectable_fields"
+CONTENT_CALENDAR_FIELD_OPTIONS_COLLECTION = "content_calendar_field_options"
+CONTENT_CALENDAR_FIELD_OPTIONS_DOC_ID = "selectable_fields"
+CONTENT_CALENDAR_SELECTABLE_FIELDS = (
+  "Target Audience",
+  "Content Pillar",
+  "Tone of Voice",
+  "Status",
+  "# Hashtag",
+  "Format",
+)
+CONTENT_CALENDAR_MULTI_VALUE_FIELDS = {"Target Audience", "# Hashtag"}
+DEFAULT_CALENDAR_FIELD_OPTIONS: dict[str, list[str]] = {
+  "Status": ["Published", "Scheduled", "In Progress", "Drafts"],
+}
 PRODUCT_IMPORT_BATCHES_COLLECTION = "product_import_batches"
 PRODUCT_IMPORT_ROWS_COLLECTION = "product_import_rows"
 PRODUCT_SELECTABLE_FIELDS = ("Category", "Space", "Color", "Material")
@@ -1090,7 +1104,6 @@ _CONTENT_CALENDAR_FIELDS = [
   "CTA",
   "Tone of Voice",
   "Target Audience",
-  "Week Number",
   "# Hashtag",
   "Product",
   "Product Image",
@@ -1106,6 +1119,220 @@ def _sanitize_content_calendar_fields(raw: Any) -> dict[str, Any]:
     if k in raw:
       out[k] = raw.get(k)
   return out
+
+
+def _parse_multi_value_field(raw: Any) -> list[str]:
+  if not isinstance(raw, str):
+    return []
+  return [part.strip() for part in re.split(r"[,;\n]+", raw) if part.strip()]
+
+
+def _serialize_multi_value_field(values: list[str]) -> str:
+  return ", ".join(values)
+
+
+def _remove_multi_value_item(raw: Any, item: str) -> str:
+  target = item.strip().casefold()
+  if not target:
+    return _serialize_multi_value_field(_parse_multi_value_field(raw))
+  next_values = [v for v in _parse_multi_value_field(raw) if v.strip().casefold() != target]
+  return _serialize_multi_value_field(next_values)
+
+
+def _normalize_string_option_list(raw: Any) -> list[str]:
+  if not isinstance(raw, list):
+    return []
+  seen: set[str] = set()
+  cleaned: list[str] = []
+  for item in raw:
+    if not isinstance(item, str):
+      continue
+    value = item.strip()
+    key = value.casefold()
+    if not value or key in seen:
+      continue
+    seen.add(key)
+    cleaned.append(value)
+  return sorted(cleaned, key=lambda x: x.casefold())
+
+
+async def _derive_calendar_field_options(db: Any, field_name: str) -> list[str]:
+  seen: set[str] = set()
+  values: list[str] = []
+  projection = {f"fields.{field_name}": 1}
+  cursor = db["content_calendar"].find({}, projection)
+
+  async for doc in cursor:
+    fields = doc.get("fields") if isinstance(doc.get("fields"), dict) else {}
+    raw = fields.get(field_name)
+    parts: list[str] = []
+    if field_name in CONTENT_CALENDAR_MULTI_VALUE_FIELDS:
+      parts = _parse_multi_value_field(raw)
+    elif isinstance(raw, str) and raw.strip():
+      parts = [raw.strip()]
+
+    for part in parts:
+      key = part.casefold()
+      if key in seen:
+        continue
+      seen.add(key)
+      values.append(part)
+
+  return sorted(values, key=lambda x: x.casefold())
+
+
+async def _get_stored_calendar_field_options(db: Any) -> dict[str, list[str]]:
+  doc = await db[CONTENT_CALENDAR_FIELD_OPTIONS_COLLECTION].find_one({"_id": CONTENT_CALENDAR_FIELD_OPTIONS_DOC_ID})
+  stored_options = doc.get("options") if isinstance(doc, dict) else None
+  if not isinstance(stored_options, dict):
+    return {}
+
+  out: dict[str, list[str]] = {}
+  for field_name in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    raw_values = stored_options.get(field_name)
+    if isinstance(raw_values, list):
+      out[field_name] = _normalize_string_option_list(raw_values)
+  return out
+
+
+async def _set_calendar_field_options_for_field(db: Any, field_name: str, values: list[str]) -> list[str]:
+  if field_name not in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+
+  normalized = _normalize_string_option_list(values)
+  now = _utc_now_iso()
+  stored = await _get_stored_calendar_field_options(db)
+  stored[field_name] = normalized
+
+  await db[CONTENT_CALENDAR_FIELD_OPTIONS_COLLECTION].update_one(
+    {"_id": CONTENT_CALENDAR_FIELD_OPTIONS_DOC_ID},
+    {
+      "$set": {
+        "options": stored,
+        "updated_at": now,
+      }
+    },
+    upsert=True,
+  )
+  return normalized
+
+
+async def _get_calendar_field_options(db: Any, field_name: str) -> list[str]:
+  if field_name not in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+
+  stored = await _get_stored_calendar_field_options(db)
+  if field_name in stored and stored[field_name]:
+    return stored[field_name]
+
+  derived = await _derive_calendar_field_options(db, field_name)
+  defaults = DEFAULT_CALENDAR_FIELD_OPTIONS.get(field_name, [])
+  seen: set[str] = set()
+  merged: list[str] = []
+  for value in [*defaults, *derived]:
+    key = value.casefold()
+    if key in seen:
+      continue
+    seen.add(key)
+    merged.append(value)
+  return await _set_calendar_field_options_for_field(db, field_name, merged)
+
+
+async def _get_all_calendar_field_options(db: Any) -> dict[str, list[str]]:
+  out: dict[str, list[str]] = {}
+  for field_name in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    out[field_name] = await _get_calendar_field_options(db, field_name)
+  return out
+
+
+async def _add_calendar_field_option(db: Any, field_name: str, raw_value: str) -> list[str]:
+  value = raw_value.strip()
+  if not value:
+    raise HTTPException(status_code=400, detail="VALUE_REQUIRED")
+
+  current = await _get_calendar_field_options(db, field_name)
+  if any(v.casefold() == value.casefold() for v in current):
+    return current
+
+  return await _set_calendar_field_options_for_field(db, field_name, [*current, value])
+
+
+async def _remove_calendar_field_option_from_registry(db: Any, field_name: str, raw_value: str) -> list[str]:
+  value = raw_value.strip()
+  if not value:
+    raise HTTPException(status_code=400, detail="VALUE_REQUIRED")
+
+  current = await _get_calendar_field_options(db, field_name)
+  next_values = [v for v in current if v.casefold() != value.casefold()]
+  return await _set_calendar_field_options_for_field(db, field_name, next_values)
+
+
+def _normalize_calendar_status_value(raw: Any) -> str:
+  if not isinstance(raw, str):
+    return ""
+  status = raw.strip()
+  if not status:
+    return ""
+  return "Drafts" if status == "Draft" else status
+
+
+def _calendar_field_value_matches(raw: Any, value: str, field_name: str) -> bool:
+  target = value.strip().casefold()
+  if not target:
+    return False
+
+  if field_name in CONTENT_CALENDAR_MULTI_VALUE_FIELDS:
+    return any(part.strip().casefold() == target for part in _parse_multi_value_field(raw))
+
+  if field_name == "Status":
+    return _normalize_calendar_status_value(raw).casefold() == target
+
+  return isinstance(raw, str) and raw.strip().casefold() == target
+
+
+def _remove_calendar_field_value(raw: Any, value: str, field_name: str) -> str:
+  if field_name in CONTENT_CALENDAR_MULTI_VALUE_FIELDS:
+    return _remove_multi_value_item(raw, value)
+
+  if _calendar_field_value_matches(raw, value, field_name):
+    return ""
+  return raw if isinstance(raw, str) else ""
+
+
+async def _remove_calendar_field_option_from_all_cells(
+  db: Any,
+  field_name: str,
+  value: str,
+  user_id: Any,
+) -> int:
+  now = _utc_now_iso()
+  updated_items = 0
+
+  cursor = db["content_calendar"].find({}, {"_id": 1, "fields": 1})
+  async for doc in cursor:
+    fields = doc.get("fields") if isinstance(doc.get("fields"), dict) else {}
+    current = fields.get(field_name)
+    if current is None:
+      continue
+
+    next_value = _remove_calendar_field_value(current, value, field_name)
+    if next_value == current:
+      continue
+
+    next_fields = {**fields, field_name: next_value}
+    await db["content_calendar"].update_one(
+      {"_id": doc["_id"]},
+      {
+        "$set": {
+          "fields": next_fields,
+          "updated_at": now,
+          "updated_by": user_id,
+        }
+      },
+    )
+    updated_items += 1
+
+  return updated_items
 
 
 def _safe_write_json(path: Path, data: Any) -> None:
@@ -1712,6 +1939,287 @@ async def content_calendar_delete(
   return {"ok": True}
 
 
+@api.get("/content-calendar/field-options")
+async def content_calendar_list_field_options(
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  return {"options": await _get_all_calendar_field_options(db)}
+
+
+@api.post("/content-calendar/field-options/add")
+async def content_calendar_add_field_option(
+  req: FastAPIRequest,
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  field_name = payload.get("field") if isinstance(payload, dict) else None
+  raw_value = payload.get("value") if isinstance(payload, dict) else None
+  if not isinstance(field_name, str) or field_name not in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+  if not isinstance(raw_value, str) or not raw_value.strip():
+    raise HTTPException(status_code=400, detail="VALUE_REQUIRED")
+
+  value = raw_value.strip()
+  options = await _add_calendar_field_option(db, field_name, value)
+  all_options = await _get_all_calendar_field_options(db)
+
+  await log_activity(
+    req,
+    "CONTENT_CALENDAR_FIELD_OPTION_ADD",
+    details=f'Added "{field_name}" option "{value}"',
+    resource_id=f"{field_name}:{value}",
+    user=user,
+    db=db,
+  )
+
+  return {"ok": True, "field": field_name, "value": value, "options": options, "all_options": all_options}
+
+
+@api.post("/content-calendar/field-options/remove")
+async def content_calendar_remove_field_option(
+  req: FastAPIRequest,
+  payload: dict[str, Any],
+  admin: dict[str, Any] = Depends(_require_admin),
+  db=Depends(_get_db),
+):
+  field_name = payload.get("field") if isinstance(payload, dict) else None
+  raw_value = payload.get("value") if isinstance(payload, dict) else None
+  if not isinstance(field_name, str) or field_name not in CONTENT_CALENDAR_SELECTABLE_FIELDS:
+    raise HTTPException(status_code=400, detail="INVALID_FIELD")
+  if not isinstance(raw_value, str) or not raw_value.strip():
+    raise HTTPException(status_code=400, detail="VALUE_REQUIRED")
+
+  value = raw_value.strip()
+  updated_items = await _remove_calendar_field_option_from_all_cells(
+    db,
+    field_name,
+    value,
+    admin.get("_id"),
+  )
+  options = await _remove_calendar_field_option_from_registry(db, field_name, value)
+  all_options = await _get_all_calendar_field_options(db)
+
+  await log_activity(
+    req,
+    "CONTENT_CALENDAR_FIELD_OPTION_REMOVE",
+    details=f'Removed "{field_name}" option "{value}" from {updated_items} item(s)',
+    resource_id=f"{field_name}:{value}",
+    user=admin,
+    db=db,
+  )
+
+  return {
+    "ok": True,
+    "field": field_name,
+    "value": value,
+    "updated_items": updated_items,
+    "options": options,
+    "all_options": all_options,
+  }
+
+
+_CAMPAIGN_COLOR_PRESETS = {
+  "#6366f1",
+  "#8b5cf6",
+  "#ec4899",
+  "#f43f5e",
+  "#f59e0b",
+  "#10b981",
+  "#06b6d4",
+  "#3b82f6",
+}
+
+
+def _normalize_campaign_color(raw: Any) -> str:
+  if not isinstance(raw, str):
+    return "#6366f1"
+  v = raw.strip()
+  if not v.startswith("#"):
+    v = f"#{v}"
+  if len(v) == 7 and v.lower() in _CAMPAIGN_COLOR_PRESETS:
+    return v.lower()
+  if len(v) == 7 and all(c in "0123456789abcdef#" for c in v.lower()):
+    return v.lower()
+  return "#6366f1"
+
+
+def _normalize_iso_date(raw: Any) -> str | None:
+  if not isinstance(raw, str):
+    return None
+  s = raw.strip()
+  if not s:
+    return None
+  if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+    return s
+  return None
+
+
+def _sanitize_campaign_payload(raw: Any) -> dict[str, Any]:
+  if not isinstance(raw, dict):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD")
+
+  name = raw.get("name")
+  if not isinstance(name, str) or not name.strip():
+    raise HTTPException(status_code=400, detail="NAME_REQUIRED")
+
+  start_date = _normalize_iso_date(raw.get("start_date"))
+  if not start_date:
+    raise HTTPException(status_code=400, detail="START_DATE_REQUIRED")
+
+  end_date_raw = raw.get("end_date")
+  end_date = _normalize_iso_date(end_date_raw) if end_date_raw not in (None, "") else None
+  if end_date and end_date < start_date:
+    raise HTTPException(status_code=400, detail="END_DATE_BEFORE_START")
+
+  goal = raw.get("goal")
+  goal_out = goal.strip() if isinstance(goal, str) else ""
+
+  channels_raw = raw.get("channels")
+  channels_out = ""
+  if isinstance(channels_raw, str):
+    channels_out = channels_raw.strip()
+  elif isinstance(channels_raw, list):
+    channels_out = ", ".join(str(c).strip() for c in channels_raw if str(c).strip())
+
+  return {
+    "name": name.strip(),
+    "start_date": start_date,
+    "end_date": end_date,
+    "color": _normalize_campaign_color(raw.get("color")),
+    "goal": goal_out,
+    "channels": channels_out,
+  }
+
+
+def _campaign_to_response(doc: dict[str, Any]) -> dict[str, Any]:
+  start_date = doc.get("start_date")
+  end_date = doc.get("end_date")
+  effective_end = end_date if isinstance(end_date, str) and end_date.strip() else start_date
+  return {
+    "id": doc.get("_id"),
+    "name": doc.get("name") or "",
+    "start_date": start_date,
+    "end_date": end_date,
+    "effective_end_date": effective_end,
+    "color": doc.get("color") or "#6366f1",
+    "goal": doc.get("goal") or "",
+    "channels": doc.get("channels") or "",
+    "created_at": doc.get("created_at"),
+    "updated_at": doc.get("updated_at"),
+  }
+
+
+@api.get("/marketing-campaigns")
+async def marketing_campaigns_list(
+  limit: int = 200,
+  skip: int = 0,
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  lim = max(1, min(int(limit), 500))
+  sk = max(0, int(skip))
+
+  items: list[dict[str, Any]] = []
+  cursor = (
+    db["marketing_campaigns"]
+    .find({})
+    .sort([("start_date", -1), ("created_at", -1)])
+    .skip(sk)
+    .limit(lim)
+  )
+  async for doc in cursor:
+    items.append(_campaign_to_response(doc))
+
+  return {"items": items, "limit": lim, "skip": sk}
+
+
+@api.post("/marketing-campaigns")
+async def marketing_campaigns_create(
+  req: FastAPIRequest,
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  data = _sanitize_campaign_payload(payload)
+  now = _utc_now_iso()
+  doc_id = str(uuid.uuid4())
+
+  doc = {
+    "_id": doc_id,
+    **data,
+    "created_at": now,
+    "updated_at": now,
+    "created_by": user.get("_id"),
+    "updated_by": user.get("_id"),
+  }
+
+  await db["marketing_campaigns"].insert_one(doc)
+  await log_activity(
+    req,
+    "MARKETING_CAMPAIGN_CREATE",
+    details=f"Created campaign: {data.get('name')}",
+    resource_id=doc_id,
+    user=user,
+    db=db,
+  )
+  return _campaign_to_response(doc)
+
+
+@api.patch("/marketing-campaigns/{campaign_id}")
+async def marketing_campaigns_update(
+  campaign_id: str,
+  req: FastAPIRequest,
+  payload: dict[str, Any],
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  data = _sanitize_campaign_payload(payload)
+  now = _utc_now_iso()
+  update_doc: dict[str, Any] = {**data, "updated_at": now, "updated_by": user.get("_id")}
+
+  res = await db["marketing_campaigns"].update_one({"_id": campaign_id}, {"$set": update_doc})
+  if res.matched_count == 0:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+  await log_activity(
+    req,
+    "MARKETING_CAMPAIGN_EDIT",
+    details=f"Updated campaign: {campaign_id}",
+    resource_id=campaign_id,
+    user=user,
+    db=db,
+  )
+
+  doc = await db["marketing_campaigns"].find_one({"_id": campaign_id})
+  if not doc:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+  return _campaign_to_response(doc)
+
+
+@api.delete("/marketing-campaigns/{campaign_id}")
+async def marketing_campaigns_delete(
+  campaign_id: str,
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
+  res = await db["marketing_campaigns"].delete_one({"_id": campaign_id})
+  if res.deleted_count == 0:
+    raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+  await log_activity(
+    req,
+    "MARKETING_CAMPAIGN_DELETE",
+    details=f"Deleted campaign: {campaign_id}",
+    resource_id=campaign_id,
+    user=user,
+    db=db,
+  )
+  return {"ok": True}
+
+
 @api.get("/admin/users")
 async def admin_users(_: dict[str, Any] = Depends(_require_admin), db=Depends(_get_db)):
   out: list[dict[str, Any]] = []
@@ -2103,7 +2611,9 @@ _BACKUPABLE_COLLECTIONS = [
   "dam_assets",
   "users",
   "content_calendar",
+  "marketing_campaigns",
   "activity_logs",
+  CONTENT_CALENDAR_FIELD_OPTIONS_COLLECTION,
   PRODUCT_FIELD_OPTIONS_COLLECTION,
   PRODUCT_IMPORT_BATCHES_COLLECTION,
   PRODUCT_IMPORT_ROWS_COLLECTION,

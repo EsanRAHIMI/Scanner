@@ -7,11 +7,13 @@ import {
 } from '../lib/calendar/types';
 import { 
   ORDERED_COLUMNS, 
-  STATUS_OPTIONS_DEFAULT 
+  EXCLUDED_CALENDAR_COLUMNS,
 } from '../lib/calendar/constants';
 import { useToast } from '../components/ui/toast-provider';
 import { useCalendarData } from './use-calendar-data';
 import { useCalendarActions } from './use-calendar-actions';
+import { useCalendarFieldOptions } from './use-calendar-field-options';
+import type { CalendarSelectableField } from '../lib/calendar/field-options';
 
 const normalizeStatusValue = (value: unknown): string => {
   const status = typeof value === 'string' ? value.trim() : '';
@@ -32,82 +34,47 @@ export function useCalendarLogic() {
     refresh 
   } = useCalendarData();
 
+  const fieldOptionsState = useCalendarFieldOptions();
+
   const {
     isSaving,
     createNew,
     deleteItem,
     duplicateItem,
     commitCellEdit,
-  } = useCalendarActions({ setItems: setContentItems, refresh });
+    deleteFieldOption,
+  } = useCalendarActions({
+    setItems: setContentItems,
+    refresh,
+    setFieldOptions: fieldOptionsState.setOptions,
+    registerFieldOptions: fieldOptionsState.registerOptions,
+  });
 
   const [allColumns, setAllColumns] = useState<string[]>(ORDERED_COLUMNS);
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const [statusOptions, setStatusOptions] = useState<string[]>(STATUS_OPTIONS_DEFAULT);
-  const [contentPillarOptions, setContentPillarOptions] = useState<string[]>([]);
-  const [formatOptions, setFormatOptions] = useState<string[]>([]);
-  const [toneOfVoiceOptions, setToneOfVoiceOptions] = useState<string[]>([]);
-  const [targetAudienceOptions, setTargetAudienceOptions] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   
   const [loginError, setLoginError] = useState<string | null>(null);
   const [me, setMe] = useState<TrainerMe | null>(null);
 
-  // Update dynamic columns and statuses when items change
   useEffect(() => {
     if (contentItems.length > 0) {
       const columnsSet = new Set<string>();
       contentItems.forEach(it => {
-        Object.keys(it.fields || {}).forEach(key => columnsSet.add(key));
+        Object.keys(it.fields || {}).forEach(key => {
+          if (!EXCLUDED_CALENDAR_COLUMNS.includes(key as (typeof EXCLUDED_CALENDAR_COLUMNS)[number])) {
+            columnsSet.add(key);
+          }
+        });
       });
       const finalColumns = [...ORDERED_COLUMNS];
       Array.from(columnsSet).forEach(col => {
         if (!ORDERED_COLUMNS.includes(col)) finalColumns.push(col);
       });
-      setAllColumns(finalColumns);
-
-      const statusSet = new Set<string>();
-      contentItems.forEach((it) => {
-        const normalizedStatus = normalizeStatusValue(it.fields?.['Status']);
-        if (normalizedStatus) statusSet.add(normalizedStatus);
-      });
-      const discoveredStatuses = Array.from(statusSet);
-      const orderedStatuses = [
-        ...STATUS_OPTIONS_DEFAULT.filter((s) => discoveredStatuses.includes(s)),
-        ...discoveredStatuses.filter((s) => !STATUS_OPTIONS_DEFAULT.includes(s)),
-      ];
-      setStatusOptions(orderedStatuses.length ? orderedStatuses : STATUS_OPTIONS_DEFAULT);
-      
-      // Extract other dynamic options
-      const pillarSet = new Set<string>();
-      const formatSet = new Set<string>();
-      const toneSet = new Set<string>();
-      
-      contentItems.forEach(it => {
-        const pillar = String(it.fields?.['Content Pillar'] ?? '').trim();
-        const format = String(it.fields?.['Format'] ?? '').trim();
-        const tone = String(it.fields?.['Tone of Voice'] ?? '').trim();
-        
-        if (pillar) pillarSet.add(pillar);
-        if (format) formatSet.add(format);
-        if (tone) toneSet.add(tone);
-      });
-      
-      setContentPillarOptions(Array.from(pillarSet).sort());
-      setFormatOptions(Array.from(formatSet).sort());
-      setToneOfVoiceOptions(Array.from(toneSet).sort());
-
-      // Extract Target Audience options (multi-select)
-      const audienceSet = new Set<string>();
-      contentItems.forEach(it => {
-        const val = String(it.fields?.['Target Audience'] ?? '').trim();
-        if (val) {
-          // Split by common delimiters: comma, newline, or semicolon
-          const parts = val.split(/[,\n;]+/).map(p => p.trim()).filter(Boolean);
-          parts.forEach(p => audienceSet.add(p));
-        }
-      });
-      setTargetAudienceOptions(Array.from(audienceSet).sort());
+      setAllColumns(finalColumns.filter(
+        (col) => !EXCLUDED_CALENDAR_COLUMNS.includes(col as (typeof EXCLUDED_CALENDAR_COLUMNS)[number]),
+      ));
     }
   }, [contentItems]);
 
@@ -155,14 +122,9 @@ export function useCalendarLogic() {
       const timeA = isNaN(dateA) ? 0 : dateA;
       const timeB = isNaN(dateB) ? 0 : dateB;
       
-      // Items without a date should always be at the top
       if (timeA === 0 && timeB !== 0) return -1;
       if (timeB === 0 && timeA !== 0) return 1;
-      
-      // If both have dates, sort by date descending (newest first)
       if (timeA !== timeB) return timeB - timeA;
-      
-      // Tie-breaker: sort by ID descending (newest items usually have "larger" IDs)
       return b.id.localeCompare(a.id);
     });
   }, [contentItems, selectedStatus, deferredSearchTerm]);
@@ -191,6 +153,7 @@ export function useCalendarLogic() {
       setAuthRequired(false);
       await loadMe();
       await refresh();
+      await fieldOptionsState.fetchOptions();
       success('Signed in successfully');
     } catch {
       setLoginError('Invalid credentials');
@@ -206,6 +169,16 @@ export function useCalendarLogic() {
     } catch {}
   };
 
+  const registerFieldOption = useCallback(
+    (field: CalendarSelectableField, value: string) => fieldOptionsState.registerOption(field, value),
+    [fieldOptionsState],
+  );
+
+  const deleteFieldOptionFor = useCallback(
+    (field: CalendarSelectableField, option: string) => deleteFieldOption(field, option),
+    [deleteFieldOption],
+  );
+
   return {
     contentItems,
     filteredItems,
@@ -218,11 +191,9 @@ export function useCalendarLogic() {
     deferredSearchTerm,
     selectedStatus,
     setSelectedStatus,
-    statusOptions,
-    contentPillarOptions,
-    formatOptions,
-    toneOfVoiceOptions,
-    targetAudienceOptions,
+    statusOptions: fieldOptionsState.options.Status,
+    fieldOptions: fieldOptionsState.options,
+    fieldOptionsLoading: fieldOptionsState.loading,
     isSaving,
     authRequired,
     setAuthRequired,
@@ -232,6 +203,8 @@ export function useCalendarLogic() {
     duplicateItem,
     deleteItem,
     commitCellEdit,
+    deleteFieldOption: deleteFieldOptionFor,
+    registerFieldOption,
     login,
     logout,
     refresh,

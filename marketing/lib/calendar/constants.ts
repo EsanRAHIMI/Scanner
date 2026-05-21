@@ -16,11 +16,27 @@ export const ORDERED_COLUMNS = [
   'Status',
 ];
 
+/** Columns removed from the matrix (legacy data may still exist in DB). */
+export const EXCLUDED_CALENDAR_COLUMNS = ['Week Number'] as const;
+
 export const STATUS_OPTIONS_DEFAULT = [
   'Published',
   'Scheduled',
   'In Progress',
   'Drafts',
+];
+
+/** Shared marketing channel options (calendar, campaigns, etc.). */
+export const MARKETING_CHANNEL_OPTIONS = [
+  'Instagram',
+  'TikTok',
+  'Facebook',
+  'LinkedIn',
+  'YouTube',
+  'Email',
+  'Blog',
+  'Twitter/X',
+  'Pinterest',
 ];
 
 export const STATUS_COLORS: Record<string, string> = {

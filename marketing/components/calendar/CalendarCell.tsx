@@ -4,6 +4,11 @@ import React from 'react';
 import { 
   STATUS_COLORS,
 } from '../../lib/calendar/constants';
+import {
+  isCalendarSelectableField,
+  isMultiValueCalendarField,
+} from '../../lib/calendar/field-options';
+import { parseMultiValueField } from '../../lib/calendar/multi-value-field';
 import { 
   dirForValue, 
   alignClassForValue, 
@@ -28,13 +33,41 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPic
 
   const col = column.trim().toLowerCase();
 
-  if (col === 'status') {
-    const displayValue = String(value) === 'Draft' ? 'Drafts' : String(value);
-    const color = STATUS_COLORS[displayValue] || 'bg-muted text-muted-foreground';
+  if (isCalendarSelectableField(column)) {
+    if (col === 'status') {
+      const displayValue = String(value) === 'Draft' ? 'Drafts' : String(value);
+      const color = STATUS_COLORS[displayValue] || 'bg-muted text-muted-foreground';
+      return (
+        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${color}`}>
+          {displayValue}
+        </span>
+      );
+    }
+
+    const items = isMultiValueCalendarField(column)
+      ? parseMultiValueField(value)
+      : [String(value).trim()].filter(Boolean);
+
+    if (items.length === 0) {
+      return <span className="text-muted-foreground/30">—</span>;
+    }
+
+    const chipClass =
+      col === 'target audience'
+        ? 'border-primary/15 bg-primary/5 text-primary'
+        : 'border-border/70 bg-muted/40 text-foreground';
+
     return (
-      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${color}`}>
-        {displayValue}
-      </span>
+      <div className="flex flex-wrap gap-1 py-0.5">
+        {items.map((item) => (
+          <span
+            key={item}
+            className={`inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-tight ${chipClass}`}
+          >
+            <span className="truncate">{item}</span>
+          </span>
+        ))}
+      </div>
     );
   }
 

@@ -3,14 +3,45 @@
 import { useState } from 'react';
 import { ContentItem } from '../lib/calendar/types';
 import { useToast } from '../components/ui/toast-provider';
-import { normalizeDateForInput, weekdayFromIsoDate } from '../lib/calendar/utils';
+import {
+  type CalendarFieldOptionsMap,
+  type CalendarSelectableField,
+  isCalendarSelectableField,
+  isMultiValueCalendarField,
+  normalizeCalendarFieldOptionsResponse,
+} from '../lib/calendar/field-options';
+import { removeMultiValueItem, parseMultiValueField } from '../lib/calendar/multi-value-field';
+import { normalizeDateForInput, weekdayFromIsoDate, extractUrls, isImageUrl } from '../lib/calendar/utils';
+
+function syncFieldsFromAssets(assetsValue: string): Record<string, string> {
+  const urls = extractUrls(assetsValue);
+  if (urls.length === 0) {
+    return { 'Product Image': '', Product: '' };
+  }
+  return { 'Product Image': urls.find(isImageUrl) ?? '' };
+}
+
+function removeFieldValueFromItem(fields: Record<string, unknown>, field: CalendarSelectableField, option: string) {
+  const current = fields[field];
+  if (isMultiValueCalendarField(field)) {
+    return removeMultiValueItem(current, option);
+  }
+  return '';
+}
 
 interface UseCalendarActionsProps {
   setItems: React.Dispatch<React.SetStateAction<ContentItem[]>>;
   refresh: () => Promise<void>;
+  setFieldOptions?: React.Dispatch<React.SetStateAction<CalendarFieldOptionsMap>>;
+  registerFieldOptions?: (field: CalendarSelectableField, values: string[]) => Promise<void>;
 }
 
-export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProps) {
+export function useCalendarActions({
+  setItems,
+  refresh,
+  setFieldOptions,
+  registerFieldOptions,
+}: UseCalendarActionsProps) {
   const [isSaving, setIsSaving] = useState(false);
   const { success, error: toastError } = useToast();
 
@@ -54,8 +85,6 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
     try {
       setIsSaving(true);
       const fields = { ...(source.fields ?? {}) };
-      
-      // Clear date-related fields so the duplicate appears at the top
       delete fields['Publish Date'];
       delete fields['Day of Week'];
 
@@ -88,6 +117,10 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
         }
       }
 
+      if (column === 'Assets') {
+        Object.assign(next, syncFieldsFromAssets(value));
+      }
+
       const res = await fetch(`/api/content-calendar/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -100,9 +133,77 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
         if (it.id !== id) return it;
         return { ...it, fields: { ...it.fields, ...next } };
       }));
+
+      if (isCalendarSelectableField(column) && registerFieldOptions) {
+        const values = isMultiValueCalendarField(column)
+          ? parseMultiValueField(value)
+          : [value.trim()].filter(Boolean);
+        await registerFieldOptions(column, values);
+      }
+
       success('Updated');
     } catch {
       toastError('Failed to update cell');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteFieldOption = async (field: CalendarSelectableField, option: string) => {
+    const trimmed = option.trim();
+    if (!trimmed) return null;
+
+    if (!confirm(`Remove "${trimmed}" from ${field} everywhere? This cannot be undone.`)) {
+      return null;
+    }
+
+    try {
+      setIsSaving(true);
+      const res = await fetch('/api/content-calendar/field-options/remove', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ field, value: trimmed }),
+      });
+
+      if (res.status === 403) {
+        toastError('Only admins can remove field options');
+        return null;
+      }
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Remove failed (${res.status})`);
+      }
+
+      const data = (await res.json()) as {
+        updated_items?: number;
+        all_options?: CalendarFieldOptionsMap;
+      };
+
+      setItems((prev) =>
+        prev.map((item) => ({
+          ...item,
+          fields: {
+            ...item.fields,
+            [field]: removeFieldValueFromItem(item.fields ?? {}, field, trimmed),
+          },
+        })),
+      );
+
+      if (data.all_options && setFieldOptions) {
+        setFieldOptions(normalizeCalendarFieldOptionsResponse({ options: data.all_options }));
+      }
+
+      success(
+        data.updated_items
+          ? `Removed "${trimmed}" from ${data.updated_items} item${data.updated_items === 1 ? '' : 's'}`
+          : `Removed "${trimmed}"`,
+      );
+      return data;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to remove field option';
+      toastError(msg);
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -114,5 +215,6 @@ export function useCalendarActions({ setItems, refresh }: UseCalendarActionsProp
     deleteItem,
     duplicateItem,
     commitCellEdit,
+    deleteFieldOption,
   };
 }

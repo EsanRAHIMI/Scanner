@@ -14,17 +14,25 @@ import {
 } from '../../lib/calendar/constants';
 import { AuthGuard } from '../../components/calendar/AuthGuard';
 import { AssetsPickerModal } from '../../components/calendar/AssetsPickerModal';
-import { isImageUrl } from '../../lib/calendar/utils';
+import { CampaignsModal } from '../../components/calendar/CampaignsModal';
 import { ContentItem } from '../../lib/calendar/types';
 import { useProductsAssets } from '../../hooks/use-products-assets';
+import { useCampaignsData } from '../../hooks/use-campaigns-data';
+import { useCampaignsActions } from '../../hooks/use-campaigns-actions';
 
 function CalendarContent() {
   const logic = useCalendarLogic();
   const products = useProductsAssets();
+  const campaignsData = useCampaignsData();
+  const campaignsActions = useCampaignsActions({
+    setCampaigns: campaignsData.setCampaigns,
+    refresh: campaignsData.refresh,
+  });
   const insightsPanel = useInsightsPanel(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ContentItem } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [assetsModalItem, setAssetsModalItem] = useState<ContentItem | null>(null);
+  const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
 
   const openContextMenu = (e: React.MouseEvent, item: ContentItem) => {
     e.preventDefault();
@@ -108,6 +116,8 @@ function CalendarContent() {
         onNew={() => {
           void logic.createNew();
         }}
+        onOpenCampaigns={() => setCampaignsModalOpen(true)}
+        campaignCount={campaignsData.campaigns.length}
         onHome={() => window.location.href = '/marketing'}
         onToggleAccount={() => setAccountOpen(v => !v)}
         username={logic.me?.username || ''}
@@ -153,14 +163,14 @@ function CalendarContent() {
       >
         <CalendarGrid
           items={logic.filteredItems}
+          campaigns={campaignsData.campaigns}
           allColumns={logic.allColumns}
           onContextMenu={openContextMenu}
           onCommitCell={logic.commitCellEdit}
-          statusOptions={logic.statusOptions}
-          contentPillarOptions={logic.contentPillarOptions}
-          formatOptions={logic.formatOptions}
-          toneOfVoiceOptions={logic.toneOfVoiceOptions}
-          targetAudienceOptions={logic.targetAudienceOptions}
+          fieldOptions={logic.fieldOptions}
+          canManageFieldOptions={Boolean(logic.me?.is_admin)}
+          onDeleteFieldOption={logic.deleteFieldOption}
+          onRegisterFieldOption={logic.registerFieldOption}
           onPickAssets={(item) => {
             setAssetsModalItem(item);
             void products.fetchAssets();
@@ -188,16 +198,25 @@ function CalendarContent() {
         onClose={() => setAssetsModalItem(null)}
         onSave={async ({ productLabel, selectedUrls }: { productLabel: string; selectedUrls: string[] }) => {
           if (!assetsModalItem) return;
-          await logic.commitCellEdit(assetsModalItem.id, 'Product', productLabel);
           const assetsValue = selectedUrls.join('\n');
           await logic.commitCellEdit(assetsModalItem.id, 'Assets', assetsValue);
-
-          const firstImage = selectedUrls.find((u) => isImageUrl(u));
-          if (firstImage) {
-            await logic.commitCellEdit(assetsModalItem.id, 'Product Image', firstImage);
+          if (selectedUrls.length > 0) {
+            await logic.commitCellEdit(assetsModalItem.id, 'Product', productLabel);
           }
           setAssetsModalItem(null);
         }}
+      />
+
+      <CampaignsModal
+        open={campaignsModalOpen}
+        campaigns={campaignsData.campaigns}
+        contentItems={logic.contentItems}
+        loading={campaignsData.loading}
+        isSaving={campaignsActions.isSaving}
+        onClose={() => setCampaignsModalOpen(false)}
+        onCreate={campaignsActions.createCampaign}
+        onUpdate={campaignsActions.updateCampaign}
+        onDelete={campaignsActions.deleteCampaign}
       />
 
       {contextMenu && (

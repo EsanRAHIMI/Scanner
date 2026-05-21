@@ -7,35 +7,44 @@ import {
   MIN_COL_PX, 
   MAX_COL_PX,
 } from '../../lib/calendar/constants';
+import { CAMPAIGN_RAIL_WIDTH_PX } from '../../lib/calendar/campaigns/constants';
+import type { MarketingCampaign } from '../../lib/calendar/campaigns/types';
+import { getCampaignsForContentItem } from '../../lib/calendar/campaigns/utils';
+import {
+  type CalendarFieldOptionsMap,
+  type CalendarSelectableField,
+  getCalendarFieldSelectMode,
+  isCalendarSelectableField,
+} from '../../lib/calendar/field-options';
 import { CalendarCell } from './CalendarCell';
-import { CreatableSelect } from './CreatableSelect';
+import { CampaignRowTag } from './CampaignRowTag';
 import { DatePicker } from './DatePicker';
 import { MultiSelect } from './MultiSelect';
 
 interface CalendarGridProps {
   items: ContentItem[];
+  campaigns?: MarketingCampaign[];
   allColumns: string[];
   onContextMenu: (e: React.MouseEvent, item: ContentItem) => void;
   onCommitCell: (id: string, column: string, value: string) => Promise<void>;
-  statusOptions: string[];
-  contentPillarOptions: string[];
-  formatOptions: string[];
-  toneOfVoiceOptions: string[];
-  targetAudienceOptions: string[];
+  fieldOptions: CalendarFieldOptionsMap;
+  canManageFieldOptions?: boolean;
+  onDeleteFieldOption?: (field: CalendarSelectableField, option: string) => Promise<unknown>;
+  onRegisterFieldOption?: (field: CalendarSelectableField, option: string) => Promise<void>;
   onPickAssets: (item: ContentItem) => void;
   className?: string;
 }
 
 export function CalendarGrid({
   items,
+  campaigns = [],
   allColumns,
   onContextMenu,
   onCommitCell,
-  statusOptions,
-  contentPillarOptions,
-  formatOptions,
-  toneOfVoiceOptions,
-  targetAudienceOptions,
+  fieldOptions,
+  canManageFieldOptions = false,
+  onDeleteFieldOption,
+  onRegisterFieldOption,
   onPickAssets,
   className = '',
 }: CalendarGridProps) {
@@ -113,6 +122,7 @@ export function CalendarGrid({
       <div className="cc-scroll min-h-0 flex-1 overflow-x-auto overflow-y-auto max-h-[var(--calendar-grid-max-h,calc(100dvh-360px))]">
         <table className="min-w-max w-max text-sm border-collapse table-fixed">
           <colgroup>
+            <col style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px` }} />
             {allColumns.map(col => (
               <col key={col} style={{ width: `${columnWidths[col] ?? defaultColWidth(col)}px` }} />
             ))}
@@ -120,6 +130,12 @@ export function CalendarGrid({
           </colgroup>
           <thead className="sticky top-0 z-20 bg-background/90 backdrop-blur-md shadow-sm transition-colors">
             <tr>
+              <th
+                className="sticky left-0 z-30 border-b border-r border-border bg-background/95 px-2 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground backdrop-blur-md"
+                style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px`, minWidth: `${CAMPAIGN_RAIL_WIDTH_PX}px` }}
+              >
+                Campaign
+              </th>
               {allColumns.map(col => (
                 <th key={col} className="relative border-b border-border px-4 py-3 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                   {col}
@@ -132,7 +148,7 @@ export function CalendarGrid({
           <tbody className="divide-y divide-border bg-background/40">
             {items.length === 0 ? (
               <tr>
-                <td colSpan={allColumns.length + 1} className="py-24 text-center">
+                <td colSpan={allColumns.length + 2} className="py-24 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
                       <svg className="h-8 w-8 text-muted-foreground/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
@@ -144,12 +160,20 @@ export function CalendarGrid({
                   </div>
                 </td>
               </tr>
-            ) : items.map((item, rowIdx) => (
+            ) : items.map((item, rowIdx) => {
+              const rowCampaigns = getCampaignsForContentItem(item, campaigns);
+              return (
               <tr 
                 key={item.id} 
                 className={`group transition-colors hover:bg-muted/50 ${rowIdx % 2 === 1 ? 'bg-muted/10' : 'bg-transparent'}`}
                 onContextMenu={e => onContextMenu(e, item)}
               >
+                <td
+                  className={`sticky left-0 z-10 border-r border-border/70 bg-background/90 px-2 py-2 align-top backdrop-blur-sm transition-colors group-hover:bg-muted/40 ${rowIdx % 2 === 1 ? 'bg-muted/20' : ''}`}
+                  style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px`, minWidth: `${CAMPAIGN_RAIL_WIDTH_PX}px` }}
+                >
+                  <CampaignRowTag campaigns={rowCampaigns} />
+                </td>
                 {allColumns.map(col => {
                   const idColKey = `${item.id}-${col}`;
                   const isReadOnly = col === 'Day of Week' || col === 'Product Image';
@@ -180,53 +204,22 @@ export function CalendarGrid({
 
                       {isEditing ? (
                         <div className="relative h-full w-full min-h-[48px] z-20 bg-background/50 p-1.5 animate-in fade-in duration-200 ring-1 ring-primary/30 rounded-lg">
-                          {col === 'Status' ? (
-                            <div className="absolute top-full left-0 z-[100] mt-2 w-48 flex flex-col gap-0.5 bg-popover/95 backdrop-blur-2xl border border-border rounded-xl shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-200 ring-4 ring-primary/5">
-                              {statusOptions.map((opt) => (
-                                <button
-                                  key={opt}
-                                  className={`w-full px-3 py-2 text-left text-xs font-semibold rounded-lg transition-all ${opt === cellDraftValue ? 'bg-primary/10 text-primary' : 'hover:bg-muted/50'}`}
-                                  onClick={() => {
-                                    handleCommit(item.id, col, opt);
-                                    setEditingCell(null);
-                                  }}
-                                >
-                                  {opt}
-                                </button>
-                              ))}
-                              <div className="h-px bg-border my-1 mx-2" />
-                              <button
-                                className="w-full px-3 py-2 text-left text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
-                                onClick={() => setEditingCell(null)}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : col === 'Content Pillar' || col === 'Format' || col === 'Tone of Voice' ? (
-                            <CreatableSelect
-                              value={cellDraftValue}
-                              options={
-                                col === 'Content Pillar' ? contentPillarOptions :
-                                col === 'Format' ? formatOptions :
-                                toneOfVoiceOptions
-                              }
-                              autoFocus
-                              className="w-full h-full text-sm outline-none rounded-lg border-0 bg-background px-3 py-1 transiton-all"
-                              onChange={(val) => {
-                                setCellDraftValue(val);
-                              }}
-                              onCommit={(val) => {
-                                if (val !== String(item.fields[col] ?? '')) {
-                                  handleCommit(item.id, col, val || cellDraftValue);
-                                }
-                                setEditingCell(null);
-                              }}
-                              onBlur={() => setEditingCell(null)}
-                            />
-                          ) : col === 'Target Audience' ? (
+                          {isCalendarSelectableField(col) ? (
                             <MultiSelect
                               value={cellDraftValue}
-                              options={targetAudienceOptions}
+                              options={fieldOptions[col]}
+                              mode={getCalendarFieldSelectMode(col)}
+                              allowDeleteOptions={canManageFieldOptions}
+                              onDeleteOption={
+                                onDeleteFieldOption
+                                  ? (option) => onDeleteFieldOption(col, option)
+                                  : undefined
+                              }
+                              onRegisterOption={
+                                onRegisterFieldOption
+                                  ? (option) => onRegisterFieldOption(col, option)
+                                  : undefined
+                              }
                               onCommit={(val) => {
                                 if (val !== String(item.fields[col] ?? '')) {
                                   handleCommit(item.id, col, val);
@@ -297,12 +290,13 @@ export function CalendarGrid({
                   </button>
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
           {items.length > 0 && (
              <tfoot>
                <tr>
-                 <td colSpan={allColumns.length + 1} className="px-5 py-4 border-t border-border text-[11px] text-muted-foreground/50 font-bold uppercase tracking-widest bg-muted/20">
+                 <td colSpan={allColumns.length + 2} className="px-5 py-4 border-t border-border text-[11px] text-muted-foreground/50 font-bold uppercase tracking-widest bg-muted/20">
                    <div className="flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                      Displaying {items.length} dynamic row{items.length === 1 ? '' : 's'}

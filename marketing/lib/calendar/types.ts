@@ -10,7 +10,6 @@ export type CalendarColumn =
   | 'CTA'
   | 'Tone of Voice'
   | 'Target Audience'
-  | 'Week Number'
   | '# Hashtag'
   | 'Product'
   | 'Product Image'
@@ -34,6 +33,8 @@ export type TrainerMe = {
   id: string;
   email: string;
   username: string;
+  is_admin?: boolean;
+  role?: string;
 };
 
 export interface CalendarStats {
