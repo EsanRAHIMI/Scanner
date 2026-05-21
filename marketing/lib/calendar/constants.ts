@@ -17,13 +17,19 @@ export const ORDERED_COLUMNS = [
 ];
 
 /** Columns removed from the matrix (legacy data may still exist in DB). */
-export const EXCLUDED_CALENDAR_COLUMNS = ['Week Number'] as const;
+export const EXCLUDED_CALENDAR_COLUMNS = ['Week Number', '_campaign_planning_id'] as const;
+
+/** Auto-created placeholder rows for campaigns without scheduled content. */
+export const CAMPAIGN_PLANNING_STATUS = 'Needs plan';
+
+export const CAMPAIGN_PLANNING_DRAFT_FIELD = '_campaign_planning_id';
 
 export const STATUS_OPTIONS_DEFAULT = [
   'Published',
   'Scheduled',
   'In Progress',
   'Drafts',
+  CAMPAIGN_PLANNING_STATUS,
 ];
 
 /** Shared marketing channel options (calendar, campaigns, etc.). */
@@ -44,6 +50,8 @@ export const STATUS_COLORS: Record<string, string> = {
   Scheduled: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20',
   'In Progress': 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20',
   Drafts: 'bg-muted text-muted-foreground border border-transparent',
+  [CAMPAIGN_PLANNING_STATUS]:
+    'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25',
 };
 
 

@@ -12,13 +12,13 @@ import { parseMultiValueField } from '../../lib/calendar/multi-value-field';
 import { 
   dirForValue, 
   alignClassForValue, 
-  getInstagramEmbedUrl,
   extractUrls,
   isVideoUrl,
   getMediaPreviewUrl,
   canPreviewMediaUrl,
   DRIVE_IMAGE_WIDTH_THUMB,
 } from '../../lib/calendar/utils';
+import { InstagramMediaPreview } from './InstagramMediaPreview';
 
 interface CalendarCellProps {
   column: string;
@@ -73,20 +73,7 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPic
 
   if (col === 'content link') {
     const raw = String(value);
-    const embed = getInstagramEmbedUrl(raw);
-    if (embed) {
-      return (
-        <div className="space-y-2">
-          <iframe 
-            src={embed} 
-            className="w-full aspect-square rounded-lg border border-border bg-background" 
-            loading="lazy" 
-          />
-          <a href={raw} target="_blank" className="text-[10px] text-primary hover:underline truncate block font-medium">{raw}</a>
-        </div>
-      );
-    }
-    return <a href={raw} target="_blank" className="text-primary hover:underline truncate block font-medium">{raw}</a>;
+    return <InstagramMediaPreview url={raw} />;
   }
 
   if (col === 'product image') {

@@ -7,8 +7,10 @@ import {
   MIN_COL_PX, 
   MAX_COL_PX,
 } from '../../lib/calendar/constants';
+import { INSTAGRAM_FRAME_WIDTH_PX } from '../../lib/calendar/instagram';
 import { CAMPAIGN_RAIL_WIDTH_PX } from '../../lib/calendar/campaigns/constants';
 import type { MarketingCampaign } from '../../lib/calendar/campaigns/types';
+import { isCampaignPlanningDraft } from '../../lib/calendar/campaigns/planning-drafts';
 import { getCampaignsForContentItem } from '../../lib/calendar/campaigns/utils';
 import {
   type CalendarFieldOptionsMap,
@@ -73,6 +75,9 @@ export function CalendarGrid({
   }, [columnWidths]);
 
   const defaultColWidth = useCallback((col: string) => {
+    if (col === 'Content Link') {
+      return Math.min(MAX_COL_PX, INSTAGRAM_FRAME_WIDTH_PX + 32);
+    }
     const estimated = col.length * 8 + 40;
     return Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, estimated));
   }, []);
@@ -162,14 +167,23 @@ export function CalendarGrid({
               </tr>
             ) : items.map((item, rowIdx) => {
               const rowCampaigns = getCampaignsForContentItem(item, campaigns);
+              const isPlanningRow = isCampaignPlanningDraft(item);
               return (
               <tr 
                 key={item.id} 
-                className={`group transition-colors hover:bg-muted/50 ${rowIdx % 2 === 1 ? 'bg-muted/10' : 'bg-transparent'}`}
+                className={`group transition-colors ${
+                  isPlanningRow
+                    ? 'bg-amber-50/50 hover:bg-amber-50/70 dark:bg-amber-950/25 dark:hover:bg-amber-950/35'
+                    : `hover:bg-muted/50 ${rowIdx % 2 === 1 ? 'bg-muted/10' : 'bg-transparent'}`
+                }`}
                 onContextMenu={e => onContextMenu(e, item)}
               >
                 <td
-                  className={`sticky left-0 z-10 border-r border-border/70 bg-background/90 px-2 py-2 align-top backdrop-blur-sm transition-colors group-hover:bg-muted/40 ${rowIdx % 2 === 1 ? 'bg-muted/20' : ''}`}
+                  className={`sticky left-0 z-10 border-r px-2 py-2 align-top backdrop-blur-sm transition-colors ${
+                    isPlanningRow
+                      ? 'border-amber-500/25 bg-amber-50/90 group-hover:bg-amber-50 dark:bg-amber-950/40 dark:group-hover:bg-amber-950/50'
+                      : `border-border/70 bg-background/90 group-hover:bg-muted/40 ${rowIdx % 2 === 1 ? 'bg-muted/20' : ''}`
+                  }`}
                   style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px`, minWidth: `${CAMPAIGN_RAIL_WIDTH_PX}px` }}
                 >
                   <CampaignRowTag campaigns={rowCampaigns} />
@@ -299,7 +313,7 @@ export function CalendarGrid({
                  <td colSpan={allColumns.length + 2} className="px-5 py-4 border-t border-border text-[11px] text-muted-foreground/50 font-bold uppercase tracking-widest bg-muted/20">
                    <div className="flex items-center gap-2">
                      <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                     Displaying {items.length} dynamic row{items.length === 1 ? '' : 's'}
+                     Displaying {items.length} row{items.length === 1 ? '' : 's'}
                    </div>
                  </td>
                </tr>

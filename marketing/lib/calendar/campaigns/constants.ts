@@ -9,7 +9,7 @@ export const CAMPAIGN_COLOR_PRESETS = [
   '#3b82f6',
 ] as const;
 
-export const CAMPAIGN_RAIL_WIDTH_PX = 132;
+export const CAMPAIGN_RAIL_WIDTH_PX = 168;
 
 export const DEFAULT_CAMPAIGN_FORM = {
   name: '',

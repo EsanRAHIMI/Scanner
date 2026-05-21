@@ -11,6 +11,12 @@ import {
   normalizeCalendarFieldOptionsResponse,
 } from '../lib/calendar/field-options';
 import { removeMultiValueItem, parseMultiValueField } from '../lib/calendar/multi-value-field';
+import {
+  buildCampaignPlanningDraftFields,
+  getCampaignsNeedingPlanningDraft,
+} from '../lib/calendar/campaigns/planning-drafts';
+import type { MarketingCampaign } from '../lib/calendar/campaigns/types';
+import { CAMPAIGN_PLANNING_STATUS } from '../lib/calendar/constants';
 import { normalizeDateForInput, weekdayFromIsoDate, extractUrls, isImageUrl } from '../lib/calendar/utils';
 
 function syncFieldsFromAssets(assetsValue: string): Record<string, string> {
@@ -209,6 +215,51 @@ export function useCalendarActions({
     }
   };
 
+  const syncCampaignPlanningDrafts = async (
+    campaigns: MarketingCampaign[],
+    currentItems: ContentItem[],
+  ) => {
+    const needed = getCampaignsNeedingPlanningDraft(campaigns, currentItems);
+    if (needed.length === 0) return;
+
+    try {
+      setIsSaving(true);
+      const created: ContentItem[] = [];
+
+      for (const campaign of needed) {
+        const fields = buildCampaignPlanningDraftFields(campaign);
+        const res = await fetch('/api/content-calendar', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            fields,
+            publish_date: campaign.start_date,
+          }),
+        });
+        if (!res.ok) throw new Error(`Planning row failed (${res.status})`);
+        created.push((await res.json()) as ContentItem);
+      }
+
+      if (created.length > 0) {
+        setItems((prev) => [...created, ...prev]);
+        if (registerFieldOptions) {
+          await registerFieldOptions('Status', [CAMPAIGN_PLANNING_STATUS]);
+        }
+      }
+    } catch {
+      toastError('Failed to create campaign planning rows');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const ensureCampaignPlanningDraftForCampaign = async (
+    campaign: MarketingCampaign,
+    currentItems: ContentItem[],
+  ) => {
+    await syncCampaignPlanningDrafts([campaign], currentItems);
+  };
+
   return {
     isSaving,
     createNew,
@@ -216,5 +267,7 @@ export function useCalendarActions({
     duplicateItem,
     commitCellEdit,
     deleteFieldOption,
+    syncCampaignPlanningDrafts,
+    ensureCampaignPlanningDraftForCampaign,
   };
 }

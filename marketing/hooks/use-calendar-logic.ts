@@ -43,6 +43,8 @@ export function useCalendarLogic() {
     duplicateItem,
     commitCellEdit,
     deleteFieldOption,
+    syncCampaignPlanningDrafts,
+    ensureCampaignPlanningDraftForCampaign,
   } = useCalendarActions({
     setItems: setContentItems,
     refresh,
@@ -205,6 +207,8 @@ export function useCalendarLogic() {
     commitCellEdit,
     deleteFieldOption: deleteFieldOptionFor,
     registerFieldOption,
+    syncCampaignPlanningDrafts,
+    ensureCampaignPlanningDraftForCampaign,
     login,
     logout,
     refresh,

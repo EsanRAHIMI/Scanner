@@ -7,6 +7,7 @@ import {
   InsightsHeaderToggle,
   type InsightsPanelSummary,
 } from './CollapsibleInsightsPanel';
+import { LiveHeaderClock } from './LiveHeaderClock';
 
 interface CalendarHeaderProps {
   onNew: () => void;
@@ -49,14 +50,12 @@ export function CalendarHeader({
           {/* Brand */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 sm:gap-2">
-              <span className="inline-flex h-5 shrink-0 items-center rounded-md border border-border bg-secondary px-2 text-[9px] font-bold uppercase tracking-wider text-secondary-foreground sm:h-6 sm:rounded-full sm:px-2.5 sm:text-[10px]">
-                Ops
-              </span>
               <h1 className="truncate text-sm font-bold tracking-tight text-foreground sm:text-base md:text-lg">
                 <span className="md:hidden">Content Calendar</span>
                 <span className="hidden md:inline">Professional Content Calendar</span>
               </h1>
             </div>
+            <LiveHeaderClock />
           </div>
 
           {/* Actions */}

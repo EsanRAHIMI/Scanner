@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ToastProvider } from '../../components/ui/toast-provider';
 import { useCalendarLogic } from '../../hooks/use-calendar-logic';
 import { CalendarHeader } from '../../components/calendar/CalendarHeader';
@@ -33,6 +33,17 @@ function CalendarContent() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [assetsModalItem, setAssetsModalItem] = useState<ContentItem | null>(null);
   const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (logic.loading || logic.authRequired) return;
+    void logic.syncCampaignPlanningDrafts(campaignsData.campaigns, logic.contentItems);
+  }, [
+    logic.loading,
+    logic.authRequired,
+    logic.contentItems,
+    logic.syncCampaignPlanningDrafts,
+    campaignsData.campaigns,
+  ]);
 
   const openContextMenu = (e: React.MouseEvent, item: ContentItem) => {
     e.preventDefault();
@@ -214,7 +225,15 @@ function CalendarContent() {
         loading={campaignsData.loading}
         isSaving={campaignsActions.isSaving}
         onClose={() => setCampaignsModalOpen(false)}
-        onCreate={campaignsActions.createCampaign}
+        onCreate={async (values) => {
+          const created = await campaignsActions.createCampaign(values);
+          if (created) {
+            await logic.ensureCampaignPlanningDraftForCampaign(
+              created,
+              logic.contentItems,
+            );
+          }
+        }}
         onUpdate={campaignsActions.updateCampaign}
         onDelete={campaignsActions.deleteCampaign}
       />
