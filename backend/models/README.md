@@ -1,7 +1,27 @@
-Place your YOLOv8 model file at:
+# YOLO Model Directory
 
-- backend/models/best.pt
+Place the YOLOv8 weights file at:
 
-Docker will mount this into the backend container at:
+```
+backend/models/best.pt
+```
 
-- /models/best.pt
+## Docker
+
+The backend container mounts this path as:
+
+```
+/models/best.pt
+```
+
+Set `MODEL_PATH=/models/best.pt` in the container environment.
+
+## Local Development
+
+Set:
+
+```
+MODEL_PATH=./models/best.pt
+```
+
+If the file is missing, the API responds with `{ "error": "MODEL_NOT_FOUND" }`.

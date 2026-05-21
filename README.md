@@ -1,72 +1,73 @@
 # Lorenzo Scanner Monorepo
 
-سیستم تشخیص لوستر مبتنی بر YOLOv8 به‌همراه داشبورد آموزش (Label/Train/Publish).
+YOLOv8-based lobster detection system with a training dashboard (Label / Train / Publish).
 
-این ریپو یک monorepo چندسرویسی است:
+This repository is a multi-service monorepo:
 
-- `frontend/` : رابط کاربری اسکنر (Next.js)
-- `backend/` : API تشخیص (FastAPI + YOLOv8)
-- `trainer/server/` : API آموزش + مدیریت دیتاست (FastAPI)
-- `trainer/web/` : داشبورد آموزش (Next.js)
----
-
-# فهرست
-
-- [ویژگی‌ها](#ویژگیها)
-- [مسیرها در Production](#مسیرها-در-production)
-- [سرویس‌ها و پورت‌ها (لوکال)](#سرویسها-و-پورتها-لوکال)
-- [محل مدل YOLO](#محل-مدل-yolo)
-- [اجرای لوکال (بدون Docker)](#اجرای-لوکال-بدون-docker)
-- [اجرای Docker](#اجرای-docker)
-- [تنظیمات Production (Dokploy)](#تنظیمات-production-dokploy)
-- [راهنمای کاربر (فارسی)](#راهنمای-کاربر-فارسی)
-- [خروجی‌ها و مسیر فایل‌ها](#خروجیها-و-مسیر-فایلها)
-- [لینک‌های مفید](#لینکهای-مفید)
+- `frontend/` — Scanner user interface (Next.js)
+- `backend/` — Detection API (FastAPI + YOLOv8)
+- `trainer/server/` — Training API and dataset management (FastAPI)
+- `trainer/web/` — Training dashboard (Next.js)
 
 ---
 
-# تکنولوژی‌ها (Tech Stack)
+# Table of Contents
 
-## فرانت‌اند (Scanner UI)
+- [Features](#features)
+- [Production Routes](#production-routes)
+- [Services and Ports (Local)](#services-and-ports-local)
+- [YOLO Model Location](#yolo-model-location)
+- [Local Execution (Without Docker)](#local-execution-without-docker)
+- [Docker Execution](#docker-execution)
+- [Production Configuration (Dokploy)](#production-configuration-dokploy)
+- [User Guide](#user-guide)
+- [Outputs and File Paths](#outputs-and-file-paths)
+- [Useful Links](#useful-links)
+
+---
+
+# Tech Stack
+
+## Frontend (Scanner UI)
 
 - Next.js (App Router)
 - React
 - TailwindCSS
 
-## بک‌اند (Inference)
+## Backend (Inference)
 
-نکته‌ی مهم برای Production (Dokploy / Nixpacks):
+**Important for Production (Dokploy / Nixpacks):**
 
-اگر مدل را به‌صورت فایل داخل ریپو و داخل سرویس `backend/` نگه می‌دارید، باید در Environment سرویس بک‌اند مقدار زیر را ست کنید تا بک‌اند مدل را پیدا کند:
+If you keep the model as a file inside the repository under the `backend/` service, set the following environment variable on the backend service so the API can locate the model:
 
 `MODEL_PATH=/app/models/best.pt`
 
 - FastAPI + Uvicorn
 - Ultralytics YOLOv8
-- Pillow (decode کردن تصویر)
+- Pillow (image decoding)
 
 ## Trainer
 
-- FastAPI (ذخیره‌سازی دیتاست + orchestration آموزش)
-- Next.js dashboard (لیبل‌گذاری + UI آموزش)
+- FastAPI (dataset persistence + training orchestration)
+- Next.js dashboard (labeling + training UI)
 
 ---
 
-# ویژگی‌ها
+# Features
 
-- **اسکن زنده (موبایل‌فرست)** با دوربین و نمایش باکس‌ها روی تصویر
-- **مسیر‌دهی Same-origin** (سازگار با reverse proxy) برای Deploy تمیز
-- **داشبورد آموزش**:
-  - ساخت کلاس‌ها
-  - آپلود تصاویر
-  - لیبل (کشیدن یک باکس)
-  - خروجی گرفتن دیتاست YOLO
-  - آموزش
-  - Publish مدل (`best.pt`) برای inference
+- **Live scanning (mobile-first)** with camera feed and bounding boxes overlaid on the image
+- **Same-origin routing** (reverse-proxy compatible) for clean deployments
+- **Training dashboard**:
+  - Create classes
+  - Upload images
+  - Label (draw a single bounding box)
+  - Export YOLO dataset
+  - Train
+  - Publish model (`best.pt`) for inference
 
 ---
 
-# مسیرها در Production
+# Production Routes
 
 | Path | Service |
 |------|---------|
@@ -75,17 +76,17 @@
 | `/trainer/*` | trainer/web (Dashboard) |
 | `/trainer/api/*` | trainer/server (Training API) |
 
-فرانت‌اند همیشه درخواست تشخیص را با این مسیر می‌زند:
+The frontend always sends detection requests to:
 
 ```
 fetch('/api/detect')
 ```
 
-مسیر‌دهی در حالت Docker توسط Nginx و در Production توسط reverse proxy انجام می‌شود.
+Routing is handled by Nginx in Docker and by the reverse proxy in production.
 
 ---
 
-# سرویس‌ها و پورت‌ها (لوکال)
+# Services and Ports (Local)
 
 | Service | Folder | Default Port |
 |---|---|---:|
@@ -96,22 +97,22 @@ fetch('/api/detect')
 
 ---
 
-# محل مدل YOLO
+# YOLO Model Location
 
-فایل مدل باید در این مسیر وجود داشته باشد:
+The model file must exist at:
 
 ```
 backend/models/best.pt
 ```
 
-بک‌اند مدل را از این مسیر می‌خواند:
+The backend reads the model from:
 
 ```
 MODEL_PATH=/models/best.pt (Docker)
 MODEL_PATH=./models/best.pt (Local)
 ```
 
-اگر فایل وجود نداشته باشد، بک‌اند این خطا را برمی‌گرداند:
+If the file is missing, the backend returns:
 
 ```json
 { "error": "MODEL_NOT_FOUND" }
@@ -119,19 +120,19 @@ MODEL_PATH=./models/best.pt (Local)
 
 ---
 
-# اجرای لوکال (بدون Docker)
+# Local Execution (Without Docker)
 
-برای اجرای کامل، به **۴ ترمینال** نیاز داری.
+A full local setup requires **four terminals** (plus optional terminals for Products and Marketing).
 
-## پیش‌نیازها
+## Prerequisites
 
-- Node.js (پیشنهادی: 20+)
+- Node.js (recommended: 20+)
 - Python 3.10+
-- (اختیاری) Docker + Docker Compose
+- (Optional) Docker + Docker Compose
 
 ---
 
-## Terminal 1 — Trainer Server (API + storage)
+## Terminal 1 — Trainer Server (API + Storage)
 
 ```bash
 cd trainer/server
@@ -141,7 +142,7 @@ pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8010 --reload
 ```
 
-تست:
+Health check:
 
 ```bash
 curl http://127.0.0.1:8010/health
@@ -157,19 +158,19 @@ npm install
 npm run dev -- -p 3010
 ```
 
-باز کردن:
+Open:
 
 ```
 http://localhost:3010
 ```
 
-اگر داشبورد وضعیت API را `Offline` نشان داد:
+If the dashboard shows the API as `Offline`:
 
 ```bash
 echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 ```
 
-سرویس را ریستارت کن.
+Restart the service.
 
 ---
 
@@ -178,16 +179,17 @@ echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 ```bash
 cd backend
 python3 -m venv .venv
-source venv/bin/activate
+source .venv/bin/activate
 pip install -r requirements.txt
 MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-تست:
+Health check:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
+
 ---
 
 ## Terminal 4 — Frontend (Scanner UI)
@@ -198,7 +200,7 @@ npm install
 npm run dev -- -p 3003
 ```
 
-باز کردن:
+Open:
 
 ```
 http://localhost:3003/scanner
@@ -207,98 +209,103 @@ http://localhost:3003/scanner
 ---
 
 ## Terminal 5 — Products
+
 ```bash
 cd products
 npm install
 npm run dev -- -p 3004
 ```
+
 ---
 
 ## Terminal 6 — Marketing
+
 ```bash
 cd marketing
 npm install
 npm run dev -- -p 3005
 ```
-باز کردن:
+
+Open:
 
 ```
 http://localhost:3004
 ```
----*
 
-# راهنمای کاربر (فارسی)
+---
 
-## 1) استفاده از اسکنر (Scanner)
+# User Guide
 
-1. آدرس را باز کن:
+## 1) Using the Scanner
+
+1. Open:
    - `http://localhost:3003/scanner`
-2. دسترسی دوربین را `Allow` کن.
-3. دوربین را روی لوستر بگیر.
-4. نتیجه‌ی تشخیص به‌صورت زنده روی تصویر نمایش داده می‌شود:
-   - کلاس (نام محصول)
-   - confidence
-   - bounding box
+2. Grant camera access (`Allow`).
+3. Point the camera at the lobster.
+4. Detection results are shown live on the image:
+   - Class (product name)
+   - Confidence score
+   - Bounding box
 
-نکته: فرانت‌اند درخواست‌ها را به این مسیر می‌فرستد:
+**Note:** The frontend sends requests to:
 
 ```
 POST /api/detect
 ```
 
-## 2) آموزش مدل (Training) — قدم به قدم
+## 2) Model Training — Step by Step
 
-1. داشبورد آموزش را باز کن:
+1. Open the training dashboard:
    - `http://localhost:3010`
-2. در صفحه **Classes** کلاس‌ها را بساز.
-   - قوانین نام‌گذاری:
-     - حروف کوچک
-     - بدون فاصله
-     - در صورت نیاز `_`
-3. در صفحه **Upload** تصاویر محصولات را آپلود کن.
-4. در صفحه **Queue** برای هر تصویر:
-   - دقیقاً یک باکس دور لوستر بکش
-   - کلاس را انتخاب کن
-   - `Save`
-5. در صفحه **Train**:
-   - اول `Export Dataset (YOLO)` را بزن
-   - بعد `Start Training` را بزن
-6. وقتی وضعیت `finished` شد:
-   - `Publish` را بزن
-7. بعد از Publish، سرویس inference را ریستارت کن تا مدل جدید لود شود.
+2. On the **Classes** page, create your classes.
+   - Naming rules:
+     - Lowercase letters only
+     - No spaces
+     - Use `_` when needed
+3. On the **Upload** page, upload product images.
+4. On the **Queue** page, for each image:
+   - Draw exactly one bounding box around the lobster
+   - Select the class
+   - Click `Save`
+5. On the **Train** page:
+   - First click `Export Dataset (YOLO)`
+   - Then click `Start Training`
+6. When the status is `finished`:
+   - Click `Publish`
+7. After publishing, restart the inference service so the new model is loaded.
 
 ---
 
-# خروجی‌ها و مسیر فایل‌ها
+# Outputs and File Paths
 
-- **خروجی تشخیص (Inference)**: پاسخ JSON شامل `detections` (bbox + class + confidence + product)
-- **خروجی آموزش (Trainer)**:
-  - خروجی دیتاست (Export) در:
+- **Inference output**: JSON response containing `detections` (bbox, class, confidence, product)
+- **Trainer output**:
+  - Exported dataset:
     - `trainer/server/storage/datasets/...`
-  - خروجی Train/Log در:
+  - Training runs and logs:
     - `trainer/server/storage/runs/...`
-  - مدل نهایی Publish شده در:
+  - Published model:
     - `backend/models/best.pt`
 
-## بعد از Publish دقیقاً چه اتفاقی می‌افتد؟
+## What Happens After Publish?
 
-1. فایل `best.pt` در مسیر زیر ساخته/جایگزین می‌شود:
+1. The `best.pt` file is created or replaced at:
 
 ```
 backend/models/best.pt
 ```
 
-2. برای اینکه API تشخیص از مدل جدید استفاده کند باید `backend` را ریستارت کنی.
+2. Restart `backend` so the detection API loads the new model.
 
 ---
 
-# اجرای Docker
+# Docker Execution
 
 ```bash
 docker compose up --build
 ```
 
-باز کردن:
+Open:
 
 ```
 http://localhost/
@@ -306,15 +313,15 @@ http://localhost/
 
 ---
 
-# تنظیمات Production (Dokploy)
+# Production Configuration (Dokploy)
 
-دامنه:
+Domain:
 
 ```
 https://scanner.ehsanrahimi.com
 ```
 
-مسیر‌دهی پیشنهادی:
+Recommended routing:
 
 | Path             | Target              |
 | ---------------- | ------------------- |
@@ -323,21 +330,21 @@ https://scanner.ehsanrahimi.com
 | `/trainer/*`     | trainer/web:3010    |
 | `/trainer/api/*` | trainer/server:8010 |
 
-## منبع Git و ریشهٔ بیلد (Dokploy)
+## Git Source and Build Root (Dokploy)
 
-در Dokploy برای هر اپ، **اتصال به GitHub** طوری تنظیم می‌شود که همان **زیرپوشهٔ اپ** (مثلاً `trainer/web`) مستقیم ریشهٔ بیلد و محتوای کانتینر باشد؛ **نیازی به تعریف یا اصلاح مسیر داخل فایل‌های این ریپو برای دیپلوی نیست.**
+In Dokploy, each application is connected to GitHub so that the **application subdirectory** (e.g. `trainer/web`) is the build root and container content directly. **No path changes inside this repository are required for deployment.**
 
-### trainer/web و Nixpacks
+### trainer/web and Nixpacks
 
-پیش‌فرض Nixpacks برای npm وقتی `package-lock.json` هنگام **تولید پلن** دیده شود، دستور **`npm ci`** می‌گذارد؛ گاهی در مرحلهٔ **`COPY` روی بیلدسرور** همان lockfile در `/app` نیست و `npm ci` با خطای نبودن lock می‌خورد، در حالی که فایل در گیت وجود دارد.
+Nixpacks defaults to **`npm ci`** when `package-lock.json` is detected during **plan generation**. On some build servers, the lockfile is not present under `/app` at the **`COPY`** stage, causing `npm ci` to fail even though the file exists in Git.
 
-برای جلوگیری از این شکستن، در `trainer/web/nixpacks.toml` فقط فاز نصب با **`npm install --no-audit --no-fund`** override شده است (بدون تغییر ورژن Node و بدون `onlyIncludeFiles`). اگر lock در context باشد، npm از همان استفاده می‌کند.
+To avoid this failure, `trainer/web/nixpacks.toml` overrides only the install phase with **`npm install --no-audit --no-fund`** (without changing the Node version or using `onlyIncludeFiles`). When the lockfile is in the build context, npm still respects it.
 
-برای ساخت با **`npm ci`** می‌توانی در Dokploy **Build Type** را **Dockerfile** بگذاری و از `Dockerfile` داخل همان پوشه استفاده کنی.
+To build with **`npm ci`**, set **Build Type** to **Dockerfile** in Dokploy and use the `Dockerfile` in that directory.
 
 - **Port**: `3010`
 
-متغیرهای محیطی:
+Environment variables:
 
 ### frontend
 
@@ -355,7 +362,7 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 
 ---
 
-# لینک‌های مفید
+# Useful Links
 
 - Scanner UI: `/scanner`
 - Service status: `/status`
@@ -367,7 +374,3 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 # License
 
 Private internal project.
-
-git add .
-git commit -m "Add admin change control mode and sales field restrictions"
-git push
