@@ -6,6 +6,7 @@ export type CalendarColumn =
   | 'Format'
   | 'Status'
   | 'Content Link'
+  | 'Social Views'
   | 'Caption Idea'
   | 'CTA'
   | 'Tone of Voice'

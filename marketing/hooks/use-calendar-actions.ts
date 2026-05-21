@@ -128,6 +128,29 @@ export function useCalendarActions({
         Object.assign(next, syncFieldsFromAssets(value));
       }
 
+      if (column === 'Content Link') {
+        if (!value.trim()) {
+          next['Social Views'] = '';
+        } else {
+          try {
+            const statsRes = await fetch(
+              `/api/instagram/stats?url=${encodeURIComponent(value.trim())}`,
+              { cache: 'no-store' },
+            );
+            if (statsRes.ok) {
+              const stats = (await statsRes.json()) as {
+                views?: number | null;
+                display?: string | null;
+              };
+              next['Social Views'] =
+                stats.views != null && stats.display ? stats.display : '';
+            }
+          } catch {
+            // Social Views refresh is best-effort.
+          }
+        }
+      }
+
       const res = await fetch(`/api/content-calendar/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },

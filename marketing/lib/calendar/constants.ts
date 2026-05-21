@@ -5,6 +5,7 @@ export const ORDERED_COLUMNS = [
   'Product Image',
   'Format',
   'Content Link',
+  'Social Views',
   'Caption Idea',
   'CTA',
   '# Hashtag',
@@ -83,6 +84,7 @@ export const MAX_COL_PX = 420;
 /** Per-column minimum width (resize floor). */
 export const COLUMN_MIN_WIDTH_PX: Partial<Record<string, number>> = {
   '# Hashtag': 72,
+  'Social Views': 88,
   Status: 88,
   Format: 88,
   CTA: 88,
@@ -92,6 +94,7 @@ export const COLUMN_MIN_WIDTH_PX: Partial<Record<string, number>> = {
 /** Sensible default width when nothing is stored yet. */
 export const COLUMN_DEFAULT_WIDTH_PX: Partial<Record<string, number>> = {
   '# Hashtag': 112,
+  'Social Views': 100,
   Title: 200,
   'Caption Idea': 220,
   Assets: 160,

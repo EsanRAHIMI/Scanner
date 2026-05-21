@@ -1100,6 +1100,7 @@ _CONTENT_CALENDAR_FIELDS = [
   "Format",
   "Status",
   "Content Link",
+  "Social Views",
   "Caption Idea",
   "CTA",
   "Tone of Voice",

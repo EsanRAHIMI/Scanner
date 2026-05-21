@@ -19,19 +19,31 @@ import {
   DRIVE_IMAGE_WIDTH_THUMB,
 } from '../../lib/calendar/utils';
 import { InstagramMediaPreview } from './InstagramMediaPreview';
+import { InstagramSocialViews } from './InstagramSocialViews';
 
 interface CalendarCellProps {
   column: string;
   value: any;
+  rowFields?: Record<string, unknown>;
   onPickAssets?: () => void;
 }
 
-export const CalendarCell: React.FC<CalendarCellProps> = ({ column, value, onPickAssets }) => {
+export const CalendarCell: React.FC<CalendarCellProps> = ({
+  column,
+  value,
+  rowFields,
+  onPickAssets,
+}) => {
+  const col = column.trim().toLowerCase();
+
+  if (col === 'social views') {
+    const contentLink = String(rowFields?.['Content Link'] ?? '').trim();
+    return <InstagramSocialViews contentLink={contentLink} />;
+  }
+
   if (value === null || value === undefined || value === '') {
     return <span className="text-muted-foreground/30">—</span>;
   }
-
-  const col = column.trim().toLowerCase();
 
   if (isCalendarSelectableField(column)) {
     if (col === 'status') {

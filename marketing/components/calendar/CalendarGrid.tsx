@@ -216,7 +216,8 @@ export function CalendarGrid({
                 </td>
                 {allColumns.map(col => {
                   const idColKey = `${item.id}-${col}`;
-                  const isReadOnly = col === 'Day of Week' || col === 'Product Image';
+                  const isReadOnly =
+                    col === 'Day of Week' || col === 'Product Image' || col === 'Social Views';
                   const isAssets = col === 'Assets';
                   const isDateField = col.toLowerCase().includes('date');
                   const isEditing = editingCell?.id === item.id && editingCell?.column === col;
@@ -307,10 +308,11 @@ export function CalendarGrid({
 
                       ) : (
                         <div className="min-h-[1.5rem] min-w-0 overflow-hidden leading-relaxed">
-                          <CalendarCell 
-                            column={col} 
-                            value={item.fields[col]} 
-                            onPickAssets={() => onPickAssets(item)} 
+                          <CalendarCell
+                            column={col}
+                            value={item.fields[col]}
+                            rowFields={item.fields}
+                            onPickAssets={() => onPickAssets(item)}
                           />
                         </div>
                       )}
