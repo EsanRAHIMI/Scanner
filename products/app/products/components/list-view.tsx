@@ -26,6 +26,10 @@ import { ProductsSkeleton } from './products-skeleton';
 
 import { CellChangeAudit } from './field-change-indicator';
 import { ListViewProps } from '../types/products-ui';
+import {
+  LoadMoreFloatingIndicator,
+  LoadMoreScrollSentinel,
+} from './load-more-floating-indicator';
 
 function ContentStatusSelect({
   recordId,
@@ -104,7 +108,7 @@ export function ListView({
   editingUrl,
   isSaving,
   scrollContainerRef,
-  scrollFooter,
+  loadMore,
   moderationMode = false,
   changeAudit,
 }: ListViewProps) {
@@ -881,11 +885,14 @@ export function ListView({
     [recordById, search, familyMode, variantCounts, columns, setEditingUrl, handleSaveUrl, handleRemoveUrl, handleHideMediaFromGallery, handleUnhideMediaFromGallery, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
   );
 
+  const showLoadMore = Boolean(loadMore && loadMore.remainingCount > 0);
+
   return (
-    <div
-      ref={scrollContainerRef}
-      className="scrollbar-minimal flex-1 min-h-0 w-full overflow-auto rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in"
-    >
+    <div className="relative flex-1 min-h-0 w-full animate-fade-in rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
+      <div
+        ref={scrollContainerRef}
+        className="scrollbar-minimal h-full min-h-0 w-full overflow-auto"
+      >
       <table className="min-w-full table-auto text-left text-sm border-separate border-spacing-0">
         <thead className="bg-transparent text-[10px] uppercase tracking-wider text-black/40 dark:text-white/35 font-bold">
           <tr>
@@ -1104,7 +1111,16 @@ export function ListView({
           ) : null}
         </tbody>
       </table>
-      {scrollFooter}
+      {showLoadMore && loadMore ? (
+        <LoadMoreScrollSentinel sentinelRef={loadMore.sentinelRef} />
+      ) : null}
+      </div>
+      {showLoadMore && loadMore ? (
+        <LoadMoreFloatingIndicator
+          pending={loadMore.pending}
+          remainingCount={loadMore.remainingCount}
+        />
+      ) : null}
     </div>
   );
 }

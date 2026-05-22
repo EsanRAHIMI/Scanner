@@ -33,6 +33,7 @@ import {
   scrollRowToViewportOffset,
   getFirstVisibleListRecordId,
 } from './lib/product-utils';
+import { isScrollContainerNearEnd } from './lib/load-more-scroll';
 
 import { 
   getTagColorStyles,
@@ -56,6 +57,10 @@ import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
 import { GalleryCard } from './components/gallery-card';
 import { ListView } from './components/list-view';
+import {
+  LoadMoreFloatingIndicator,
+  LoadMoreScrollSentinel,
+} from './components/load-more-floating-indicator';
 import { useFieldChangeAudit } from './hooks/use-field-change-audit';
 import type { AuthMe } from './types';
 
@@ -533,6 +538,8 @@ export function ProductsView({
   React.useEffect(() => {
     if (scrollTargetRecordId) return;
     setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
+    const scrollEl = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+    if (scrollEl) scrollEl.scrollTop = 0;
   }, [
     viewMode,
     debouncedSearch,
@@ -542,6 +549,8 @@ export function ProductsView({
     selectedMaterials,
     showSelectedOnly,
     moderationEditorFilter,
+    sortKey,
+    sortDir,
     scrollTargetRecordId,
   ]);
 
@@ -557,26 +566,44 @@ export function ProductsView({
     });
   }, [listVisibleRecords.length, startLoadMoreTransition]);
 
+  /** Load more from vertical scroll position (works at any horizontal scroll offset in wide tables). */
   React.useEffect(() => {
     if (loading || remainingRecordsCount <= 0) return;
-    const target = loadMoreSentinelRef.current;
-    if (!target) return;
 
-    const obs = new IntersectionObserver(
-      entries => {
-        const e = entries[0];
-        if (!e?.isIntersecting) return;
-        const now = Date.now();
-        if (now - loadMoreThrottleRef.current < 160) return;
-        loadMoreThrottleRef.current = now;
-        loadMoreRecords();
-      },
-      { root: null, rootMargin: '320px 0px', threshold: 0 }
-    );
+    const scrollRoot = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+    if (!scrollRoot) return;
 
-    obs.observe(target);
-    return () => obs.disconnect();
-  }, [loading, remainingRecordsCount, loadMoreRecords, renderLimit, viewMode, listVisibleRecords.length]);
+    const maybeLoadMore = () => {
+      if (!isScrollContainerNearEnd(scrollRoot)) return;
+      const now = Date.now();
+      if (now - loadMoreThrottleRef.current < 160) return;
+      loadMoreThrottleRef.current = now;
+      loadMoreRecords();
+    };
+
+    scrollRoot.addEventListener('scroll', maybeLoadMore, { passive: true });
+    const resizeObserver = new ResizeObserver(maybeLoadMore);
+    resizeObserver.observe(scrollRoot);
+    const contentEl = scrollRoot.firstElementChild;
+    if (contentEl instanceof HTMLElement) {
+      resizeObserver.observe(contentEl);
+    }
+    maybeLoadMore();
+
+    return () => {
+      scrollRoot.removeEventListener('scroll', maybeLoadMore);
+      resizeObserver.disconnect();
+    };
+  }, [
+    loading,
+    remainingRecordsCount,
+    loadMoreRecords,
+    renderLimit,
+    viewMode,
+    listVisibleRecords.length,
+    sortKey,
+    sortDir,
+  ]);
 
 
 
@@ -1351,7 +1378,6 @@ export function ProductsView({
           columns={columns}
           editingUrl={editingUrl}
           isSaving={mutations.isSaving}
-          scrollFooter={null}
           moderationMode={isAdminModerator && moderationMode}
           changeAudit={changeAudit}
           canEditField={canEditFieldForUser}
@@ -1395,35 +1421,22 @@ export function ProductsView({
             moderationMode={isAdminModerator && moderationMode}
             changeAudit={changeAudit}
             canEditField={canEditFieldForUser}
-            scrollFooter={
-              !loading && remainingRecordsCount > 0 ? (
-                <div className="border-t border-black/5 bg-zinc-50/80 px-4 py-3 dark:border-white/10 dark:bg-zinc-950/40">
-                  <div
-                    ref={loadMoreSentinelRef}
-                    className="mx-auto h-2 w-full max-w-md shrink-0"
-                    aria-hidden
-                  />
-                  <p className="mt-1.5 text-center text-[10px] leading-snug text-black/45 dark:text-white/40">
-                    {isLoadMorePending ? (
-                      <span className="inline-flex items-center justify-center gap-2">
-                        <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-                        Loading more rows…
-                      </span>
-                    ) : (
-                      <>
-                        Scroll for more · {remainingRecordsCount.toLocaleString()} not shown
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : null
+            loadMore={
+              !loading && remainingRecordsCount > 0
+                ? {
+                    sentinelRef: loadMoreSentinelRef,
+                    pending: isLoadMorePending,
+                    remainingCount: remainingRecordsCount,
+                  }
+                : undefined
             }
           />
         </>
       ) : (
+        <div className="relative min-h-0 flex-1 w-full animate-fade-in rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
         <div
           ref={galleryScrollRef}
-          className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal w-full rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-black/25 animate-fade-in"
+          className="scrollbar-minimal h-full min-h-0 w-full overflow-y-auto p-3"
         >
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {renderedRecords.map((r) => (
@@ -1459,26 +1472,16 @@ export function ProductsView({
           )}
 
           {!loading && remainingRecordsCount > 0 ? (
-            <div className="mt-4 border-t border-black/5 pt-4 dark:border-white/10">
-              <div
-                ref={loadMoreSentinelRef}
-                className="mx-auto h-2 w-full max-w-md shrink-0"
-                aria-hidden
-              />
-              <p className="mt-2 text-center text-[10px] leading-snug text-black/45 dark:text-white/40">
-                {isLoadMorePending ? (
-                  <span className="inline-flex items-center justify-center gap-2">
-                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-                    Loading more…
-                  </span>
-                ) : (
-                  <>
-                    Scroll for more · {remainingRecordsCount.toLocaleString()} not shown
-                  </>
-                )}
-              </p>
-            </div>
+            <LoadMoreScrollSentinel sentinelRef={loadMoreSentinelRef} />
           ) : null}
+        </div>
+        {!loading && remainingRecordsCount > 0 ? (
+          <LoadMoreFloatingIndicator
+            pending={isLoadMorePending}
+            remainingCount={remainingRecordsCount}
+            loadingLabel="Loading more"
+          />
+        ) : null}
         </div>
       )}
 

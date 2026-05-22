@@ -40,8 +40,12 @@ export interface ListViewProps {
   isSaving: boolean;
   /** Optional ref for the scrollable list container (used to restore scroll after closing feed). */
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
-  /** Rendered inside the list scroll area (e.g. infinite-scroll sentinel). */
-  scrollFooter?: React.ReactNode;
+  /** Infinite scroll: sentinel ref + floating bottom indicator. */
+  loadMore?: {
+    sentinelRef: React.RefObject<HTMLDivElement | null>;
+    pending: boolean;
+    remainingCount: number;
+  };
   /** Admin moderation: highlight cells with edit history. */
   moderationMode?: boolean;
   changeAudit?: FieldChangeAuditApi;
