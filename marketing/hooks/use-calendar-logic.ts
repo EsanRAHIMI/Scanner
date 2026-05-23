@@ -23,18 +23,24 @@ const normalizeStatusValue = (value: unknown): string => {
 
 export function useCalendarLogic() {
   const { success } = useToast();
-  
+
+  const [authReady, setAuthReady] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [me, setMe] = useState<TrainerMe | null>(null);
+
+  const dataEnabled = authReady && !authRequired;
+
   const { 
     items: contentItems, 
     setItems: setContentItems, 
-    loading, 
+    loading: calendarLoading, 
     error, 
-    authRequired, 
-    setAuthRequired, 
+    authRequired: calendarAuthRequired, 
+    setAuthRequired: setCalendarAuthRequired, 
     refresh 
-  } = useCalendarData();
+  } = useCalendarData({ enabled: dataEnabled });
 
-  const fieldOptionsState = useCalendarFieldOptions();
+  const fieldOptionsState = useCalendarFieldOptions({ enabled: dataEnabled });
 
   const {
     isSaving,
@@ -57,7 +63,12 @@ export function useCalendarLogic() {
   const deferredSearchTerm = useDeferredValue(searchTerm);
   
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [me, setMe] = useState<TrainerMe | null>(null);
+
+  useEffect(() => {
+    if (calendarAuthRequired) {
+      setAuthRequired(true);
+    }
+  }, [calendarAuthRequired]);
 
   useEffect(() => {
     if (contentItems.length > 0) {
@@ -79,19 +90,31 @@ export function useCalendarLogic() {
     }
   }, [contentItems]);
 
-  const loadMe = useCallback(async () => {
+  const bootstrapAuth = useCallback(async () => {
     try {
       const res = await fetch('/api/trainer/auth/me', { cache: 'no-store' });
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as TrainerMe;
         setMe(data);
+        setAuthRequired(false);
+        setCalendarAuthRequired(false);
+      } else {
+        setMe(null);
+        setAuthRequired(true);
+        setCalendarAuthRequired(true);
       }
-    } catch {}
-  }, []);
+    } catch {
+      setMe(null);
+      setAuthRequired(true);
+      setCalendarAuthRequired(true);
+    } finally {
+      setAuthReady(true);
+    }
+  }, [setCalendarAuthRequired]);
 
   useEffect(() => {
-    loadMe();
-  }, [loadMe]);
+    void bootstrapAuth();
+  }, [bootstrapAuth]);
 
   const filteredItems = useMemo(() => {
     const filtered = contentItems.filter((item) => {
@@ -152,7 +175,11 @@ export function useCalendarLogic() {
       });
       if (!res.ok) throw new Error('Login failed');
       setAuthRequired(false);
-      await loadMe();
+      setCalendarAuthRequired(false);
+      const meRes = await fetch('/api/trainer/auth/me', { cache: 'no-store' });
+      if (meRes.ok) {
+        setMe((await meRes.json()) as TrainerMe);
+      }
       await refresh();
       await fieldOptionsState.fetchOptions();
       success('Signed in successfully');
@@ -166,6 +193,8 @@ export function useCalendarLogic() {
       await fetch('/api/trainer/auth/logout', { method: 'POST' });
       setMe(null);
       setAuthRequired(true);
+      setCalendarAuthRequired(true);
+      setContentItems([]);
       success('Signed out');
     } catch {}
   };
@@ -180,12 +209,15 @@ export function useCalendarLogic() {
     [deleteFieldOption],
   );
 
+  const loading = !authReady || (dataEnabled && calendarLoading);
+
   return {
     contentItems,
     filteredItems,
     allColumns,
     stats,
     loading,
+    authReady,
     error,
     searchTerm,
     setSearchTerm,
@@ -210,5 +242,6 @@ export function useCalendarLogic() {
     login,
     logout,
     refresh,
+    dataEnabled,
   };
 }

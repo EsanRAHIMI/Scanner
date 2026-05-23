@@ -4,7 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { ContentItem, ContentCalendarListResponse } from '../lib/calendar/types';
 import { useToast } from '../components/ui/toast-provider';
 
-export function useCalendarData() {
+export function useCalendarData(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,6 +13,8 @@ export function useCalendarData() {
   const { error: toastError } = useToast();
 
   const fetchData = useCallback(async () => {
+    if (!enabled) return;
+
     try {
       setLoading(true);
       setError(null);
@@ -19,6 +22,7 @@ export function useCalendarData() {
       
       if (response.status === 401) {
         setAuthRequired(true);
+        setItems([]);
         return;
       }
       
@@ -34,11 +38,15 @@ export function useCalendarData() {
     } finally {
       setLoading(false);
     }
-  }, [toastError]);
+  }, [enabled, toastError]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+    void fetchData();
+  }, [enabled, fetchData]);
 
   return {
     items,

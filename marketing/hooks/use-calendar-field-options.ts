@@ -8,13 +8,16 @@ import {
   normalizeCalendarFieldOptionsResponse,
 } from '../lib/calendar/field-options';
 
-export function useCalendarFieldOptions() {
+export function useCalendarFieldOptions(config?: { enabled?: boolean }) {
+  const enabled = config?.enabled ?? true;
   const [options, setOptions] = useState<CalendarFieldOptionsMap>(() =>
     normalizeCalendarFieldOptionsResponse(null),
   );
   const [loading, setLoading] = useState(true);
 
   const fetchOptions = useCallback(async () => {
+    if (!enabled) return;
+
     try {
       setLoading(true);
       const res = await fetch('/api/content-calendar/field-options', { cache: 'no-store' });
@@ -24,11 +27,15 @@ export function useCalendarFieldOptions() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     void fetchOptions();
-  }, [fetchOptions]);
+  }, [enabled, fetchOptions]);
 
   const registerOption = useCallback(async (field: CalendarSelectableField, value: string) => {
     const trimmed = value.trim();

@@ -23,7 +23,7 @@ import { useCampaignsActions } from '../../hooks/use-campaigns-actions';
 function CalendarContent() {
   const logic = useCalendarLogic();
   const products = useProductsAssets();
-  const campaignsData = useCampaignsData();
+  const campaignsData = useCampaignsData({ enabled: logic.dataEnabled });
   const campaignsActions = useCampaignsActions({
     setCampaigns: campaignsData.setCampaigns,
     refresh: campaignsData.refresh,
@@ -35,14 +35,15 @@ function CalendarContent() {
   const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
 
   useEffect(() => {
-    if (logic.loading || logic.authRequired) return;
+    if (!logic.dataEnabled || logic.loading || campaignsData.loading) return;
     void logic.syncCampaignPlanningDrafts(campaignsData.campaigns, logic.contentItems);
   }, [
+    logic.dataEnabled,
     logic.loading,
-    logic.authRequired,
     logic.contentItems,
     logic.syncCampaignPlanningDrafts,
     campaignsData.campaigns,
+    campaignsData.loading,
   ]);
 
   const openContextMenu = (e: React.MouseEvent, item: ContentItem) => {

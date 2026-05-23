@@ -6,13 +6,16 @@ import type { CampaignListResponse, MarketingCampaign } from '../lib/calendar/ca
 import { sortCampaignsByStartDate } from '../lib/calendar/campaigns/utils';
 import { useToast } from '../components/ui/toast-provider';
 
-export function useCampaignsData() {
+export function useCampaignsData(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { error: toastError } = useToast();
 
   const fetchCampaigns = useCallback(async () => {
+    if (!enabled) return;
+
     try {
       setLoading(true);
       setError(null);
@@ -36,11 +39,16 @@ export function useCampaignsData() {
     } finally {
       setLoading(false);
     }
-  }, [toastError]);
+  }, [enabled, toastError]);
 
   useEffect(() => {
+    if (!enabled) {
+      setCampaigns([]);
+      setLoading(false);
+      return;
+    }
     void fetchCampaigns();
-  }, [fetchCampaigns]);
+  }, [enabled, fetchCampaigns]);
 
   return {
     campaigns,

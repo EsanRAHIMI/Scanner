@@ -78,7 +78,7 @@ function MediaFrame({
         {showPlayOverlay ? (
           <button
             type="button"
-            aria-label="Play video in cell"
+            aria-label="Load Instagram preview"
             className="absolute inset-0 z-20 flex items-center justify-center bg-black/15 transition-colors hover:bg-black/25"
             onClick={(e) => {
               e.preventDefault();
@@ -92,6 +92,41 @@ function MediaFrame({
       </div>
       <OpenOnInstagramLink permalink={permalink} />
     </div>
+  );
+}
+
+function ThumbnailPreview({
+  thumbnailUrl,
+  type,
+  permalink,
+  showPlayOverlay,
+  playbackActive,
+  onActivatePlayback,
+}: {
+  thumbnailUrl: string;
+  type: InstagramPreviewResponse['type'];
+  permalink: string;
+  showPlayOverlay: boolean;
+  playbackActive: boolean;
+  onActivatePlayback: () => void;
+}) {
+  return (
+    <MediaFrame
+      type={type}
+      permalink={permalink}
+      showPlayOverlay={showPlayOverlay}
+      playbackActive={playbackActive}
+      onActivatePlayback={onActivatePlayback}
+    >
+      <img
+        src={thumbnailUrl}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+      />
+    </MediaFrame>
   );
 }
 
@@ -123,14 +158,52 @@ function CroppedEmbedPreview({
       onActivatePlayback={onActivatePlayback}
     >
       <iframe
+        key={embedUrl}
         src={embedUrl}
         title="Instagram media preview"
         className={`absolute border-0 ${iframeInteractive ? 'z-10 pointer-events-auto' : 'pointer-events-none'}`}
         style={iframeStyle}
         scrolling="no"
+        loading="lazy"
+        referrerPolicy="no-referrer"
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       />
     </MediaFrame>
+  );
+}
+
+function EmbedFallbackPrompt({
+  type,
+  permalink,
+  onLoadEmbed,
+}: {
+  type: InstagramPreviewResponse['type'];
+  permalink: string;
+  onLoadEmbed: () => void;
+}) {
+  const frameStyle = getInstagramMediaFrameStyle(type);
+  const sizeClasses = getInstagramMediaFrameClasses(type);
+
+  return (
+    <div className="flex flex-col gap-1.5 py-0.5" onClick={(e) => e.stopPropagation()}>
+      <div
+        style={frameStyle}
+        className={`relative flex items-center justify-center overflow-hidden rounded-xl bg-muted/40 ring-1 ring-border/50 ${sizeClasses}`}
+      >
+        <button
+          type="button"
+          className="rounded-full border border-border/70 bg-background/90 px-3 py-1.5 text-[10px] font-semibold text-foreground shadow-sm transition-colors hover:bg-muted"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onLoadEmbed();
+          }}
+        >
+          Load preview
+        </button>
+      </div>
+      <OpenOnInstagramLink permalink={permalink} />
+    </div>
   );
 }
 
@@ -138,12 +211,10 @@ export function InstagramMediaPreview({ url }: InstagramMediaPreviewProps) {
   const parsed = useMemo(() => parseInstagramUrl(url), [url]);
   const [preview, setPreview] = useState<InstagramPreviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [playbackActive, setPlaybackActive] = useState(false);
-  const [forceEmbedPlayback, setForceEmbedPlayback] = useState(false);
+  const [embedActive, setEmbedActive] = useState(false);
 
   useEffect(() => {
-    setPlaybackActive(false);
-    setForceEmbedPlayback(false);
+    setEmbedActive(false);
   }, [url]);
 
   useEffect(() => {
@@ -166,7 +237,7 @@ export function InstagramMediaPreview({ url }: InstagramMediaPreviewProps) {
       } catch {
         if (!cancelled) {
           setPreview({
-            mode: 'embed',
+            mode: 'thumbnail',
             permalink: parsed.permalink,
             type: parsed.type,
             embedUrl: parsed.embedUrl,
@@ -183,19 +254,8 @@ export function InstagramMediaPreview({ url }: InstagramMediaPreviewProps) {
     };
   }, [parsed]);
 
-  const effectivePreview = useMemo(() => {
-    if (!preview) return null;
-    if (isInstagramVideoType(preview.type) && preview.mode === 'thumbnail') {
-      return { ...preview, mode: 'embed' as const };
-    }
-    return preview;
-  }, [preview]);
-
   const handleActivatePlayback = () => {
-    setPlaybackActive(true);
-    if (effectivePreview?.mode === 'thumbnail' && effectivePreview.isVideo) {
-      setForceEmbedPlayback(true);
-    }
+    setEmbedActive(true);
   };
 
   if (!parsed) {
@@ -221,37 +281,48 @@ export function InstagramMediaPreview({ url }: InstagramMediaPreviewProps) {
     );
   }
 
-  const type = effectivePreview?.type ?? parsed.type;
-  const permalink = effectivePreview?.permalink ?? parsed.permalink;
-  const embedUrl = effectivePreview?.embedUrl ?? parsed.embedUrl;
+  const type = preview?.type ?? parsed.type;
+  const permalink = preview?.permalink ?? parsed.permalink;
+  const embedUrl = preview?.embedUrl ?? parsed.embedUrl;
+  const thumbnailUrl = preview?.thumbnailUrl?.trim() || null;
   const isReelOrTv = isInstagramVideoType(type);
+  const isFeedVideoPost = type === 'p' && Boolean(preview?.isVideo);
+  const isVideo = isReelOrTv || isFeedVideoPost;
+  const iframeInteractive = embedActive && (isReelOrTv || isVideo);
+  const showPlayOverlay = !embedActive && isVideo && Boolean(thumbnailUrl);
 
-  // Reel/IGTV: همان رفتار قبلی — iframe تعاملی، بدون overlay پلی
-  // پست عکس: embed مثل ریل، بدون overlay
-  // پست ویدیو (/p/): فقط بعد از کلیک overlay، پلی فعال می‌شود
-  const isFeedVideoPost = type === 'p' && Boolean(effectivePreview?.isVideo);
-  const iframeInteractive = isReelOrTv || playbackActive || forceEmbedPlayback;
-  const showPlayOverlay = isFeedVideoPost && !playbackActive && !forceEmbedPlayback;
+  if (embedActive) {
+    return (
+      <CroppedEmbedPreview
+        embedUrl={embedUrl}
+        permalink={permalink}
+        type={type}
+        showPlayOverlay={false}
+        iframeInteractive={iframeInteractive || isReelOrTv}
+        playbackActive
+        onActivatePlayback={handleActivatePlayback}
+      />
+    );
+  }
 
-  const useEmbed =
-    forceEmbedPlayback ||
-    effectivePreview?.mode === 'embed' ||
-    isReelOrTv ||
-    type === 'p';
-
-  if (!useEmbed) {
-    return null;
+  if (thumbnailUrl) {
+    return (
+      <ThumbnailPreview
+        thumbnailUrl={thumbnailUrl}
+        type={type}
+        permalink={permalink}
+        showPlayOverlay={showPlayOverlay}
+        playbackActive={false}
+        onActivatePlayback={handleActivatePlayback}
+      />
+    );
   }
 
   return (
-    <CroppedEmbedPreview
-      embedUrl={embedUrl}
-      permalink={permalink}
+    <EmbedFallbackPrompt
       type={type}
-      showPlayOverlay={showPlayOverlay}
-      iframeInteractive={iframeInteractive}
-      playbackActive={playbackActive || isReelOrTv}
-      onActivatePlayback={handleActivatePlayback}
+      permalink={permalink}
+      onLoadEmbed={handleActivatePlayback}
     />
   );
 }
