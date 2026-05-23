@@ -5,62 +5,79 @@ import * as React from 'react';
 export interface LoadMoreFloatingIndicatorProps {
   pending: boolean;
   remainingCount: number;
-  /** Shown while loading (default: "Loading more rows") */
+  /** User scrolled to the bottom and every row is loaded. */
+  atEnd?: boolean;
+  onJumpToTop?: () => void;
   loadingLabel?: string;
-  /** Prefix when idle (default: "Scroll for more") */
-  idlePrefix?: string;
 }
 
-/** Floating load-more pill — stays at bottom of list panel while scrolling. */
+/** Minimal hint beside the vertical scrollbar (bottom-right of the scroll panel). */
 export function LoadMoreFloatingIndicator({
   pending,
   remainingCount,
-  loadingLabel = 'Loading more rows',
-  idlePrefix = 'Scroll for more',
+  atEnd = false,
+  onJumpToTop,
+  loadingLabel = 'Loading…',
 }: LoadMoreFloatingIndicatorProps) {
+  const showMore = remainingCount > 0;
+
+  if (!showMore && !atEnd) return null;
+
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center bg-gradient-to-t from-white via-white/80 to-transparent px-3 pb-3 pt-8 dark:from-zinc-950 dark:via-zinc-950/85 dark:to-transparent"
+      className="pointer-events-none absolute bottom-2 right-2 z-20 flex items-center gap-1.5 pr-0.5 text-[10px] font-medium leading-none text-black/40 dark:text-white/38"
       aria-live="polite"
       aria-busy={pending}
     >
-      <div
-        className={
-          'flex max-w-[min(100%,20rem)] items-center gap-2.5 rounded-full border px-4 py-2 shadow-[0_4px_24px_rgba(0,0,0,0.06)] backdrop-blur-xl transition-all duration-300 ' +
-          (pending
-            ? 'border-emerald-500/20 bg-white/90 dark:border-emerald-400/25 dark:bg-zinc-900/90'
-            : 'border-black/[0.06] bg-white/75 dark:border-white/10 dark:bg-zinc-900/70')
-        }
-      >
-        {pending ? (
-          <>
-            <span className="flex shrink-0 items-center gap-1" aria-hidden>
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="h-1 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-load-more-dot"
-                  style={{ animationDelay: `${i * 0.14}s` }}
-                />
-              ))}
-            </span>
-            <span className="truncate text-[10px] font-medium tracking-wide text-black/60 dark:text-white/60">
-              {loadingLabel}
-            </span>
-          </>
-        ) : (
-          <>
-            <span
-              className="h-px w-5 shrink-0 bg-gradient-to-r from-transparent via-emerald-500/60 to-transparent animate-load-more-shimmer dark:via-emerald-400/60"
+      {pending ? (
+        <>
+          <span
+            className="inline-block h-2.5 w-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent opacity-80"
+            aria-hidden
+          />
+          <span>{loadingLabel}</span>
+        </>
+      ) : showMore ? (
+        <>
+          <svg
+            className="h-3 w-3 shrink-0 opacity-55"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            aria-hidden
+          >
+            <path d="M8 3v7M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="tabular-nums">{remainingCount.toLocaleString()} more</span>
+        </>
+      ) : (
+        <>
+          <span className="text-black/35 dark:text-white/32">End of list</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onJumpToTop?.();
+            }}
+            className="pointer-events-auto inline-flex items-center gap-0.5 rounded-sm px-1 py-0.5 text-black/50 transition-colors hover:text-emerald-600 dark:text-white/45 dark:hover:text-emerald-400"
+            title="Jump to top"
+            aria-label="Jump to top"
+          >
+            <svg
+              className="h-3 w-3 shrink-0"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
               aria-hidden
-            />
-            <span className="truncate text-[10px] font-medium tracking-wide text-black/45 dark:text-white/45">
-              {idlePrefix}
-              <span className="text-black/30 dark:text-white/30"> · </span>
-              {remainingCount.toLocaleString()} not shown
-            </span>
-          </>
-        )}
-      </div>
+            >
+              <path d="M8 13V6M5 9l3-3 3 3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Top</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }

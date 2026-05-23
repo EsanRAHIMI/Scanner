@@ -177,6 +177,8 @@ export function ProductsView({
   const pendingFilterClearScrollRef = React.useRef(false);
   /** Viewport offset of anchor row before filters clear — keeps the row in the same spot. */
   const scrollAnchorViewportTopRef = React.useRef<number | null>(null);
+  /** After scroll restore completes, skip the next list reset (prevents jump to top). */
+  const suppressListLayoutResetRef = React.useRef(false);
 
   const {
     previewIndex, setPreviewIndex, previewId, setPreviewId,
@@ -537,6 +539,12 @@ export function ProductsView({
 
   React.useEffect(() => {
     if (scrollTargetRecordId) return;
+
+    if (suppressListLayoutResetRef.current) {
+      suppressListLayoutResetRef.current = false;
+      return;
+    }
+
     setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
     const scrollEl = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
     if (scrollEl) scrollEl.scrollTop = 0;
@@ -566,32 +574,41 @@ export function ProductsView({
     });
   }, [listVisibleRecords.length, startLoadMoreTransition]);
 
-  /** Load more from vertical scroll position (works at any horizontal scroll offset in wide tables). */
+  const [scrollNearEnd, setScrollNearEnd] = React.useState(false);
+
+  const jumpToTop = React.useCallback(() => {
+    const scrollRoot = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+    scrollRoot?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [viewMode]);
+
+  /** Track scroll end + load more (vertical position; ignores horizontal scroll). */
   React.useEffect(() => {
-    if (loading || remainingRecordsCount <= 0) return;
+    if (loading) return;
 
     const scrollRoot = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
     if (!scrollRoot) return;
 
-    const maybeLoadMore = () => {
-      if (!isScrollContainerNearEnd(scrollRoot)) return;
+    const onScroll = () => {
+      const near = isScrollContainerNearEnd(scrollRoot);
+      setScrollNearEnd(near);
+      if (!near || remainingRecordsCount <= 0) return;
       const now = Date.now();
       if (now - loadMoreThrottleRef.current < 160) return;
       loadMoreThrottleRef.current = now;
       loadMoreRecords();
     };
 
-    scrollRoot.addEventListener('scroll', maybeLoadMore, { passive: true });
-    const resizeObserver = new ResizeObserver(maybeLoadMore);
+    scrollRoot.addEventListener('scroll', onScroll, { passive: true });
+    const resizeObserver = new ResizeObserver(onScroll);
     resizeObserver.observe(scrollRoot);
     const contentEl = scrollRoot.firstElementChild;
     if (contentEl instanceof HTMLElement) {
       resizeObserver.observe(contentEl);
     }
-    maybeLoadMore();
+    onScroll();
 
     return () => {
-      scrollRoot.removeEventListener('scroll', maybeLoadMore);
+      scrollRoot.removeEventListener('scroll', onScroll);
       resizeObserver.disconnect();
     };
   }, [
@@ -708,6 +725,13 @@ export function ProductsView({
     [],
   );
 
+  const finishScrollRestore = React.useCallback(() => {
+    suppressListLayoutResetRef.current = true;
+    pendingFilterClearScrollRef.current = false;
+    scrollAnchorViewportTopRef.current = null;
+    setScrollTargetRecordId(null);
+  }, []);
+
   const prepareScrollToRecord = React.useCallback(
     (recordId: string) => {
       const record = records.find((r) => r.id === recordId);
@@ -744,8 +768,11 @@ export function ProductsView({
 
   const prepareFilterClearScrollAnchor = React.useCallback(() => {
     const container = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
+    const hadSearch = debouncedSearch.trim().length > 0 || search.trim().length > 0;
+
     const anchorId =
       listVisibleRecords.length === 1 ? listVisibleRecords[0].id
+      : hadSearch && listVisibleRecords[0] ? listVisibleRecords[0].id
       : getFirstVisibleListRecordId(container) ??
         renderedRecords[0]?.id ??
         listVisibleRecords[0]?.id ??
@@ -760,11 +787,20 @@ export function ProductsView({
       if (row) {
         scrollAnchorViewportTopRef.current =
           row.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      } else {
+        scrollAnchorViewportTopRef.current = null;
       }
     }
     pendingFilterClearScrollRef.current = true;
     prepareScrollToRecord(anchorId);
-  }, [viewMode, renderedRecords, listVisibleRecords, prepareScrollToRecord]);
+  }, [
+    viewMode,
+    renderedRecords,
+    listVisibleRecords,
+    prepareScrollToRecord,
+    debouncedSearch,
+    search,
+  ]);
 
   const handleClearSearch = React.useCallback(() => {
     if (!search.trim()) return;
@@ -831,18 +867,14 @@ export function ProductsView({
         } else {
           scrollElementIntoContainer(container, row);
         }
-        pendingFilterClearScrollRef.current = false;
-        scrollAnchorViewportTopRef.current = null;
-        setScrollTargetRecordId(null);
+        finishScrollRestore();
         return;
       }
 
-      if (attempt < 30) {
+      if (attempt < 40) {
         window.setTimeout(() => run(attempt + 1), 32);
       } else {
-        pendingFilterClearScrollRef.current = false;
-        scrollAnchorViewportTopRef.current = null;
-        setScrollTargetRecordId(null);
+        finishScrollRestore();
       }
     };
 
@@ -861,6 +893,7 @@ export function ProductsView({
     familyMode,
     familyCollectionName,
     resolveListIndexForRecord,
+    finishScrollRestore,
   ]);
 
   const handleActiveVariantChange = React.useCallback(
@@ -1422,11 +1455,13 @@ export function ProductsView({
             changeAudit={changeAudit}
             canEditField={canEditFieldForUser}
             loadMore={
-              !loading && remainingRecordsCount > 0
+              !loading && listVisibleRecords.length > 0
                 ? {
                     sentinelRef: loadMoreSentinelRef,
                     pending: isLoadMorePending,
                     remainingCount: remainingRecordsCount,
+                    scrollNearEnd,
+                    onJumpToTop: jumpToTop,
                   }
                 : undefined
             }
@@ -1475,11 +1510,12 @@ export function ProductsView({
             <LoadMoreScrollSentinel sentinelRef={loadMoreSentinelRef} />
           ) : null}
         </div>
-        {!loading && remainingRecordsCount > 0 ? (
+        {!loading && listVisibleRecords.length > 0 ? (
           <LoadMoreFloatingIndicator
             pending={isLoadMorePending}
             remainingCount={remainingRecordsCount}
-            loadingLabel="Loading more"
+            atEnd={scrollNearEnd && remainingRecordsCount === 0}
+            onJumpToTop={jumpToTop}
           />
         ) : null}
         </div>

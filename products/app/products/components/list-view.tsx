@@ -885,7 +885,10 @@ export function ListView({
     [recordById, search, familyMode, variantCounts, columns, setEditingUrl, handleSaveUrl, handleRemoveUrl, handleHideMediaFromGallery, handleUnhideMediaFromGallery, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
   );
 
-  const showLoadMore = Boolean(loadMore && loadMore.remainingCount > 0);
+  const showLoadMoreSentinel = Boolean(loadMore && loadMore.remainingCount > 0);
+  const showScrollFooter = Boolean(
+    loadMore && (loadMore.remainingCount > 0 || loadMore.scrollNearEnd),
+  );
 
   return (
     <div className="relative flex-1 min-h-0 w-full animate-fade-in rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
@@ -1111,14 +1114,16 @@ export function ListView({
           ) : null}
         </tbody>
       </table>
-      {showLoadMore && loadMore ? (
+      {showLoadMoreSentinel && loadMore ? (
         <LoadMoreScrollSentinel sentinelRef={loadMore.sentinelRef} />
       ) : null}
       </div>
-      {showLoadMore && loadMore ? (
+      {showScrollFooter && loadMore ? (
         <LoadMoreFloatingIndicator
           pending={loadMore.pending}
           remainingCount={loadMore.remainingCount}
+          atEnd={loadMore.scrollNearEnd && loadMore.remainingCount === 0}
+          onJumpToTop={loadMore.onJumpToTop}
         />
       ) : null}
     </div>
