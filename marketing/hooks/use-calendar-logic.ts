@@ -14,6 +14,7 @@ import { useCalendarData } from './use-calendar-data';
 import { useCalendarActions } from './use-calendar-actions';
 import { useCalendarFieldOptions } from './use-calendar-field-options';
 import type { CalendarSelectableField } from '../lib/calendar/field-options';
+import { buildHashtagUsageCounts } from '../lib/calendar/hashtag-usage';
 
 const normalizeStatusValue = (value: unknown): string => {
   const status = typeof value === 'string' ? value.trim() : '';
@@ -145,13 +146,18 @@ export function useCalendarLogic() {
       const dateB = b.fields?.['Publish Date'] ? new Date(String(b.fields['Publish Date'])).getTime() : 0;
       const timeA = isNaN(dateA) ? 0 : dateA;
       const timeB = isNaN(dateB) ? 0 : dateB;
-      
+
       if (timeA === 0 && timeB !== 0) return -1;
       if (timeB === 0 && timeA !== 0) return 1;
       if (timeA !== timeB) return timeB - timeA;
       return b.id.localeCompare(a.id);
     });
   }, [contentItems, selectedStatus, deferredSearchTerm]);
+
+  const hashtagUsageCounts = useMemo(
+    () => buildHashtagUsageCounts(contentItems),
+    [contentItems],
+  );
 
   const stats = useMemo(() => {
     const total = contentItems.length;
@@ -214,6 +220,7 @@ export function useCalendarLogic() {
   return {
     contentItems,
     filteredItems,
+    hashtagUsageCounts,
     allColumns,
     stats,
     loading,

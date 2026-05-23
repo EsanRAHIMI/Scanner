@@ -9,6 +9,7 @@ import {
   isMultiValueCalendarField,
 } from '../../lib/calendar/field-options';
 import { parseMultiValueField } from '../../lib/calendar/multi-value-field';
+import { getHashtagUsageCount } from '../../lib/calendar/hashtag-usage';
 import { 
   dirForValue, 
   alignClassForValue, 
@@ -25,6 +26,7 @@ interface CalendarCellProps {
   column: string;
   value: any;
   rowFields?: Record<string, unknown>;
+  hashtagUsageCounts?: ReadonlyMap<string, number>;
   onPickAssets?: () => void;
 }
 
@@ -32,6 +34,7 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({
   column,
   value,
   rowFields,
+  hashtagUsageCounts,
   onPickAssets,
 }) => {
   const col = column.trim().toLowerCase();
@@ -68,6 +71,7 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({
       col === 'target audience'
         ? 'border-primary/15 bg-primary/5 text-primary'
         : 'border-border/70 bg-muted/40 text-foreground';
+    const isHashtagColumn = column === '# Hashtag';
 
     return (
       <div className="min-w-0 overflow-hidden py-0.5">
@@ -77,7 +81,15 @@ export const CalendarCell: React.FC<CalendarCellProps> = ({
               key={item}
               className={`inline-flex max-w-full min-w-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold leading-tight ${chipClass}`}
             >
-              <span className="truncate">{item}</span>
+              <span className="truncate">
+                {item}
+                {isHashtagColumn && hashtagUsageCounts ? (
+                  <span className="font-medium text-muted-foreground/70">
+                    {' '}
+                    ({getHashtagUsageCount(item, hashtagUsageCounts)})
+                  </span>
+                ) : null}
+              </span>
             </span>
           ))}
         </div>

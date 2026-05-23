@@ -176,6 +176,7 @@ function CalendarContent() {
         <CalendarGrid
           items={logic.filteredItems}
           campaigns={campaignsData.campaigns}
+          hashtagUsageCounts={logic.hashtagUsageCounts}
           allColumns={logic.allColumns}
           onContextMenu={openContextMenu}
           onCommitCell={logic.commitCellEdit}

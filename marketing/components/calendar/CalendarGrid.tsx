@@ -26,6 +26,7 @@ import { MultiSelect } from './MultiSelect';
 interface CalendarGridProps {
   items: ContentItem[];
   campaigns?: MarketingCampaign[];
+  hashtagUsageCounts?: ReadonlyMap<string, number>;
   allColumns: string[];
   onContextMenu: (e: React.MouseEvent, item: ContentItem) => void;
   onCommitCell: (id: string, column: string, value: string) => Promise<void>;
@@ -40,6 +41,7 @@ interface CalendarGridProps {
 export function CalendarGrid({
   items,
   campaigns = [],
+  hashtagUsageCounts,
   allColumns,
   onContextMenu,
   onCommitCell,
@@ -55,6 +57,7 @@ export function CalendarGrid({
   const [cellDraftValue, setCellDraftValue] = useState<string>('');
   const [updatingCells, setUpdatingCells] = useState<Set<string>>(new Set());
   const inlineTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editingAnchorRef = useRef<HTMLTableCellElement | null>(null);
   const isResizingRef = useRef(false);
 
   const clampColumnWidth = useCallback((col: string, width: number) => {
@@ -223,10 +226,20 @@ export function CalendarGrid({
                   const isEditing = editingCell?.id === item.id && editingCell?.column === col;
                   const isUpdating = updatingCells.has(idColKey);
                   
+                  const isSelectField = isCalendarSelectableField(col);
+                  const isSelectEditing = isEditing && isSelectField;
+                  const isDateEditing = isEditing && isDateField;
+                  const isPopoverEditing = isSelectEditing || isDateEditing;
+                  
                   return (
                     <td 
-                      key={col} 
-                      className={`relative max-w-0 overflow-hidden align-top transition-all duration-200 ${isAssets ? 'cursor-pointer' : !isReadOnly ? 'cursor-text' : 'cursor-default'} ${isEditing ? 'p-0 shadow-inner' : 'px-4 py-3'} group-hover:bg-transparent ${isUpdating ? 'opacity-50 grayscale-[0.5]' : ''}`}
+                      key={col}
+                      ref={isPopoverEditing ? editingAnchorRef : undefined}
+                      className={`relative max-w-0 align-top transition-all duration-200 ${
+                        isPopoverEditing
+                          ? 'z-30 overflow-visible bg-primary/5 ring-2 ring-inset ring-primary/35'
+                          : 'overflow-hidden'
+                      } ${isAssets ? 'cursor-pointer' : !isReadOnly ? 'cursor-text' : 'cursor-default'} ${isEditing && !isPopoverEditing ? 'p-0 shadow-inner' : 'px-4 py-3'} group-hover:bg-transparent ${isUpdating ? 'opacity-50 grayscale-[0.5]' : ''}`}
                       onClick={(e) => {
                         if (isReadOnly || isUpdating) return;
                         if (isAssets) {
@@ -243,45 +256,50 @@ export function CalendarGrid({
                         </div>
                       )}
 
-                      {isEditing ? (
+                      {isSelectEditing ? (
+                        <MultiSelect
+                          anchorRef={editingAnchorRef}
+                          value={cellDraftValue}
+                          options={fieldOptions[col]}
+                          mode={getCalendarFieldSelectMode(col)}
+                          fieldLabel={col}
+                          allowClearSelection={col === '# Hashtag'}
+                          inputTokenMode={col === '# Hashtag' ? 'hashtag' : 'default'}
+                          allowDeleteOptions={canManageFieldOptions}
+                          onDeleteOption={
+                            onDeleteFieldOption
+                              ? (option) => onDeleteFieldOption(col, option)
+                              : undefined
+                          }
+                          onRegisterOption={
+                            onRegisterFieldOption
+                              ? (option) => onRegisterFieldOption(col, option)
+                              : undefined
+                          }
+                          onCommit={(val) => {
+                            if (val !== String(item.fields[col] ?? '')) {
+                              handleCommit(item.id, col, val);
+                            }
+                            setEditingCell(null);
+                          }}
+                          onClose={() => setEditingCell(null)}
+                        />
+                      ) : isDateEditing ? (
+                        <DatePicker
+                          anchorRef={editingAnchorRef}
+                          fieldLabel={col}
+                          value={cellDraftValue}
+                          onChange={(val) => setCellDraftValue(val)}
+                          onCommit={(val) => {
+                            if (val !== String(item.fields[col] ?? '')) {
+                              handleCommit(item.id, col, val);
+                            }
+                            setEditingCell(null);
+                          }}
+                          onClose={() => setEditingCell(null)}
+                        />
+                      ) : isEditing ? (
                         <div className="relative h-full w-full min-h-[48px] z-20 bg-background/50 p-1.5 animate-in fade-in duration-200 ring-1 ring-primary/30 rounded-lg">
-                          {isCalendarSelectableField(col) ? (
-                            <MultiSelect
-                              value={cellDraftValue}
-                              options={fieldOptions[col]}
-                              mode={getCalendarFieldSelectMode(col)}
-                              allowDeleteOptions={canManageFieldOptions}
-                              onDeleteOption={
-                                onDeleteFieldOption
-                                  ? (option) => onDeleteFieldOption(col, option)
-                                  : undefined
-                              }
-                              onRegisterOption={
-                                onRegisterFieldOption
-                                  ? (option) => onRegisterFieldOption(col, option)
-                                  : undefined
-                              }
-                              onCommit={(val) => {
-                                if (val !== String(item.fields[col] ?? '')) {
-                                  handleCommit(item.id, col, val);
-                                }
-                                setEditingCell(null);
-                              }}
-                              onClose={() => setEditingCell(null)}
-                            />
-                          ) : isDateField ? (
-                            <DatePicker
-                              value={cellDraftValue}
-                              onChange={(val) => setCellDraftValue(val)}
-                              onCommit={(val) => {
-                                if (val !== String(item.fields[col] ?? '')) {
-                                  handleCommit(item.id, col, val);
-                                }
-                                setEditingCell(null);
-                              }}
-                              onClose={() => setEditingCell(null)}
-                            />
-                          ) : (
                              <textarea
                                autoFocus
                                ref={inlineTextareaRef}
@@ -303,7 +321,6 @@ export function CalendarGrid({
                                 if (e.key === 'Escape') setEditingCell(null);
                               }}
                             />
-                          )}
                         </div>
 
                       ) : (
@@ -312,6 +329,7 @@ export function CalendarGrid({
                             column={col}
                             value={item.fields[col]}
                             rowFields={item.fields}
+                            hashtagUsageCounts={hashtagUsageCounts}
                             onPickAssets={() => onPickAssets(item)}
                           />
                         </div>
