@@ -22,6 +22,7 @@ import {
 } from '../lib/constants';
 import { isContentStatusFieldName } from '../lib/product-utils';
 import { PhotoDeck } from './photo-deck';
+import { UrlColumnList, isUrlReorderDragEvent } from './url-column-list';
 import { ProductsSkeleton } from './products-skeleton';
 
 import { CellChangeAudit } from './field-change-indicator';
@@ -86,6 +87,7 @@ export function ListView({
   openPreviewByUrl,
   setEditingUrl,
   handleMoveUrl,
+  handleReorderUrls,
   draggedUrlInfo,
   setDraggedUrlInfo,
   activeDropTargetRef,
@@ -224,6 +226,27 @@ export function ListView({
       return { isGroupStart, isGroupEnd, isInGroup };
     });
   }, [visibleRecords, getCollectionKey]);
+
+  const getCollectionMeta = React.useCallback(
+    (recordId: string) => {
+      const r = recordById.get(recordId);
+      return {
+        title:
+          formatScalar(r?.fields?.['Colecction Name']) ||
+          formatScalar(r?.fields?.Name) ||
+          'Product',
+        code:
+          formatScalar(r?.fields?.['Colecction Code']) ||
+          formatScalar(r?.fields?.Code) ||
+          '—',
+        variant:
+          formatScalar(r?.fields?.['Variant Number']) ||
+          formatScalar(r?.fields?.Num) ||
+          '—',
+      };
+    },
+    [recordById],
+  );
 
   const renderCell = React.useCallback(
     (column: string, value: unknown, recordId: string) => {
@@ -364,7 +387,7 @@ export function ListView({
                   e.stopPropagation();
                   setEditingUrl({ id: recordId, value: '', column, mode: 'prepend' });
                 }}
-                className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-bl-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95 pointer-events-auto cursor-pointer"
+                className="pointer-events-auto absolute right-0 top-0 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-bl-lg bg-emerald-600 text-white shadow-sm transition-all hover:bg-emerald-700 active:scale-95"
                 title="Add URL to top"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3">
@@ -383,7 +406,7 @@ export function ListView({
                         e.stopPropagation();
                         setEditingUrl({ id: recordId, value: '', column });
                       }}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-red-500/60 transition-all hover:bg-red-500/10 hover:text-red-600 dark:text-red-400/60 dark:hover:bg-red-500/20 dark:hover:text-red-400 pointer-events-auto cursor-pointer"
+                      className="pointer-events-auto flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-transparent text-red-500/60 transition-all hover:bg-red-500/10 hover:text-red-600 dark:text-red-400/60 dark:hover:bg-red-500/20 dark:hover:text-red-400"
                       title="Add URL"
                     >
                       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -394,7 +417,7 @@ export function ListView({
                     <span className="text-2xl font-light text-red-500/60 dark:text-red-400/60">+</span>
                   )}
                   {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && !editingUrl.mode && editingUrl.index === undefined && (
-                    <div className="absolute inset-0 z-50 bg-white dark:bg-black p-1">
+                    <div className="absolute inset-0 z-50 bg-white p-1 dark:bg-black">
                       <textarea
                         className="h-full w-full resize-none border-2 border-emerald-500 bg-transparent p-2 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
                         value={editingUrl.value}
@@ -413,234 +436,26 @@ export function ListView({
                   )}
                 </div>
               ) : (
-                <div className="scrollbar-minimal flex max-h-[120px] flex-col gap-1.5 overflow-y-auto py-0.5 rounded-lg transition-all">
-
-                  {editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && (editingUrl.mode === 'prepend' || (!editingUrl.mode && editingUrl.index === undefined)) && (
-                    <div className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                      <input
-                        className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                        value={editingUrl.value}
-                        onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                        autoFocus
-                        placeholder="New URL..."
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleSaveUrl();
-                          } else if (e.key === 'Escape' || e.key === 'Esc') {
-                            setEditingUrl(null);
-                          }
-                        }}
-                      />
-                      <div className="flex flex-col gap-0.5">
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setEditingUrl(null); }}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-black/10 text-black/60 hover:bg-black/20 dark:bg-white/10 dark:text-white/60 dark:hover:bg-white/20"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {urls.map((u, i) => {
-                    const recordFields = recordById.get(recordId)?.fields;
-                    const isHiddenFromGallery = isGalleryMediaHidden(u, recordFields, columns);
-                    const isBeingEdited = editingUrl?.id === recordId && (editingUrl.column === column || !editingUrl.column) && editingUrl.index === i;
-                    const sourceBadge = getUrlSourceBadge(u);
-                    if (isBeingEdited) {
-                      return (
-                        <div key={i} className="flex min-w-0 items-center gap-1 relative z-50 bg-white dark:bg-black pl-4 pr-1">
-                          <input
-                            className="flex-1 min-w-0 rounded border-2 border-emerald-500 bg-transparent px-2 py-1 text-[11px] font-medium leading-relaxed outline-none dark:border-emerald-400"
-                            value={editingUrl.value}
-                            onChange={(e) => setEditingUrl({ ...editingUrl, value: e.target.value })}
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleSaveUrl();
-                              } else if (e.key === 'Escape' || e.key === 'Esc') {
-                                setEditingUrl(null);
-                              }
-                            }}
-                          />
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              type="button"
-                              disabled={isSaving}
-                              onClick={(e) => { e.stopPropagation(); handleSaveUrl(); }}
-                              className="flex h-6 w-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isSaving}
-                              title="Hide from Image and Feed (link stays in URL)"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                const target = editingUrl.originalValue ?? u;
-                                void handleHideMediaFromGallery(recordId, target);
-                                setEditingUrl(null);
-                              }}
-                              className="flex h-6 w-6 items-center justify-center rounded bg-red-500/15 text-red-600 hover:bg-red-500/25 disabled:opacity-50 dark:text-red-400"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3">
-                                <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div 
-                        key={u + i} 
-                        className="group/link relative flex min-w-0 items-center pl-4 pr-8"
-                        onMouseEnter={(e) => {
-                          if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
-                          (linkHoverTimerRef as any).current = setTimeout(() => {
-                            const r = recordById.get(recordId);
-                            if (r) {
-                              setLinkHoverState({
-                                url: u,
-                                x: e.clientX,
-                                y: e.clientY,
-                                title: formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || 'Product',
-                                code: formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code) || '—',
-                                variant: formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num) || '—'
-                              });
-                            }
-                          }, 300);
-                        }}
-                        onMouseLeave={() => {
-                          if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
-                          setLinkHoverState(null);
-                        }}
-                      >
-                        <a
-                          href={getDriveDirectLink(u)}
-                          target="_blank"
-                          rel="noreferrer"
-                          draggable
-                          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-black/80 hover:text-emerald-600 dark:text-white/80 dark:hover:text-emerald-400"
-                          onClick={(e) => e.stopPropagation()}
-                          onDragStart={(e) => {
-                            e.stopPropagation();
-                            setDraggedUrlInfo({ url: u, sourceId: recordId, sourceColumn: column });
-                          }}
-                          onDragEnd={(e) => {
-                            e.stopPropagation();
-                            setDraggedUrlInfo(null);
-                          }}
-                        >
-                          <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold tracking-tight uppercase">
-                            {isVideoUrl(u) ? (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            ) : sourceBadge?.kind === 'google' ? (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" aria-label={sourceBadge.title}>
-                                <path d="M8.15 3.5h7.7l6.15 10.66h-7.68L8.15 3.5z" fill="#34A853" />
-                                <path d="M2 14.16 8.15 3.5l3.84 6.66-6.14 10.65L2 14.16z" fill="#FBBC04" />
-                                <path d="M5.85 20.81 9.68 14.16H22l-3.84 6.65H5.85z" fill="#4285F4" />
-                              </svg>
-                            ) : sourceBadge?.kind === 'local' ? (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none text-emerald-600 dark:text-emerald-300" fill="none" stroke="currentColor" strokeWidth="2.4" aria-label={sourceBadge.title}>
-                                <path d="M5 4h14l2 6v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8l2-6z" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M3 10h18" strokeLinecap="round" />
-                                <circle cx="17" cy="16" r="1.2" fill="currentColor" stroke="none" />
-                              </svg>
-                            ) : sourceBadge?.kind === 'trainer' ? (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none text-amber-600 dark:text-amber-300" fill="none" stroke="currentColor" strokeWidth="2.3" aria-label={sourceBadge.title}>
-                                <rect x="4" y="4" width="16" height="5" rx="1.5" />
-                                <rect x="4" y="10" width="16" height="5" rx="1.5" />
-                                <rect x="4" y="16" width="16" height="4" rx="1.5" />
-                                <path d="M7 6.5h.01M7 12.5h.01M7 18h.01" strokeLinecap="round" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24" className="h-3 w-3 flex-none" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                            <span className="truncate">{u}</span>
-                            {isHiddenFromGallery ? (
-                              <span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                                Hidden
-                              </span>
-                            ) : null}
-                          </div>
-                        </a>
-                        {canEdit && (
-                          <>
-                            {isHiddenFromGallery ? (
-                              <button
-                                type="button"
-                                disabled={isSaving}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleUnhideMediaFromGallery(recordId, u);
-                                }}
-                                className="absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-emerald-500/10 text-emerald-700 opacity-0 transition-opacity hover:bg-emerald-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-emerald-300"
-                                title="Show again in Image and Feed"
-                              >
-                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" strokeLinecap="round" strokeLinejoin="round" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={isSaving}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleHideMediaFromGallery(recordId, u);
-                                }}
-                                className="absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-red-500/10 text-red-600 opacity-0 transition-opacity hover:bg-red-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-red-400"
-                                title="Hide from Image and Feed (link stays in URL)"
-                              >
-                                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                  <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingUrl({ id: recordId, value: u, originalValue: u, column, index: i });
-                              }}
-                              className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 flex-none items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
-                              title="Edit this link"
-                            >
-                              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" strokeLinecap="round" strokeLinejoin="round" />
-                                <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <UrlColumnList
+                  recordId={recordId}
+                  column={column}
+                  urls={urls}
+                  canEdit={Boolean(canEdit)}
+                  isSaving={isSaving}
+                  recordFields={recordById.get(recordId)?.fields}
+                  columns={columns}
+                  editingUrl={editingUrl}
+                  setEditingUrl={setEditingUrl}
+                  handleSaveUrl={handleSaveUrl}
+                  handleHideMediaFromGallery={handleHideMediaFromGallery}
+                  handleUnhideMediaFromGallery={handleUnhideMediaFromGallery}
+                  handleReorderUrls={handleReorderUrls}
+                  setDraggedUrlInfo={setDraggedUrlInfo}
+                  linkHoverTimerRef={linkHoverTimerRef}
+                  setLinkHoverState={setLinkHoverState}
+                  getUrlSourceBadge={getUrlSourceBadge}
+                  getCollectionMeta={getCollectionMeta}
+                />
               )}
             </div>
           </>
@@ -882,7 +697,7 @@ export function ListView({
 
       return String(value ?? '');
     },
-    [recordById, search, familyMode, variantCounts, columns, setEditingUrl, handleSaveUrl, handleRemoveUrl, handleHideMediaFromGallery, handleUnhideMediaFromGallery, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, getUrlSourceBadge, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
+    [recordById, search, familyMode, variantCounts, columns, setEditingUrl, handleSaveUrl, handleRemoveUrl, handleHideMediaFromGallery, handleUnhideMediaFromGallery, handleReorderUrls, editingUrl, isSaving, linkHoverTimerRef, setLinkHoverState, setDraggedUrlInfo, getUrlSourceBadge, getCollectionMeta, canEdit, handleToggleMain, isInlineEditableColumn, handleSaveField, startInlineEdit]
   );
 
   const showLoadMoreSentinel = Boolean(loadMore && loadMore.remainingCount > 0);
@@ -1020,6 +835,7 @@ export function ListView({
                                   : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80'))))
                         }
                         onDragOver={(e) => {
+                          if (isUrlReorderDragEvent(e)) return;
                           if (draggedUrlInfo && (isURL || isDAM || isVideoCol || normalizedCol === 'image')) {
                             e.preventDefault();
                             const target = e.currentTarget;
@@ -1038,6 +854,7 @@ export function ListView({
                           }
                         }}
                         onDrop={(e) => {
+                          if (isUrlReorderDragEvent(e)) return;
                           if (draggedUrlInfo && (isURL || isDAM || isVideoCol || normalizedCol === 'image')) {
                             e.preventDefault();
                             e.currentTarget.classList.remove('dnd-active');

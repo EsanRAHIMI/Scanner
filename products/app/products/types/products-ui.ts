@@ -16,6 +16,7 @@ export interface ListViewProps {
   openPreviewByUrl: (url: string) => void;
   setEditingUrl: (data: EditingUrlState | null) => void;
   handleMoveUrl: (url: string, sourceId: string, targetId: string, column: string) => void;
+  handleReorderUrls: (recordId: string, fromIndex: number, toIndex: number) => void | Promise<void>;
   draggedUrlInfo: DraggedUrlInfo | null;
   setDraggedUrlInfo: (info: DraggedUrlInfo | null) => void;
   activeDropTargetRef: React.RefObject<HTMLElement | null>;

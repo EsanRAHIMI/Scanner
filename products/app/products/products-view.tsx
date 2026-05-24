@@ -252,6 +252,7 @@ export function ProductsView({
   }, []);
 
   const handleMoveUrl = dnd.handleMoveUrl;
+  const handleReorderUrls = dnd.handleReorderUrls;
   const handleSaveField = (id: string, field: string, val: any) => mutations.handleSaveField(id, field, val, records);
   const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
   const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
@@ -1391,6 +1392,7 @@ export function ProductsView({
           openPreviewByUrl={openPreviewByUrl}
           setEditingUrl={setEditingUrl}
           handleMoveUrl={handleMoveUrl}
+          handleReorderUrls={handleReorderUrls}
           draggedUrlInfo={draggedUrlInfo}
           setDraggedUrlInfo={setDraggedUrlInfo}
           activeDropTargetRef={activeDropTargetRef}
@@ -1430,6 +1432,7 @@ export function ProductsView({
             openPreviewByUrl={openPreviewByUrl}
             setEditingUrl={setEditingUrl}
             handleMoveUrl={handleMoveUrl}
+          handleReorderUrls={handleReorderUrls}
             draggedUrlInfo={draggedUrlInfo}
             setDraggedUrlInfo={setDraggedUrlInfo}
             activeDropTargetRef={activeDropTargetRef}

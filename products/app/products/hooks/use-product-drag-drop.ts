@@ -48,10 +48,37 @@ export function useProductDragDrop({ handleSaveField, records, columns }: UsePro
     }
   }, [columns, records, handleSaveField]);
 
+  const handleReorderUrls = React.useCallback(
+    async (recordId: string, fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex) return;
+
+      const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
+      const record = records.find((r) => r.id === recordId);
+      if (!record) return;
+
+      const urls = extractUrls(record.fields[urlFieldName]);
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= urls.length ||
+        toIndex >= urls.length
+      ) {
+        return;
+      }
+
+      const next = [...urls];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      await handleSaveField(recordId, urlFieldName, next.join('\n'), records);
+    },
+    [columns, records, handleSaveField],
+  );
+
   return {
     draggedUrlInfo,
     setDraggedUrlInfo,
     activeDropTargetRef,
-    handleMoveUrl
+    handleMoveUrl,
+    handleReorderUrls,
   };
 }
