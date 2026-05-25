@@ -172,7 +172,7 @@ echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
 
 Restart the service.
 
----
+----
 
 ## Terminal 3 — Backend (YOLO Inference)
 
