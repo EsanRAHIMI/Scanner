@@ -873,7 +873,7 @@ export function ListView({
                           const colLower = c.trim().toLowerCase();
                           if (colLower === 'image' || isDAM) {
                             const u = extractUrls(cellValue)[0] ?? '';
-                            const finalUrl = isDAM ? getDriveDirectLink(u) : u;
+                            const finalUrl = getDriveDirectLink(u) || u;
                             if (finalUrl) {
                               beginLightboxTrace('list-cell');
                               markLightboxTrace('click:handler');

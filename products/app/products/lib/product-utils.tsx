@@ -3,6 +3,16 @@ import * as React from 'react';
 import type { ProductsRecord } from '@/types/trainer';
 import type { GalleryItem } from '../types/shared-types';
 
+const LEGACY_APP_DOMAIN_RE = /ehsanrahimi\.com/gi;
+const CURRENT_APP_DOMAIN = 'lorenzohome.ae';
+
+/** Stored product media may still reference the previous deployment domain. */
+export function rewriteLegacyAppDomainInUrl(url: string): string {
+  const u = url.trim();
+  if (!u || !LEGACY_APP_DOMAIN_RE.test(u)) return u;
+  return u.replace(LEGACY_APP_DOMAIN_RE, CURRENT_APP_DOMAIN);
+}
+
 /**
  * Checks if a URL points to a video file.
  */
@@ -63,19 +73,19 @@ export function extractUrls(v: unknown): string[] {
   const isSupportedUrl = (value: string) => /^(https?:\/\/|\/)/i.test(value);
   if (typeof v === 'string') {
     const parts = v.split(/[\s,\n]+/).map((s) => s.trim()).filter(Boolean);
-    return parts.filter(isSupportedUrl);
+    return parts.filter(isSupportedUrl).map(rewriteLegacyAppDomainInUrl);
   }
   if (Array.isArray(v)) {
     const out: string[] = [];
     for (const item of v) {
       if (typeof item === 'string') {
         const s = item.trim();
-        if (isSupportedUrl(s)) out.push(s);
+        if (isSupportedUrl(s)) out.push(rewriteLegacyAppDomainInUrl(s));
       } else if (item && typeof item === 'object') {
         const maybe = (item as Record<string, unknown>).url;
         if (typeof maybe === 'string') {
           const s = maybe.trim();
-          if (isSupportedUrl(s)) out.push(s);
+          if (isSupportedUrl(s)) out.push(rewriteLegacyAppDomainInUrl(s));
         }
       }
     }
@@ -85,7 +95,7 @@ export function extractUrls(v: unknown): string[] {
     const maybe = (v as Record<string, unknown>).url;
     if (typeof maybe === 'string') {
       const s = maybe.trim();
-      return isSupportedUrl(s) ? [s] : [];
+      return isSupportedUrl(s) ? [rewriteLegacyAppDomainInUrl(s)] : [];
     }
   }
   return [];
@@ -168,7 +178,7 @@ export function getDriveDirectLink(
   width: number = DRIVE_IMAGE_WIDTH_FULL,
 ): string {
   if (!url) return '';
-  const u = url.trim();
+  const u = rewriteLegacyAppDomainInUrl(url);
 
   const isPotentialUrl = u.startsWith('http') || u.startsWith('//') || u.startsWith('/');
   if (!isPotentialUrl) return '';
@@ -250,8 +260,8 @@ export function extractHostedMediaKey(url: string | null | undefined): string | 
 
 /** Match Drive, lh3, or trainer-hosted URLs that refer to the same asset. */
 export function sameProductMediaUrl(aRaw: string, bRaw: string): boolean {
-  const a = aRaw.trim();
-  const b = bRaw.trim();
+  const a = rewriteLegacyAppDomainInUrl(aRaw);
+  const b = rewriteLegacyAppDomainInUrl(bRaw);
   if (!a || !b) return false;
   if (a === b) return true;
   if (sameGoogleHostedMediaUrl(a, b)) return true;

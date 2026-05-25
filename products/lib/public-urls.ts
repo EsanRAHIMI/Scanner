@@ -1,4 +1,4 @@
-const DEFAULT_APP_BASE_DOMAIN = 'ehsanrahimi.com';
+const DEFAULT_APP_BASE_DOMAIN = 'lorenzohome.ae';
 const DEFAULT_HUB_SUBDOMAIN = 'dashboard';
 
 export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing';

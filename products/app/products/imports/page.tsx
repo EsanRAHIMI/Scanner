@@ -6,7 +6,7 @@ import useSWR from 'swr';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../../products-cache-provider';
-import { formatPrice, formatScalar } from '../lib/product-utils';
+import { formatPrice, formatScalar, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
 type ProductImportBatch = {
@@ -97,7 +97,9 @@ function isImageColumn(column: string) {
 function resolveImportAssetUrl(value: unknown) {
   const raw = formatScalar(value).trim();
   if (!raw) return '';
-  if (/^https?:\/\//i.test(raw) || raw.startsWith('/api/trainer/')) return raw;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('/api/trainer/')) {
+    return rewriteLegacyAppDomainInUrl(raw);
+  }
   if (raw.startsWith('/files/')) return `/api/trainer${raw}`;
   return raw;
 }

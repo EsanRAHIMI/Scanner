@@ -11,6 +11,7 @@ interface HeaderToolbarProps {
   maxModeToggleNode: React.ReactNode;
   themeToggleNode: React.ReactNode;
   fetchUserSession: () => void;
+  onActivityLogs?: () => void;
 }
 
 export function HeaderToolbar({
@@ -23,6 +24,7 @@ export function HeaderToolbar({
   maxModeToggleNode,
   themeToggleNode,
   fetchUserSession,
+  onActivityLogs,
 }: HeaderToolbarProps) {
   return (
     <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-black/80">
@@ -38,7 +40,7 @@ export function HeaderToolbar({
             {viewToggleNode}
             {maxModeToggleNode}
             {themeToggleNode}
-            <AccountMenu onAuthChange={fetchUserSession} />
+            <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
           </div>
         </div>
       </div>
@@ -59,7 +61,7 @@ export function HeaderToolbar({
             {viewToggleNode}
             {maxModeToggleNode}
             {themeToggleNode}
-            <AccountMenu onAuthChange={fetchUserSession} />
+            <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
           </div>
         </div>
       </div>

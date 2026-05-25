@@ -2,6 +2,8 @@
 
 import React from 'react';
 
+import { ScannerAccountMenu } from '@/lib/scanner-account-menu';
+
 import {
   InsightsExpandableSection,
   InsightsHeaderToggle,
@@ -14,12 +16,8 @@ interface CalendarHeaderProps {
   onOpenCampaigns: () => void;
   campaignCount?: number;
   onHome: () => void;
-  onToggleAccount: () => void;
-  username: string;
   isSaving: boolean;
-  onLogout: () => void;
-  accountOpen: boolean;
-  onCloseAccount: () => void;
+  onAuthChange?: () => void;
   insightsExpanded: boolean;
   onToggleInsights: () => void;
   insightsSummary: InsightsPanelSummary;
@@ -31,12 +29,8 @@ export function CalendarHeader({
   onOpenCampaigns,
   campaignCount = 0,
   onHome,
-  onToggleAccount,
-  username,
   isSaving,
-  onLogout,
-  accountOpen,
-  onCloseAccount,
+  onAuthChange,
   insightsExpanded,
   onToggleInsights,
   insightsSummary,
@@ -112,36 +106,12 @@ export function CalendarHeader({
               </svg>
             </button>
 
-            <div className="relative">
-              <button
-                type="button"
-                onClick={onToggleAccount}
-                className="flex items-center rounded-xl border border-border bg-card p-1 transition-all hover:bg-accent sm:gap-1.5 sm:pr-2.5"
-                title={username || 'Account'}
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground sm:h-8 sm:w-8">
-                  {username?.[0]?.toUpperCase() || 'U'}
-                </div>
-                <span className="hidden max-w-[5rem] truncate text-xs font-bold text-muted-foreground xl:inline">
-                  {username || 'Account'}
-                </span>
-              </button>
-
-              {accountOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={onCloseAccount} aria-hidden />
-                  <div className="absolute right-0 top-full z-50 mt-2 w-52 animate-in zoom-in-95 rounded-2xl border border-border bg-popover p-2 shadow-2xl duration-200">
-                    <button
-                      type="button"
-                      onClick={onLogout}
-                      className="w-full rounded-xl px-4 py-2.5 text-left text-sm font-bold text-destructive transition-colors hover:bg-destructive/10"
-                    >
-                      Logout
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <ScannerAccountMenu
+              app="marketing"
+              authApiPrefix="/api/trainer"
+              serviceUrlsPath="/api/service-urls"
+              onAuthChange={onAuthChange}
+            />
           </div>
         </div>
 

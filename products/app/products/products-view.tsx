@@ -95,8 +95,8 @@ export function ProductsView({
   const LOAD_MORE_STEP = 96;
 
   const [showActivityLogs, setShowActivityLogs] = React.useState(false);
-  React.useEffect(() => {
-    (window as any)._toggleActivityLogs = () => setShowActivityLogs(v => !v);
+  const toggleActivityLogs = React.useCallback(() => {
+    setShowActivityLogs((v) => !v);
   }, []);
 
   const { data, loading, error, isStaleOfflineSnapshot, setData, mutate, notePendingDelete } =
@@ -1290,6 +1290,7 @@ export function ProductsView({
         }
         themeToggleNode={themeToggleNode}
         fetchUserSession={fetchUserSession}
+        onActivityLogs={toggleActivityLogs}
       />
 
       <ProductFilters

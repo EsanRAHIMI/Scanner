@@ -30,7 +30,6 @@ function CalendarContent() {
   });
   const insightsPanel = useInsightsPanel(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: ContentItem } | null>(null);
-  const [accountOpen, setAccountOpen] = useState(false);
   const [assetsModalItem, setAssetsModalItem] = useState<ContentItem | null>(null);
   const [campaignsModalOpen, setCampaignsModalOpen] = useState(false);
 
@@ -130,13 +129,9 @@ function CalendarContent() {
         }}
         onOpenCampaigns={() => setCampaignsModalOpen(true)}
         campaignCount={campaignsData.campaigns.length}
-        onHome={() => window.location.href = '/marketing'}
-        onToggleAccount={() => setAccountOpen(v => !v)}
-        username={logic.me?.username || ''}
+        onHome={() => { window.location.href = '/marketing'; }}
         isSaving={logic.isSaving}
-        onLogout={logic.logout}
-        accountOpen={accountOpen}
-        onCloseAccount={() => setAccountOpen(false)}
+        onAuthChange={() => { window.location.reload(); }}
         insightsExpanded={insightsPanel.expanded}
         onToggleInsights={insightsPanel.toggle}
         insightsSummary={{

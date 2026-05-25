@@ -36,7 +36,11 @@ export function useAppUrls(): AppUrls | null {
 }
 
 export function useIsLocalDashboard(): boolean {
-  return (
-    typeof window !== 'undefined' && isLocalHostname(window.location.hostname)
-  );
+  const [isLocal, setIsLocal] = useState(false);
+
+  useEffect(() => {
+    setIsLocal(isLocalHostname(window.location.hostname));
+  }, []);
+
+  return isLocal;
 }

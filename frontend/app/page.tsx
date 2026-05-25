@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
+import { AppAccountMenu } from '@/components/scanner-account-menu';
 import { LOCAL_APP_URLS } from '@/lib/app-urls';
 import { safelyVoid } from '@/lib/client-log';
 import { useAppUrls, useIsLocalDashboard } from '@/lib/use-app-urls';
@@ -72,6 +73,23 @@ export default function Home() {
     return { modified, added, deleted, untracked, total: gitStatusLines.length };
   }, [gitStatusLines]);
   const isGitClean = gitStatus?.status === '(clean)' || gitWorkingTreeMetrics.total === 0;
+
+  const refreshAuth = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/trainer/auth/me', { cache: 'no-store' });
+      if (res.status === 401) { setAuthUser(null); return; }
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || `Auth failed (${res.status})`);
+      setAuthUser(JSON.parse(text) as typeof authUser);
+    } catch (error) {
+      setAuthUser(null);
+      setAuthError(error instanceof Error ? error.message : 'خطا در احراز هویت');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isLocal) return;
@@ -289,7 +307,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden" dir="ltr">
+    <div className="min-h-screen bg-black text-white overflow-x-hidden" dir="ltr">
       {/* Background Grid */}
       <div className="fixed inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="absolute inset-0 opacity-20">
@@ -300,7 +318,7 @@ export default function Home() {
       {/* Main Content */}
       <div className="relative z-10 min-h-screen flex flex-col">
         {/* Header */}
-        <header className={`border-b border-gray-800 backdrop-blur-lg bg-black/50 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+        <header className={`relative z-[200] overflow-visible border-b border-gray-800 backdrop-blur-lg bg-black/50 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
           <div className="container mx-auto px-6 py-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -329,11 +347,17 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center space-x-6 text-sm">
+                <div className="flex items-center gap-4 text-sm">
                   <span className="text-gray-500">Environment:</span>
                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${isLocal ? 'bg-orange-900/50 text-orange-400 border border-orange-800' : 'bg-green-900/50 text-green-400 border border-green-800'}`}>
                     {isLocal ? 'LOCAL' : 'PRODUCTION'}
                   </span>
+                  <AppAccountMenu
+                    app="frontend"
+                    surface="dark"
+                    className="shrink-0"
+                    onAuthChange={() => void refreshAuth()}
+                  />
                 </div>
               </div>
             </div>
@@ -341,7 +365,7 @@ export default function Home() {
         </header>
 
         {/* Main Dashboard */}
-        <main className="flex-1 container mx-auto px-6 py-12">
+        <main className="relative z-0 flex-1 container mx-auto px-6 py-12">
           <div className="max-w-7xl mx-auto">
             
             {/* Quick Actions */}

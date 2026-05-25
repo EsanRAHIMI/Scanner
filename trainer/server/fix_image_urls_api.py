@@ -7,7 +7,7 @@ load_dotenv()
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "lorenzodb")
 OLD_PREFIX = "https://trainer.ehsanrahimi.com/static/"
-NEW_PREFIX = "https://trainer.ehsanrahimi.com/api/static/"
+NEW_PREFIX = "https://trainer.lorenzohome.ae/api/static/"
 
 def main():
     if not MONGODB_URI:
