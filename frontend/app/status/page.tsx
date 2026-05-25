@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 
+import { LOCAL_APP_URLS, resolveAppUrls, isLocalHostname } from '@/lib/app-urls';
 import { getPublicServiceUrl } from '@/lib/public-urls';
 import { Button } from '@/ui/button';
 import {
@@ -23,27 +24,23 @@ async function check(url: string) {
   }
 }
 
-function isLocalHost(host: string | null) {
-  if (!host) return true;
-  return host.startsWith('localhost') || host.startsWith('127.0.0.1');
-}
-
 export default async function StatusPage() {
   const h = await headers();
   const host = h.get('host');
+  const hostname = host?.split(':')[0] ?? 'localhost';
   const proto = h.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'production' ? 'https' : 'http');
   const origin = host ? `${proto}://${host}` : 'http://localhost:3003';
 
-  const local = isLocalHost(host);
+  const local = isLocalHostname(hostname);
+  const urls = local ? LOCAL_APP_URLS : resolveAppUrls(origin);
 
-  const backendHealthUrl = local ? 'http://localhost:8000/health' : `${origin}/api/health`;
-  const trainerHealthUrl = local ? 'http://localhost:8010/health' : `${origin}/api/trainer/health`;
-
-  const backendDocsUrl = local ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('hub', '/api/docs')}`;
-  const trainerDocsUrl = local ? 'http://localhost:8010/docs' : `${getPublicServiceUrl('trainer', '/api/docs')}`;
+  const backendHealthUrl = urls.backendHealth;
+  const trainerHealthUrl = urls.trainerHealth;
+  const backendDocsUrl = urls.apiDocs;
+  const trainerDocsUrl = urls.trainerApiDocs;
   const trainerOpenApiUrl = local
     ? 'http://localhost:8010/openapi.json'
-    : `${getPublicServiceUrl('trainer', '/api/openapi.json')}`;
+    : getPublicServiceUrl('trainer', '/api/openapi.json');
 
   const [backendHealth, trainerHealth] = await Promise.all([
     check(backendHealthUrl),
@@ -65,7 +62,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Backend API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8000' : '/api'}</CardDescription>
+              <CardDescription>{backendHealthUrl}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
@@ -96,7 +93,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Trainer Server API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8010' : '/api/trainer'}</CardDescription>
+              <CardDescription>{trainerHealthUrl}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
