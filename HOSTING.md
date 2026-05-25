@@ -4,8 +4,8 @@
 
 | اپ Dokploy | پوشه | Host | Container port |
 |------------|------|------|------------------|
-| Frontend | `frontend/` | `lorenzo.{DOMAIN}` | 3003 |
-| Backend | `backend/` | `lorenzo.{DOMAIN}` → path `/api/*` | 8000 |
+| Frontend (Hub) | `frontend/` | `dashboard.{DOMAIN}` | 3003 |
+| Backend | `backend/` | `dashboard.{DOMAIN}` → path `/api/*` | 8000 |
 | Trainer Web | `trainer/web/` | `trainer.{DOMAIN}` | 3010 |
 | Trainer Server | `trainer/server/` | `trainer.{DOMAIN}` → path `/api/*` | 8010 |
 | Products | `products/` | `products.{DOMAIN}` | 3004 |
@@ -40,18 +40,17 @@ NODE_ENV=production
 # --- Domain [DOM] ---
 NEXT_PUBLIC_APP_BASE_DOMAIN=ehsanrahimi.com
 APP_BASE_DOMAIN=ehsanrahimi.com
-NEXT_PUBLIC_HUB_SUBDOMAIN=lorenzo
+NEXT_PUBLIC_HUB_SUBDOMAIN=dashboard
 
-# --- Hub override (اگر ساب‌دامین dashboard است) ---
-# NEXT_PUBLIC_HUB_SUBDOMAIN=dashboard
+# --- Hub override (URL کامل) ---
 # NEXT_PUBLIC_HUB_URL=https://dashboard.ehsanrahimi.com
 
 # --- Server proxy [URL] — اختیاری؛ از دامنه ساخته می‌شود ---
-BACKEND_DETECT_URL=https://lorenzo.ehsanrahimi.com/api/detect
+BACKEND_DETECT_URL=https://dashboard.ehsanrahimi.com/api/detect
 TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 
 # --- Optional ---
-# BACKEND_HEALTH_URL=https://lorenzo.ehsanrahimi.com/api/health
+# BACKEND_HEALTH_URL=https://dashboard.ehsanrahimi.com/api/health
 # BACKEND_DETECT_TIMEOUT_MS=60000
 # NEXT_PUBLIC_TRAINER_API_BASE=/api/trainer
 # NEXT_PUBLIC_TRAINER_URL=https://trainer.ehsanrahimi.com
@@ -62,7 +61,7 @@ TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 | متغیر | برچسب | مقدار اگر ست نشود (production) |
 |--------|--------|--------------------------------|
 | `NEXT_PUBLIC_APP_BASE_DOMAIN` | DOM | `ehsanrahimi.com` |
-| `NEXT_PUBLIC_HUB_SUBDOMAIN` | DOM | `lorenzo` → `https://lorenzo.{DOMAIN}` |
+| `NEXT_PUBLIC_HUB_SUBDOMAIN` | DOM | `dashboard` → `https://dashboard.{DOMAIN}` |
 | `BACKEND_DETECT_URL` | URL | `https://{HUB_SUB}.{DOMAIN}/api/detect` |
 | `TRAINER_API_BASE` | URL | `https://trainer.{DOMAIN}/api` |
 
@@ -84,7 +83,7 @@ MODEL_PATH=/app/models/best.pt
 # HEALTH_INFERENCE_PROBE_SKIP=false
 ```
 
-دامنه لازم نیست؛ فقط پشت `lorenzo.{DOMAIN}/api` در Traefik.
+دامنه لازم نیست؛ فقط پشت `dashboard.{DOMAIN}/api` در Traefik.
 
 ---
 
@@ -101,7 +100,7 @@ NEXT_PUBLIC_APP_BASE_DOMAIN=ehsanrahimi.com
 NEXT_PUBLIC_TRAINER_API_BASE=/api
 
 # --- Cross-link to Scanner [URL] ---
-NEXT_PUBLIC_SCANNER_URL=https://lorenzo.ehsanrahimi.com/scanner
+NEXT_PUBLIC_SCANNER_URL=https://dashboard.ehsanrahimi.com/scanner
 
 # --- Optional ---
 # NEXT_PUBLIC_LAST_TRAIN_JOB_ID=
@@ -111,7 +110,7 @@ NEXT_PUBLIC_SCANNER_URL=https://lorenzo.ehsanrahimi.com/scanner
 | متغیر | برچسب | مقدار اگر ست نشود |
 |--------|--------|-------------------|
 | `NEXT_PUBLIC_TRAINER_API_BASE` | URL | `https://trainer.{DOMAIN}/api` |
-| `NEXT_PUBLIC_SCANNER_URL` | URL | `https://lorenzo.{DOMAIN}/scanner` |
+| `NEXT_PUBLIC_SCANNER_URL` | URL | `https://dashboard.{DOMAIN}/scanner` |
 
 **توصیه:** روی هاست `trainer` مقدار `/api` را نگه دارید (همان تنظیم فعلی شما).
 
@@ -122,7 +121,7 @@ NEXT_PUBLIC_SCANNER_URL=https://lorenzo.ehsanrahimi.com/scanner
 ```env
 # --- Domain & auth [DOM] [REQ] ---
 APP_BASE_DOMAIN=ehsanrahimi.com
-HUB_SUBDOMAIN=lorenzo
+HUB_SUBDOMAIN=dashboard
 TRAINER_COOKIE_DOMAIN=.ehsanrahimi.com
 
 # --- MongoDB [REQ] ---
@@ -136,7 +135,7 @@ TRAINER_AUTH_COOKIE_NAME=trainer_auth
 TRAINER_ADMIN_EMAIL=admin@example.com
 
 # --- CORS [OPT] — اگر خالی: خودکار از APP_BASE_DOMAIN ---
-# TRAINER_CORS_ORIGINS=https://lorenzo.ehsanrahimi.com,https://products.ehsanrahimi.com,https://marketing.ehsanrahimi.com,https://trainer.ehsanrahimi.com
+# TRAINER_CORS_ORIGINS=https://dashboard.ehsanrahimi.com,https://products.ehsanrahimi.com,https://marketing.ehsanrahimi.com,https://trainer.ehsanrahimi.com
 
 # --- Runtime [OPT] ---
 # ENV=production
@@ -176,13 +175,16 @@ NODE_ENV=production
 
 # --- Domain [DOM] ---
 NEXT_PUBLIC_APP_BASE_DOMAIN=ehsanrahimi.com
+APP_BASE_DOMAIN=ehsanrahimi.com
 
 # --- Trainer API (browser → Trainer; CORS via trainer server) [URL] ---
 NEXT_PUBLIC_TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 
+# --- Trainer Web UI (Manage users و لینک‌های cross-app) [URL] ---
+# NEXT_PUBLIC_TRAINER_URL=https://trainer.ehsanrahimi.com
+
 # --- Optional ---
 # NEXT_PUBLIC_BASE_PATH=
-# APP_BASE_DOMAIN=ehsanrahimi.com
 
 # --- Alternative: same-origin proxy (فقط اگر تست کردید) ---
 # NEXT_PUBLIC_TRAINER_API_BASE=/api/trainer
@@ -214,7 +216,7 @@ INSTAGRAM_GRAPH_API_VERSION=v22.0
 
 # --- Optional ---
 # NEXT_PUBLIC_BASE_PATH=
-# NEXT_PUBLIC_LORENZO_URL=https://lorenzo.ehsanrahimi.com
+# NEXT_PUBLIC_HUB_URL=https://dashboard.ehsanrahimi.com
 # NEXT_PUBLIC_MARKETING_URL=https://marketing.ehsanrahimi.com
 ```
 
@@ -233,10 +235,10 @@ INSTAGRAM_GRAPH_API_VERSION=v22.0
 
 | متغیر | مقدار |
 |--------|--------|
-| `BACKEND_DETECT_URL` | `https://lorenzo.mybrand.com/api/detect` |
+| `BACKEND_DETECT_URL` | `https://dashboard.mybrand.com/api/detect` |
 | `TRAINER_API_BASE` | `https://trainer.mybrand.com/api` |
 | `NEXT_PUBLIC_TRAINER_API_BASE` | `https://trainer.mybrand.com/api` |
-| `NEXT_PUBLIC_SCANNER_URL` | `https://lorenzo.mybrand.com/scanner` |
+| `NEXT_PUBLIC_SCANNER_URL` | `https://dashboard.mybrand.com/scanner` |
 
 ---
 
@@ -279,8 +281,8 @@ NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010
 
 ## چک‌لیست بعد از Deploy
 
-- [ ] `https://lorenzo.{DOMAIN}/scanner` — detect
-- [ ] `https://lorenzo.{DOMAIN}/api/health` — backend
+- [ ] `https://dashboard.{DOMAIN}/scanner` — detect
+- [ ] `https://dashboard.{DOMAIN}/api/health` — backend
 - [ ] `https://trainer.{DOMAIN}/api/health` — trainer API
 - [ ] Login در Products و Marketing
 - [ ] `https://marketing.{DOMAIN}/calendar`

@@ -1024,7 +1024,7 @@ def _cors_allow_origins() -> list[str]:
     return origins + _local_dev_cors_origins()
 
   domain = os.environ.get("APP_BASE_DOMAIN", "ehsanrahimi.com").strip() or "ehsanrahimi.com"
-  hub_sub = os.environ.get("HUB_SUBDOMAIN", "lorenzo").strip() or "lorenzo"
+  hub_sub = os.environ.get("HUB_SUBDOMAIN", "dashboard").strip() or "dashboard"
   production = [
     f"https://{hub_sub}.{domain}",
     f"https://products.{domain}",

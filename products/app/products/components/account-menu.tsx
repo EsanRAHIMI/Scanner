@@ -2,6 +2,11 @@
 
 import * as React from 'react';
 import { apiFetch } from '@/lib/api';
+import {
+  LOCAL_PRODUCT_SERVICE_URLS,
+  type ProductServiceUrls,
+} from '@/lib/service-urls';
+import { isLocalHostname } from '@/lib/public-urls';
 import { AuthMe } from '../types';
 
 interface AccountMenuProps {
@@ -20,6 +25,30 @@ export function AccountMenu({ onAuthChange }: AccountMenuProps) {
   const [registerDone, setRegisterDone] = React.useState<{ status: string; user_id: string } | null>(null);
 
   const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const [serviceUrls, setServiceUrls] = React.useState<ProductServiceUrls | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isLocalHostname(window.location.hostname)) {
+      setServiceUrls(LOCAL_PRODUCT_SERVICE_URLS);
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/service-urls', { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`service-urls ${res.status}`);
+        return res.json() as Promise<ProductServiceUrls>;
+      })
+      .then((data) => {
+        if (!cancelled) setServiceUrls(data);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceUrls(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -168,10 +197,8 @@ export function AccountMenu({ onAuthChange }: AccountMenuProps) {
               {me.is_admin && (
                 <>
                   <a
-                    href={typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
-                      ? "http://localhost:3010/admin/users" 
-                      : "/trainer/admin/users"
-                    }
+                    href={serviceUrls?.trainerAdminUsers ?? '#'}
+                    aria-disabled={!serviceUrls?.trainerAdminUsers}
                     className="block w-full rounded-md border border-black/10 px-4 py-2 text-center text-sm font-medium text-black hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/5"
                     role="menuitem"
                     onClick={() => setOpen(false)}

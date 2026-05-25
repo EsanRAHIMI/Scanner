@@ -141,11 +141,11 @@ export default function Home() {
     };
 
     // Check all services
-    const services = [
+    const services: { name: string; url: string }[] = [
       { name: 'Backend API', url: urls.backendHealth },
       { name: 'Trainer API', url: urls.trainerHealth },
-      { name: 'Products Service', url: productsUrl },
-      { name: 'Marketing Service', url: marketingUrl },
+      { name: 'Products Service', url: urls.products },
+      { name: 'Marketing Service', url: urls.marketing },
       { name: 'MongoDB', url: urls.mongodbHealth },
     ];
 
@@ -176,7 +176,7 @@ export default function Home() {
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(interval);
-  }, [isLocal, urls, productsUrl, marketingUrl]);
+  }, [isLocal, urls]);
 
   const getStatusColor = (status: string) => {
     switch (status) {

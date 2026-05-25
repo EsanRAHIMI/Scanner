@@ -1,6 +1,6 @@
 /** Legacy default when domain env vars are unset. */
 const DEFAULT_APP_BASE_DOMAIN = 'ehsanrahimi.com';
-const DEFAULT_HUB_SUBDOMAIN = 'lorenzo';
+const DEFAULT_HUB_SUBDOMAIN = 'dashboard';
 
 export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing';
 
@@ -31,7 +31,7 @@ export function getAppBaseDomain(): string {
   );
 }
 
-/** Hub subdomain (e.g. lorenzo, dashboard). */
+/** Hub subdomain (default: dashboard). */
 export function getHubSubdomain(): string {
   return (
     process.env.NEXT_PUBLIC_HUB_SUBDOMAIN?.trim() ||
