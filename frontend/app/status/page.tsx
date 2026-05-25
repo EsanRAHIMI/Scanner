@@ -39,7 +39,7 @@ export default async function StatusPage() {
   const backendHealthUrl = local ? 'http://localhost:8000/health' : `${origin}/api/health`;
   const trainerHealthUrl = local ? 'http://localhost:8010/health' : `${origin}/api/trainer/health`;
 
-  const backendDocsUrl = local ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('lorenzo', '/api/docs')}`;
+  const backendDocsUrl = local ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('hub', '/api/docs')}`;
   const trainerDocsUrl = local ? 'http://localhost:8010/docs' : `${getPublicServiceUrl('trainer', '/api/docs')}`;
   const trainerOpenApiUrl = local
     ? 'http://localhost:8010/openapi.json'

@@ -39,8 +39,14 @@ NODE_ENV=production
 
 # --- Domain [DOM] ---
 NEXT_PUBLIC_APP_BASE_DOMAIN=ehsanrahimi.com
+APP_BASE_DOMAIN=ehsanrahimi.com
+NEXT_PUBLIC_HUB_SUBDOMAIN=lorenzo
 
-# --- Server proxy targets [URL] — صریح = همان مقدار ساخته‌شده از دامنه ---
+# --- Hub override (اگر ساب‌دامین dashboard است) ---
+# NEXT_PUBLIC_HUB_SUBDOMAIN=dashboard
+# NEXT_PUBLIC_HUB_URL=https://dashboard.ehsanrahimi.com
+
+# --- Server proxy [URL] — اختیاری؛ از دامنه ساخته می‌شود ---
 BACKEND_DETECT_URL=https://lorenzo.ehsanrahimi.com/api/detect
 TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 
@@ -48,7 +54,6 @@ TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 # BACKEND_HEALTH_URL=https://lorenzo.ehsanrahimi.com/api/health
 # BACKEND_DETECT_TIMEOUT_MS=60000
 # NEXT_PUBLIC_TRAINER_API_BASE=/api/trainer
-# NEXT_PUBLIC_LORENZO_URL=https://lorenzo.ehsanrahimi.com
 # NEXT_PUBLIC_TRAINER_URL=https://trainer.ehsanrahimi.com
 # NEXT_PUBLIC_PRODUCTS_URL=https://products.ehsanrahimi.com
 # NEXT_PUBLIC_MARKETING_URL=https://marketing.ehsanrahimi.com
@@ -57,8 +62,11 @@ TRAINER_API_BASE=https://trainer.ehsanrahimi.com/api
 | متغیر | برچسب | مقدار اگر ست نشود (production) |
 |--------|--------|--------------------------------|
 | `NEXT_PUBLIC_APP_BASE_DOMAIN` | DOM | `ehsanrahimi.com` |
-| `BACKEND_DETECT_URL` | URL | `https://lorenzo.{DOMAIN}/api/detect` |
+| `NEXT_PUBLIC_HUB_SUBDOMAIN` | DOM | `lorenzo` → `https://lorenzo.{DOMAIN}` |
+| `BACKEND_DETECT_URL` | URL | `https://{HUB_SUB}.{DOMAIN}/api/detect` |
 | `TRAINER_API_BASE` | URL | `https://trainer.{DOMAIN}/api` |
+
+**داشبورد:** لینک‌های Quick Actions از `/api/app-urls` (runtime env) خوانده می‌شوند — بعد از تغییر دامنه فقط Redeploy Frontend کافی است.
 
 **نکته:** مرورگر Scanner از `/api/trainer` (same-origin) استفاده می‌کند؛ `TRAINER_API_BASE` فقط برای پراکسی سرور Next است.
 
@@ -114,6 +122,7 @@ NEXT_PUBLIC_SCANNER_URL=https://lorenzo.ehsanrahimi.com/scanner
 ```env
 # --- Domain & auth [DOM] [REQ] ---
 APP_BASE_DOMAIN=ehsanrahimi.com
+HUB_SUBDOMAIN=lorenzo
 TRAINER_COOKIE_DOMAIN=.ehsanrahimi.com
 
 # --- MongoDB [REQ] ---

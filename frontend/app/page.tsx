@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
+import { LOCAL_APP_URLS } from '@/lib/app-urls';
 import { safelyVoid } from '@/lib/client-log';
-import { getPublicServiceUrl } from '@/lib/public-urls';
+import { useAppUrls, useIsLocalDashboard } from '@/lib/use-app-urls';
 
 interface ServiceStatus {
   name: string;
@@ -35,30 +36,22 @@ export default function Home() {
     setIsVisible(true);
   }, []);
 
-  // Environment detection
-  const isLocal = process.env.NODE_ENV === 'development' || 
-                  typeof window !== 'undefined' && 
-                  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const isLocal = useIsLocalDashboard();
+  const remoteUrls = useAppUrls();
+  const linksReady = isLocal || remoteUrls !== null;
+  const urls = isLocal ? LOCAL_APP_URLS : remoteUrls;
 
-  const trainerUrl = isLocal ? 'http://localhost:3010/' : `${getPublicServiceUrl('trainer')}/`;
+  const href = (url: string | undefined) => (linksReady && url ? url : '#');
 
-  const productsUrl = isLocal ? 'http://localhost:3004' : getPublicServiceUrl('products');
-
-  const calendarUrl = isLocal ? 'http://localhost:3005/calendar' : `${getPublicServiceUrl('marketing')}/calendar`;
-
-  const marketingUrl = isLocal ? 'http://localhost:3005' : getPublicServiceUrl('marketing');
-
-  const scannerUrl = isLocal ? 'http://localhost:3003/scanner' : '/scanner';
-
-  const statusUrl = isLocal ? 'http://localhost:3003/status' : '/status';
-
-  const apiDocsUrl = isLocal ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('lorenzo', '/api/docs')}`;
-
-  const trainerApiDocsUrl = isLocal ? 'http://localhost:8010/docs' : `${getPublicServiceUrl('trainer', '/api/docs')}`;
-
-  const trainerLoginUrl = isLocal
-    ? 'http://localhost:3010/login?next=/'
-    : `${getPublicServiceUrl('trainer', '/login?next=/')}`;
+  const trainerUrl = urls?.trainer;
+  const productsUrl = urls?.products;
+  const calendarUrl = urls?.calendar;
+  const marketingUrl = urls?.marketing;
+  const scannerUrl = urls?.scanner;
+  const statusUrl = urls?.status;
+  const apiDocsUrl = urls?.apiDocs;
+  const trainerApiDocsUrl = urls?.trainerApiDocs;
+  const trainerLoginUrl = urls?.trainerLogin;
   const canManageLocalGit = isLocal && !!authUser && (Boolean(authUser.is_admin) || (authUser.role || '').toLowerCase() === 'admin');
   const gitStatusLines = useMemo(
     () => (gitStatus?.status ? gitStatus.status.split('\n').map((x) => x.trim()).filter(Boolean) : []),
@@ -113,6 +106,8 @@ export default function Home() {
 
   // Service health check
   useEffect(() => {
+    if (!urls) return;
+
     const checkServiceHealth = async (serviceName: string, url: string) => {
       try {
         const startTime = Date.now();
@@ -147,20 +142,11 @@ export default function Home() {
 
     // Check all services
     const services = [
-      {
-        name: 'Backend API',
-        url: isLocal ? 'http://localhost:8000/health' : `${getPublicServiceUrl('lorenzo', '/api/health')}`,
-      },
-      {
-        name: 'Trainer API',
-        url: isLocal ? 'http://localhost:8010/health' : `${getPublicServiceUrl('trainer', '/api/health')}`,
-      },
-      { name: 'Products Service', url: isLocal ? 'http://localhost:3004' : productsUrl },
+      { name: 'Backend API', url: urls.backendHealth },
+      { name: 'Trainer API', url: urls.trainerHealth },
+      { name: 'Products Service', url: productsUrl },
       { name: 'Marketing Service', url: marketingUrl },
-      {
-        name: 'MongoDB',
-        url: isLocal ? 'http://localhost:8000/mongodb/health' : `${getPublicServiceUrl('trainer', '/api/mongodb/health')}`,
-      },
+      { name: 'MongoDB', url: urls.mongodbHealth },
     ];
 
     // Initial check
@@ -190,7 +176,7 @@ export default function Home() {
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(interval);
-  }, [isLocal, productsUrl, marketingUrl]);
+  }, [isLocal, urls, productsUrl, marketingUrl]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -363,7 +349,8 @@ export default function Home() {
               <h2 className="text-xl font-semibold text-gray-300 mb-6">Quick Actions</h2>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <Link 
-                  href={productsUrl}
+                  href={href(productsUrl)}
+                  aria-disabled={!linksReady}
                   className="group relative overflow-hidden bg-gradient-to-r from-pink-600/20 to-rose-600/20 border border-pink-800/50 rounded-xl p-6 hover:border-pink-600 transition-all duration-300 hover:shadow-lg hover:shadow-pink-600/20"
                 >
                   <div className="relative z-10">
@@ -392,7 +379,7 @@ export default function Home() {
                 </Link>
 
                 <Link 
-                  href={scannerUrl}
+                  href={href(scannerUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-800/50 rounded-xl p-6 hover:border-purple-600 transition-all duration-300 hover:shadow-lg hover:shadow-purple-600/20"
                 >
                   <div className="relative z-10">
@@ -422,7 +409,7 @@ export default function Home() {
                 </Link>
 
                 <Link 
-                  href={trainerUrl}
+                  href={href(trainerUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-green-600/20 to-teal-600/20 border border-green-800/50 rounded-xl p-6 hover:border-green-600 transition-all duration-300 hover:shadow-lg hover:shadow-green-600/20"
                 >
                   <div className="relative z-10">
@@ -451,7 +438,7 @@ export default function Home() {
                 </Link>
 
                 <Link
-                  href={marketingUrl}
+                  href={href(marketingUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-cyan-600/20 to-sky-600/20 border border-cyan-800/50 rounded-xl p-6 hover:border-cyan-600 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-600/20"
                 >
                   <div className="relative z-10">
@@ -493,7 +480,7 @@ export default function Home() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Inference API Status */}
                   <Link 
-                    href={apiDocsUrl}
+                    href={href(apiDocsUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
@@ -525,7 +512,7 @@ export default function Home() {
 
                   {/* Trainer API Status */}
                   <Link 
-                    href={trainerApiDocsUrl}
+                    href={href(trainerApiDocsUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
@@ -557,7 +544,7 @@ export default function Home() {
 
                   {/* Products Service Status */}
                   <Link 
-                    href={productsUrl}
+                    href={href(productsUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
@@ -589,7 +576,7 @@ export default function Home() {
 
                   {/* MongoDB Status */}
                   <Link 
-                    href={statusUrl}
+                    href={href(statusUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
@@ -622,7 +609,7 @@ export default function Home() {
                 
                 {/* Overall Status */}
                 <Link 
-                  href={statusUrl}
+                  href={href(statusUrl)}
                   className="group mt-4 pt-4 border-t border-gray-800 block cursor-pointer hover:bg-gray-900/20 -mx-2 px-2 py-1 rounded transition-all duration-300"
                 >
                   <div className="flex items-center justify-between">
@@ -712,7 +699,7 @@ export default function Home() {
                   {!canManageLocalGit ? (
                     <div className="flex flex-wrap gap-2">
                       <Link
-                        href={trainerLoginUrl}
+                        href={href(trainerLoginUrl)}
                         className="rounded-lg border border-indigo-700 bg-indigo-600/20 px-4 py-2 text-sm font-semibold text-indigo-200 hover:bg-indigo-600/30"
                       >
                         ورود از Trainer
