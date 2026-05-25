@@ -3,6 +3,7 @@ import type { ProductsRecord, ProductsAssetsResponse } from '@/types/trainer';
 import { apiFetch } from '@/lib/api';
 import { logFrontendEvent } from '../lib/product-service';
 import { formatScalar } from '../lib/product-utils';
+import { mergeServerRecordIntoSnapshot } from '../lib/product-mutation-utils';
 
 interface UseProductMutationsProps {
   setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
@@ -34,6 +35,16 @@ function assertCanEditFields(
   return false;
 }
 
+/** Apply optimistic snapshot to local override + SWR cache (single commit path). */
+async function commitOptimisticSnapshot(
+  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>,
+  mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>,
+  next: ProductsAssetsResponse,
+) {
+  setData(next);
+  await mutate(next);
+}
+
 export function useProductMutations({
   setData,
   mutate,
@@ -47,30 +58,42 @@ export function useProductMutations({
     async (previousFieldsById: Record<string, Record<string, unknown> | undefined>) => {
       const ids = new Set(Object.keys(previousFieldsById));
       if (ids.size === 0) return;
-      setData(prev => {
+
+      let rolledBack: ProductsAssetsResponse | null = null;
+      setData((prev) => {
         if (!prev) return prev;
-        return {
+        rolledBack = {
           ...prev,
-          records: prev.records.map(r =>
-            ids.has(r.id) ? { ...r, fields: previousFieldsById[r.id] ?? r.fields } : r
-          )
+          records: prev.records.map((r) =>
+            ids.has(r.id) ? { ...r, fields: previousFieldsById[r.id] ?? r.fields } : r,
+          ),
         };
+        return rolledBack;
       });
-      await mutate();
+
+      if (rolledBack) {
+        await mutate(rolledBack);
+      } else {
+        await mutate();
+      }
     },
-    [setData, mutate]
+    [setData, mutate],
   );
 
-  const mergeServerRecord = React.useCallback((serverRecord: { id?: string; fields?: Record<string, unknown> } | null | undefined) => {
-    if (!serverRecord?.id || !serverRecord.fields) return;
-    setData(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        records: prev.records.map(r => (r.id === serverRecord.id ? { ...r, fields: serverRecord.fields ?? r.fields } : r))
-      };
-    });
-  }, [setData]);
+  const commitServerRecord = React.useCallback(
+    async (
+      optimisticSnapshot: ProductsAssetsResponse,
+      serverRecord: { id?: string; fields?: Record<string, unknown> } | null | undefined,
+    ) => {
+      if (!serverRecord?.id || !serverRecord.fields) return;
+      const confirmed = mergeServerRecordIntoSnapshot(optimisticSnapshot, {
+        id: serverRecord.id,
+        fields: serverRecord.fields,
+      });
+      await commitOptimisticSnapshot(setData, mutate, confirmed);
+    },
+    [setData, mutate],
+  );
 
   const handleUpdateVariant = React.useCallback(async (
     id: string, 
@@ -96,9 +119,10 @@ export function useProductMutations({
       }
     }
 
-    // Optimistic UI update
     const updateSet = new Set(idsToUpdate);
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
+    let optimisticNext: ProductsAssetsResponse | null = null;
+
     setData(prev => {
       if (!prev) return prev;
       for (const r of prev.records) {
@@ -106,15 +130,17 @@ export function useProductMutations({
           previousFieldsById[r.id] = r.fields;
         }
       }
-      const next = {
+      optimisticNext = {
         ...prev,
         records: prev.records.map(r =>
           updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r
         )
       };
-      queueMicrotask(() => void mutate(next));
-      return next;
+      return optimisticNext;
     });
+
+    if (!optimisticNext) return;
+    await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
     setIsSaving(true);
     try {
@@ -143,7 +169,7 @@ export function useProductMutations({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, rollbackRecords]);
+  }, [isSaving, setData, mutate, rollbackRecords, canEditField]);
 
   const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
     if (isSaving) return;
@@ -158,6 +184,7 @@ export function useProductMutations({
         .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
         .map(r => r.id);
 
+      let optimisticNext: ProductsAssetsResponse | null = null;
       setData(prev => {
         if (!prev) return prev;
         for (const r of prev.records) {
@@ -165,7 +192,7 @@ export function useProductMutations({
             previousFieldsById[r.id] = r.fields;
           }
         }
-        const next = {
+        optimisticNext = {
           ...prev,
           records: prev.records.map(r => {
             if (r.id === recordId) return { ...r, fields: { ...r.fields, Main: true } };
@@ -173,9 +200,11 @@ export function useProductMutations({
             return r;
           })
         };
-        queueMicrotask(() => void mutate(next));
-        return next;
+        return optimisticNext;
       });
+
+      if (!optimisticNext) return;
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const updates = [
         { id: recordId, fields: { Main: true } }, 
@@ -207,6 +236,8 @@ export function useProductMutations({
     if (!assertCanEditFields(canEditField, keys)) return;
 
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
+    let optimisticNext: ProductsAssetsResponse | null = null;
+
     try {
       setData(prev => {
         if (!prev) return prev;
@@ -220,15 +251,17 @@ export function useProductMutations({
             columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
           resolvedPatch[exactFieldName] = fieldsPatch[fieldName];
         }
-        const next = {
+        optimisticNext = {
           ...prev,
           records: prev.records.map(r =>
             r.id === recordId ? { ...r, fields: { ...r.fields, ...resolvedPatch } } : r
           ),
         };
-        queueMicrotask(() => void mutate(next));
-        return next;
+        return optimisticNext;
       });
+
+      if (!optimisticNext) return;
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const resolvedForApi: Record<string, unknown> = {};
       for (const fieldName of keys) {
@@ -247,7 +280,7 @@ export function useProductMutations({
       }
       try {
         const json = (await res.json()) as { id?: string; fields?: Record<string, unknown> };
-        mergeServerRecord(json);
+        await commitServerRecord(optimisticNext, json);
       } catch {
         // keep optimistic state
       }
@@ -256,7 +289,7 @@ export function useProductMutations({
       await rollbackRecords(previousFieldsById);
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord, canEditField]);
+  }, [setData, mutate, columns, rollbackRecords, commitServerRecord, canEditField]);
 
   const handleSaveField = React.useCallback(async (
     recordId: string, 
@@ -267,6 +300,8 @@ export function useProductMutations({
     if (!assertCanEditFields(canEditField, [fieldName])) return;
 
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
+    let optimisticNext: ProductsAssetsResponse | null = null;
+
     try {
       const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
       
@@ -276,15 +311,17 @@ export function useProductMutations({
         if (existing) {
           previousFieldsById[recordId] = existing.fields;
         }
-        const next = {
+        optimisticNext = {
           ...prev,
           records: prev.records.map(r => 
             r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r
           )
         };
-        queueMicrotask(() => void mutate(next));
-        return next;
+        return optimisticNext;
       });
+
+      if (!optimisticNext) return;
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const res = await apiFetch(`/products/assets/${recordId}`, {
         method: 'PATCH',
@@ -296,7 +333,7 @@ export function useProductMutations({
       }
       try {
         const json = await res.json() as { id?: string; fields?: Record<string, unknown> };
-        mergeServerRecord(json);
+        await commitServerRecord(optimisticNext, json);
       } catch {
         // keep optimistic state if response body is missing/invalid
       }
@@ -305,7 +342,7 @@ export function useProductMutations({
       await rollbackRecords(previousFieldsById);
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, mergeServerRecord, canEditField]);
+  }, [setData, mutate, columns, rollbackRecords, commitServerRecord, canEditField]);
 
   const handleAddMediaToVariant = React.useCallback(async (
     variantId: string, 
@@ -315,6 +352,8 @@ export function useProductMutations({
     if (!newUrl || isSaving) return;
     setIsSaving(true);
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
+    let optimisticNext: ProductsAssetsResponse | null = null;
+
     try {
       const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
       const record = records.find(r => r.id === variantId);
@@ -329,15 +368,17 @@ export function useProductMutations({
         if (existing) {
           previousFieldsById[variantId] = existing.fields;
         }
-        const next = {
+        optimisticNext = {
           ...prev,
           records: prev.records.map(r => 
             r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r
           )
         };
-        queueMicrotask(() => void mutate(next));
-        return next;
+        return optimisticNext;
       });
+
+      if (!optimisticNext) return;
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const res = await apiFetch(`/products/assets/${variantId}`, {
         method: 'PATCH',
@@ -347,13 +388,19 @@ export function useProductMutations({
       if (!res.ok) {
         throw new Error('Add media API failed');
       }
+      try {
+        const json = (await res.json()) as { id?: string; fields?: Record<string, unknown> };
+        await commitServerRecord(optimisticNext, json);
+      } catch {
+        // keep optimistic state
+      }
     } catch (err) {
       console.error('Add media failed', err);
       await rollbackRecords(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, columns, rollbackRecords]);
+  }, [isSaving, setData, mutate, columns, rollbackRecords, commitServerRecord]);
 
   const handleDeleteProduct = React.useCallback(async (
     recordId: string,
@@ -366,17 +413,21 @@ export function useProductMutations({
     notePendingDelete(recordId);
 
     let previousData: ProductsAssetsResponse | null = null;
+    let optimisticNext: ProductsAssetsResponse | null = null;
     setData(prev => {
       if (!prev) return prev;
       previousData = prev;
-      const next = {
+      optimisticNext = {
         ...prev,
         records: prev.records.filter(r => r.id !== recordId),
         count: Math.max(0, prev.count - 1),
       };
-      queueMicrotask(() => void mutate(next));
-      return next;
+      return optimisticNext;
     });
+
+    if (optimisticNext) {
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
+    }
 
     setIsSaving(true);
     try {
@@ -394,8 +445,7 @@ export function useProductMutations({
     } catch (err) {
       console.error('Delete product failed', err);
       if (previousData) {
-        setData(previousData);
-        await mutate(previousData);
+        await commitOptimisticSnapshot(setData, mutate, previousData);
       } else {
         await mutate();
       }
@@ -417,17 +467,21 @@ export function useProductMutations({
     }
 
     let previousData: ProductsAssetsResponse | null = null;
+    let optimisticNext: ProductsAssetsResponse | null = null;
     setData(prev => {
       if (!prev) return prev;
       previousData = prev;
-      const next = {
+      optimisticNext = {
         ...prev,
         records: prev.records.filter(r => !idSet.has(r.id)),
         count: Math.max(0, prev.count - ids.length),
       };
-      queueMicrotask(() => void mutate(next));
-      return next;
+      return optimisticNext;
     });
+
+    if (optimisticNext) {
+      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
+    }
 
     setIsSaving(true);
     try {
@@ -448,8 +502,7 @@ export function useProductMutations({
     } catch (err) {
       console.error('Bulk delete failed', err);
       if (previousData) {
-        setData(previousData);
-        await mutate(previousData);
+        await commitOptimisticSnapshot(setData, mutate, previousData);
       } else {
         await mutate();
       }

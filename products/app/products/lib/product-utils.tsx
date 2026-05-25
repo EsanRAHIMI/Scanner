@@ -148,6 +148,8 @@ export function collectNumOnlyStubIds(records: ProductsRecord[], columns: string
 export const DRIVE_IMAGE_WIDTH_FULL = 1200;
 /** List / deck thumbnails (~96px cell, 2× retina). */
 export const DRIVE_IMAGE_WIDTH_LIST = 256;
+/** URL column row thumbnails (~28px cell, ~3× retina). */
+export const DRIVE_IMAGE_WIDTH_THUMB = 96;
 /** Hover popover (~200px, 2× retina). */
 export const DRIVE_IMAGE_WIDTH_HOVER = 420;
 
@@ -321,6 +323,21 @@ export function findUrlFieldValue(fields: Record<string, unknown> | undefined): 
   return entry?.[1];
 }
 
+/** Actual URL field key on a record (handles aliases like "Product URL"). */
+export function resolveUrlFieldKey(
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): string {
+  if (fields) {
+    const entry = Object.entries(fields).find(([k]) => {
+      const kl = k.trim().toLowerCase();
+      return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
+    });
+    if (entry) return entry[0];
+  }
+  return findUrlFieldName(columns);
+}
+
 /** Same merged list as the URL column in list view (URL + Image + DAM). */
 export function collectMergedProductMediaUrls(
   fields: Record<string, unknown> | undefined,
@@ -428,6 +445,89 @@ export function filterUrlsForGalleryDisplay(
   columns: string[],
 ): string[] {
   return urls.filter(u => !isGalleryMediaHidden(u, fields, columns));
+}
+
+/** Image column deck: URL field order first, then Image-only links not already listed. */
+export function getImageColumnDisplayUrls(
+  fields: Record<string, unknown> | undefined,
+  columns: string[],
+): string[] {
+  if (!fields) return [];
+
+  const urlFieldKey = resolveUrlFieldKey(fields, columns);
+  const urlFieldValue = fields[urlFieldKey] ?? findUrlFieldValue(fields);
+  const urlOrdered = extractUrls(urlFieldValue).filter(u => !isVideoUrl(u));
+
+  const imageField = columns.find(c => c.trim().toLowerCase() === 'image');
+  const imageUrls = imageField
+    ? extractUrls(fields[imageField]).filter(u => !isVideoUrl(u))
+    : [];
+
+  if (urlOrdered.length === 0) {
+    return filterUrlsForGalleryDisplay(imageUrls, fields, columns);
+  }
+
+  const usedImageIdx = new Set<number>();
+  const result: string[] = [];
+
+  const appendUnique = (raw: string) => {
+    const u = raw.trim();
+    if (!u || result.some(r => sameProductMediaUrl(r, u))) return;
+    result.push(u);
+  };
+
+  for (const u of urlOrdered) {
+    const matchIdx = imageUrls.findIndex(
+      (img, i) => !usedImageIdx.has(i) && sameProductMediaUrl(img, u),
+    );
+    if (matchIdx >= 0) {
+      usedImageIdx.add(matchIdx);
+      appendUnique(imageUrls[matchIdx]!);
+    } else {
+      appendUnique(u);
+    }
+  }
+
+  for (let i = 0; i < imageUrls.length; i++) {
+    if (!usedImageIdx.has(i)) appendUnique(imageUrls[i]!);
+  }
+
+  return filterUrlsForGalleryDisplay(result, fields, columns);
+}
+
+/** After URL reorder, mirror the same order onto the Image field when it stores matching assets. */
+export function buildImageFieldOrderPatch(
+  fields: Record<string, unknown>,
+  columns: string[],
+  reorderedUrlList: string[],
+): Record<string, unknown> {
+  const imageField = columns.find(c => c.trim().toLowerCase() === 'image');
+  if (!imageField) return {};
+
+  const imageUrls = extractUrls(fields[imageField]).filter(u => !isVideoUrl(u));
+  if (imageUrls.length === 0) return {};
+
+  const used = new Set<number>();
+  const next: string[] = [];
+
+  for (const u of reorderedUrlList.filter(u => !isVideoUrl(u))) {
+    const matchIdx = imageUrls.findIndex(
+      (img, i) => !used.has(i) && sameProductMediaUrl(img, u),
+    );
+    if (matchIdx >= 0) {
+      used.add(matchIdx);
+      next.push(imageUrls[matchIdx]!);
+    }
+  }
+
+  for (let i = 0; i < imageUrls.length; i++) {
+    if (!used.has(i)) next.push(imageUrls[i]!);
+  }
+
+  const prev = imageUrls.join('\n');
+  const joined = next.join('\n');
+  if (prev === joined) return {};
+  return { [imageField]: joined };
 }
 
 export function buildFieldsAfterHidingGalleryMedia(

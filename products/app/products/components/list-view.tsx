@@ -10,9 +10,13 @@ import {
   isVideoUrl,
   formatPrice,
   filterUrlsForGalleryDisplay,
+  getImageColumnDisplayUrls,
   isGalleryMediaHidden,
+  DRIVE_IMAGE_WIDTH_HOVER,
+  DRIVE_IMAGE_WIDTH_THUMB,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
+import { prefetchMediaPreview } from '../lib/media-preview-cache';
 import {
   CONTENT_STATUS_OPTIONS,
   resolveContentStatusValue,
@@ -260,16 +264,16 @@ export function ListView({
 
       if (isPhotoCol) {
         const recordFields = recordById.get(recordId)?.fields;
-        const allUrls = extractUrls(value);
-        const urls = filterUrlsForGalleryDisplay(
-          isVideoCol
-            ? allUrls.filter(isVideoUrl)
-            : col === 'image' || isDAM
-              ? allUrls.filter(u => !isVideoUrl(u))
-              : allUrls,
-          recordFields,
-          columns,
-        );
+        const urls =
+          col === 'image'
+            ? getImageColumnDisplayUrls(recordFields, columns)
+            : filterUrlsForGalleryDisplay(
+                isVideoCol
+                  ? extractUrls(value).filter(isVideoUrl)
+                  : extractUrls(value).filter(u => !isVideoUrl(u)),
+                recordFields,
+                columns,
+              );
 
         if (urls.length === 0) {
           if ((col === 'image' || isDAM || isVideoCol) && canEdit) {
@@ -350,6 +354,8 @@ export function ListView({
               onDragEnd={() => setDraggedUrlInfo(null)}
               linkHoverTimerRef={linkHoverTimerRef}
               onMouseEnter={(url, e) => {
+                void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_THUMB);
+                void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_HOVER);
                 if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
                 (linkHoverTimerRef as any).current = setTimeout(() => {
                   const r = recordById.get(recordId);
@@ -724,7 +730,7 @@ export function ListView({
                   className={
                     'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
                     (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
-                    (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] ' :
+                    (isURL ? 'w-[220px] min-w-[220px] max-w-[220px] ' :
                      normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' :
                      isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
                     'px-4 py-3 text-left'
@@ -795,7 +801,7 @@ export function ListView({
                     let cellValue = r.fields?.[c];
                     const urlFieldValue = getUrlFieldValue(r.fields);
                     if (normalizedCol === 'image') {
-                      cellValue = mergeUrlValues(r.fields?.[c], urlFieldValue, r.fields?.DAM);
+                      cellValue = mergeUrlValues(urlFieldValue, r.fields?.[c], r.fields?.DAM);
                     } else if (isURL) {
                       cellValue = mergeUrlValues(urlFieldValue, r.fields?.Image, r.fields?.DAM);
                     } else if (isDAM || isVideoCol) {
@@ -821,7 +827,7 @@ export function ListView({
                             : '') +
                           (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
                           (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
-                          (isURL ? 'w-[150px] min-w-[150px] max-w-[150px] overflow-hidden ' :
+                          (isURL ? 'w-[220px] min-w-[220px] max-w-[220px] overflow-hidden ' :
                            normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' :
                            isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
                           (isFirstCol

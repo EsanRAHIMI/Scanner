@@ -152,7 +152,8 @@ export function ProductsView({
     canEditField: canEditFieldForUser,
   });
   const dnd = useProductDragDrop({ 
-    handleSaveField: mutations.handleSaveField, 
+    handleSaveField: mutations.handleSaveField,
+    handleSaveFields: mutations.handleSaveFields,
     records, 
     columns 
   });

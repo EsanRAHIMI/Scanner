@@ -2,11 +2,53 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { DRIVE_IMAGE_WIDTH_HOVER, isVideoUrl, getDriveDirectLink } from '../lib/product-utils';
+import {
+  DRIVE_IMAGE_WIDTH_HOVER,
+  DRIVE_IMAGE_WIDTH_THUMB,
+  isVideoUrl,
+  getDriveDirectLink,
+} from '../lib/product-utils';
+import { prefetchMediaPreview, resolvePreviewSrc } from '../lib/media-preview-cache';
 import type { LinkHoverState } from '../types/shared-types';
 
 interface LinkHoverPreviewProps {
   state: LinkHoverState | null;
+}
+
+function HoverPreviewImage({ url }: { url: string }) {
+  const [src, setSrc] = React.useState(() =>
+    resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_HOVER) ||
+    resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB),
+  );
+
+  React.useEffect(() => {
+    const thumb = resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB);
+    setSrc(thumb || getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER));
+    let cancelled = false;
+    void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_HOVER).then((loaded) => {
+      if (cancelled || !loaded) return;
+      setSrc(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={src}
+      alt="Preview"
+      loading="eager"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      className="h-full w-full object-cover"
+      onError={(e) => {
+        const el = e.target as HTMLImageElement;
+        if (el.src !== url) el.src = url;
+      }}
+    />
+  );
 }
 
 export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
@@ -16,24 +58,29 @@ export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
     setMounted(true);
   }, []);
 
+  React.useEffect(() => {
+    if (!state?.url) return;
+    void prefetchMediaPreview(state.url, DRIVE_IMAGE_WIDTH_THUMB);
+    void prefetchMediaPreview(state.url, DRIVE_IMAGE_WIDTH_HOVER);
+  }, [state?.url]);
+
   if (!mounted || !state) return null;
 
   return createPortal(
-    <div 
+    <div
       className="pointer-events-none fixed z-[9999] animate-fade-in"
-      style={{ 
-        left: Math.min(state.x + 20, window.innerWidth - 225), 
-        top: Math.min(state.y + 20, window.innerHeight - 245) 
+      style={{
+        left: Math.min(state.x + 20, window.innerWidth - 225),
+        top: Math.min(state.y + 20, window.innerHeight - 245),
       }}
     >
       <div className="overflow-hidden rounded-xl border border-black/10 bg-white/95 p-1.5 shadow-2xl backdrop-blur-xl dark:border-white/20 dark:bg-black/85">
         <div className="relative h-[200px] w-[200px] overflow-hidden rounded-lg bg-black/5 dark:bg-white/5">
           {isVideoUrl(state.url) ? (
             <div className="flex h-full w-full items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={getDriveDirectLink(state.url, DRIVE_IMAGE_WIDTH_HOVER)} alt="Video Preview" className="h-full w-full object-cover opacity-50" loading="lazy" decoding="async" />
+              <HoverPreviewImage url={state.url} />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/30 backdrop-blur-md border border-white/50">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/50 bg-white/30 backdrop-blur-md">
                   <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 5v14l11-7z" />
                   </svg>
@@ -41,17 +88,7 @@ export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
               </div>
             </div>
           ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img 
-              src={getDriveDirectLink(state.url, DRIVE_IMAGE_WIDTH_HOVER)} 
-              alt="Preview" 
-              loading="lazy"
-              decoding="async"
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = state.url;
-              }}
-            />
+            <HoverPreviewImage url={state.url} />
           )}
         </div>
         <div className="mt-1.5 px-1.5 pb-1">
@@ -69,6 +106,6 @@ export function LinkHoverPreview({ state }: LinkHoverPreviewProps) {
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

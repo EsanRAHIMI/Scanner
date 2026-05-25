@@ -2,11 +2,14 @@
 
 import * as React from 'react';
 import {
-  DRIVE_IMAGE_WIDTH_LIST,
+  DRIVE_IMAGE_WIDTH_HOVER,
+  DRIVE_IMAGE_WIDTH_THUMB,
   getDriveDirectLink,
   isGalleryMediaHidden,
   isVideoUrl,
 } from '../lib/product-utils';
+import { prefetchMediaPreview } from '../lib/media-preview-cache';
+import { CachedMediaPreview } from './cached-media-preview';
 import type { EditingUrlState, LinkHoverState } from '../types/shared-types';
 
 const REORDER_MIME = 'application/x-url-reorder';
@@ -23,30 +26,38 @@ function reorderUrls(urls: string[], from: number, to: number): string[] {
   return next;
 }
 
-function UrlThumb({ url }: { url: string }) {
+function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
   const [broken, setBroken] = React.useState(false);
   const isVideo = isVideoUrl(url);
-  const thumb = getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_LIST);
 
   React.useEffect(() => {
     setBroken(false);
+    void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_THUMB);
   }, [url]);
 
   return (
-    <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded border border-black/10 bg-black/[0.04] dark:border-white/10 dark:bg-white/[0.06]">
-      {!isVideo && thumb && !broken ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={thumb}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          onError={() => setBroken(true)}
+    <div
+      className={
+        'relative h-7 w-7 shrink-0 overflow-hidden rounded border ' +
+        (isHidden
+          ? 'border-black/15 bg-black/[0.08] opacity-55 grayscale dark:border-white/15 dark:bg-white/[0.08]'
+          : 'border-black/10 bg-black/[0.04] dark:border-white/10 dark:bg-white/[0.06]')
+      }
+    >
+      {!isVideo && !broken ? (
+        <CachedMediaPreview
+          url={url}
+          width={DRIVE_IMAGE_WIDTH_THUMB}
+          onBroken={() => setBroken(true)}
           className="h-full w-full object-cover"
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-black/[0.06] dark:bg-white/[0.08]">
+        <div
+          className={
+            'flex h-full w-full items-center justify-center ' +
+            (isHidden ? 'bg-black/[0.10] dark:bg-white/[0.10]' : 'bg-black/[0.06] dark:bg-white/[0.08]')
+          }
+        >
           {isVideo ? (
             <svg viewBox="0 0 24 24" className="h-3 w-3 text-black/45 dark:text-white/45" fill="currentColor">
               <path d="M8 5v14l11-7z" />
@@ -150,7 +161,10 @@ export const UrlColumnList = React.memo(function UrlColumnList({
   const [dropTarget, setDropTarget] = React.useState<number | null>(null);
 
   React.useEffect(() => {
-    setLocalUrls(urlsProp);
+    setLocalUrls((prev) => {
+      if (prev.length === urlsProp.length && prev.every((u, i) => u === urlsProp[i])) return prev;
+      return urlsProp;
+    });
   }, [urlsProp]);
 
   const finishReorderDrag = React.useCallback(() => {
@@ -339,14 +353,18 @@ export const UrlColumnList = React.memo(function UrlColumnList({
         return (
           <div
             key={`${recordId}-${i}-${u}`}
-            className={`group/link relative ${isDragging ? 'opacity-35' : ''}`}
+            className={
+              'group/link relative ' +
+              (isDragging ? 'opacity-35 ' : '') +
+              (isHiddenFromGallery ? 'rounded-md bg-black/[0.03] dark:bg-white/[0.04] ' : '')
+            }
             onDragOver={(e) => onRowDragOver(e, i)}
             onDrop={(e) => onRowDrop(e, i)}
           >
             {showDropLine ? (
               <div className="pointer-events-none absolute inset-x-1 top-0 z-10 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.55)]" />
             ) : null}
-            <div className="relative flex min-w-0 items-center gap-1 pl-0.5 pr-7">
+            <div className="flex min-w-0 items-center gap-0.5 pl-0.5 pr-0.5">
               {canEdit && localUrls.length > 1 ? (
                 <button
                   type="button"
@@ -368,19 +386,29 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                   </svg>
                 </button>
               ) : (
-                <span className="w-4 shrink-0 text-center text-[9px] font-bold tabular-nums text-black/25 dark:text-white/25">
+                <span
+                  className={
+                    'w-4 shrink-0 text-center text-[9px] font-bold tabular-nums ' +
+                    (isHiddenFromGallery ? 'text-black/20 dark:text-white/20' : 'text-black/25 dark:text-white/25')
+                  }
+                >
                   {i + 1}
                 </span>
               )}
 
-              <UrlThumb url={u} />
+              <UrlThumb url={u} isHidden={isHiddenFromGallery} />
 
               <a
                 href={getDriveDirectLink(u)}
                 target="_blank"
                 rel="noreferrer"
                 draggable
-                className="flex min-w-0 flex-1 items-center gap-1 py-1 text-black/80 hover:text-emerald-600 dark:text-white/80 dark:hover:text-emerald-400"
+                className={
+                  'min-w-0 flex-1 truncate py-1 text-[10px] font-semibold tracking-tight ' +
+                  (isHiddenFromGallery
+                    ? 'text-black/35 hover:text-black/45 dark:text-white/35 dark:hover:text-white/45'
+                    : 'text-black/80 hover:text-emerald-600 dark:text-white/80 dark:hover:text-emerald-400')
+                }
                 onClick={(e) => e.stopPropagation()}
                 onDragStart={(e) => {
                   e.stopPropagation();
@@ -391,6 +419,8 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                   setDraggedUrlInfo(null);
                 }}
                 onMouseEnter={(e) => {
+                  void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_THUMB);
+                  void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_HOVER);
                   if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
                   linkHoverTimerRef.current = setTimeout(() => {
                     setLinkHoverState({
@@ -406,17 +436,24 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                   setLinkHoverState(null);
                 }}
               >
-                <SourceIcon badge={sourceBadge} isVideo={isVideoUrl(u)} />
-                <span className="truncate text-[10px] font-semibold tracking-tight">{u}</span>
-                {isHiddenFromGallery ? (
-                  <span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                    Hidden
-                  </span>
-                ) : null}
+                <span
+                  className={
+                    'inline-flex min-w-0 items-center gap-1 ' +
+                    (isHiddenFromGallery ? 'opacity-80 grayscale' : '')
+                  }
+                >
+                  <SourceIcon badge={sourceBadge} isVideo={isVideoUrl(u)} />
+                  <span className="truncate">{u}</span>
+                  {isHiddenFromGallery ? (
+                    <span className="shrink-0 rounded bg-black/10 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-black/45 dark:bg-white/10 dark:text-white/45">
+                      Hidden
+                    </span>
+                  ) : null}
+                </span>
               </a>
 
               {canEdit ? (
-                <>
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/link:opacity-100">
                   {isHiddenFromGallery ? (
                     <button
                       type="button"
@@ -425,7 +462,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                         e.stopPropagation();
                         void handleUnhideMediaFromGallery(recordId, u);
                       }}
-                      className="absolute right-7 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-700 opacity-0 transition-opacity hover:bg-emerald-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-emerald-300"
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 disabled:opacity-30 dark:text-emerald-300"
                       title="Show again in Image and Feed"
                     >
                       <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -441,7 +478,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                         e.stopPropagation();
                         void handleHideMediaFromGallery(recordId, u);
                       }}
-                      className="absolute right-7 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-red-500/10 text-red-600 opacity-0 transition-opacity hover:bg-red-500/20 group-hover/link:opacity-100 disabled:opacity-30 dark:text-red-400"
+                      className="flex h-6 w-6 items-center justify-center rounded-md bg-red-500/10 text-red-600 hover:bg-red-500/20 disabled:opacity-30 dark:text-red-400"
                       title="Hide from Image and Feed (link stays in URL)"
                     >
                       <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -455,7 +492,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                       e.stopPropagation();
                       setEditingUrl({ id: recordId, value: u, originalValue: u, column, index: i });
                     }}
-                    className="absolute right-0.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-black/5 text-black/40 opacity-0 transition-opacity hover:bg-black/10 group-hover/link:opacity-100 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
+                    className="flex h-6 w-6 items-center justify-center rounded-md bg-black/5 text-black/40 hover:bg-black/10 dark:bg-white/5 dark:text-white/40 dark:hover:bg-white/10"
                     title="Edit this link"
                   >
                     <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -463,7 +500,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                       <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
-                </>
+                </div>
               ) : null}
             </div>
           </div>

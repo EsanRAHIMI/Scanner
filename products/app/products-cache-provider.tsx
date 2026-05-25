@@ -45,7 +45,7 @@ function formatTrainerAssetsErrorMessage(rawBody: string, httpHint?: string): st
 }
 
 async function fetcher(url: string): Promise<ProductsAssetsResponse> {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   const text = await res.text();
   if (!res.ok) {
     const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
@@ -295,13 +295,24 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const pendingFieldValuesRef = React.useRef<PendingFieldValues>({});
   const pendingDeletedIdsRef = React.useRef<Set<string>>(new Set());
   const [pendingDeletedRenderTick, setPendingDeletedRenderTick] = React.useState(0);
+  const [pendingFieldsRenderTick, setPendingFieldsRenderTick] = React.useState(0);
+
+  const bumpPendingFieldsTick = React.useCallback(() => {
+    setPendingFieldsRenderTick((t) => t + 1);
+  }, []);
 
   const rawData = localOverride ?? swrData ?? null;
   const data = React.useMemo(() => {
     if (!rawData) return null;
-    if (pendingDeletedIdsRef.current.size === 0) return rawData;
-    return applyPendingDeletes(rawData, pendingDeletedIdsRef.current);
-  }, [rawData, pendingDeletedRenderTick]);
+    let next = rawData;
+    if (hasPendingFieldValues(pendingFieldValuesRef.current)) {
+      next = applyPendingFieldValues(next, pendingFieldValuesRef.current);
+    }
+    if (pendingDeletedIdsRef.current.size > 0) {
+      next = applyPendingDeletes(next, pendingDeletedIdsRef.current);
+    }
+    return next;
+  }, [rawData, pendingDeletedRenderTick, pendingFieldsRenderTick]);
 
   const dataRef = React.useRef<ProductsAssetsResponse | null>(data);
 
@@ -321,6 +332,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const runRevalidation = React.useCallback(async () => {
     const freshData = await fetcher(cacheKey);
     reconcilePendingFieldValues(pendingFieldValuesRef.current, freshData);
+    bumpPendingFieldsTick();
     const deletedSizeBefore = pendingDeletedIdsRef.current.size;
     reconcilePendingDeletions(pendingDeletedIdsRef.current, freshData);
     if (pendingDeletedIdsRef.current.size !== deletedSizeBefore) {
@@ -353,7 +365,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         void runRevalidation();
       }, REVALIDATION_DELAY_MS);
     }
-  }, [cacheKey, swrMutate]);
+  }, [cacheKey, swrMutate, bumpPendingFieldsTick]);
 
   const scheduleRevalidation = React.useCallback(() => {
     if (revalidationTimerRef.current) {
@@ -403,6 +415,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       mutate: async (optimisticData?: ProductsAssetsResponse) => {
         if (optimisticData) {
           collectPendingFieldValues(pendingFieldValuesRef.current, dataRef.current, optimisticData);
+          bumpPendingFieldsTick();
           const deletedBeforeCollect = pendingDeletedIdsRef.current.size;
           collectPendingDeletions(
             pendingDeletedIdsRef.current,
@@ -431,6 +444,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
           scheduleRevalidation();
         } else {
           pendingFieldValuesRef.current = {};
+          bumpPendingFieldsTick();
           pendingDeletedIdsRef.current.clear();
           persistPendingDeleteIds(pendingDeletedIdsRef.current);
           setPendingDeletedRenderTick(t => t + 1);
@@ -444,7 +458,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         }
       }
     }),
-    [data, error, isStaleOfflineSnapshot, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData]
+    [data, error, isStaleOfflineSnapshot, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData, bumpPendingFieldsTick]
   );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;
