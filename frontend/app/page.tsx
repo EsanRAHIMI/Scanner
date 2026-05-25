@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { safelyVoid } from '@/lib/client-log';
+import { getPublicServiceUrl } from '@/lib/public-urls';
 
 interface ServiceStatus {
   name: string;
@@ -39,39 +40,25 @@ export default function Home() {
                   typeof window !== 'undefined' && 
                   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-  const trainerUrl = isLocal 
-    ? 'http://localhost:3010/'
-    : 'https://trainer.ehsanrahimi.com/';
+  const trainerUrl = isLocal ? 'http://localhost:3010/' : `${getPublicServiceUrl('trainer')}/`;
 
-  const productsUrl = isLocal
-    ? 'http://localhost:3004'
-    : 'https://products.ehsanrahimi.com/';
+  const productsUrl = isLocal ? 'http://localhost:3004' : getPublicServiceUrl('products');
 
-  const calendarUrl = isLocal
-    ? 'http://localhost:3005/calendar'
-    : `${productsUrl}/calendar`;
+  const calendarUrl = isLocal ? 'http://localhost:3005/calendar' : `${getPublicServiceUrl('marketing')}/calendar`;
 
-  const marketingUrl = isLocal
-    ? 'http://localhost:3005'
-    : 'https://marketing.ehsanrahimi.com/';
+  const marketingUrl = isLocal ? 'http://localhost:3005' : getPublicServiceUrl('marketing');
 
-  const scannerUrl = isLocal
-    ? 'http://localhost:3003/scanner'
-    : '/scanner';
+  const scannerUrl = isLocal ? 'http://localhost:3003/scanner' : '/scanner';
 
-  const statusUrl = isLocal
-    ? 'http://localhost:3003/status'
-    : '/status';
+  const statusUrl = isLocal ? 'http://localhost:3003/status' : '/status';
 
-  const apiDocsUrl = isLocal
-    ? 'http://localhost:8000/docs'
-    : 'https://lorenzo.ehsanrahimi.com/api/docs';
+  const apiDocsUrl = isLocal ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('lorenzo', '/api/docs')}`;
 
-  const trainerApiDocsUrl = isLocal
-    ? 'http://localhost:8010/docs'
-    : 'https://trainer.ehsanrahimi.com/api/docs';
+  const trainerApiDocsUrl = isLocal ? 'http://localhost:8010/docs' : `${getPublicServiceUrl('trainer', '/api/docs')}`;
 
-  const trainerLoginUrl = isLocal ? 'http://localhost:3010/login?next=/' : 'https://trainer.ehsanrahimi.com/login?next=/';
+  const trainerLoginUrl = isLocal
+    ? 'http://localhost:3010/login?next=/'
+    : `${getPublicServiceUrl('trainer', '/login?next=/')}`;
   const canManageLocalGit = isLocal && !!authUser && (Boolean(authUser.is_admin) || (authUser.role || '').toLowerCase() === 'admin');
   const gitStatusLines = useMemo(
     () => (gitStatus?.status ? gitStatus.status.split('\n').map((x) => x.trim()).filter(Boolean) : []),
@@ -160,11 +147,20 @@ export default function Home() {
 
     // Check all services
     const services = [
-      { name: 'Backend API', url: isLocal ? 'http://localhost:8000/health' : 'https://lorenzo.ehsanrahimi.com/api/health' },
-      { name: 'Trainer API', url: isLocal ? 'http://localhost:8010/health' : 'https://trainer.ehsanrahimi.com/api/health' },
+      {
+        name: 'Backend API',
+        url: isLocal ? 'http://localhost:8000/health' : `${getPublicServiceUrl('lorenzo', '/api/health')}`,
+      },
+      {
+        name: 'Trainer API',
+        url: isLocal ? 'http://localhost:8010/health' : `${getPublicServiceUrl('trainer', '/api/health')}`,
+      },
       { name: 'Products Service', url: isLocal ? 'http://localhost:3004' : productsUrl },
       { name: 'Marketing Service', url: marketingUrl },
-      { name: 'MongoDB', url: isLocal ? 'http://localhost:8000/mongodb/health' : 'https://trainer.ehsanrahimi.com/api/mongodb/health' }
+      {
+        name: 'MongoDB',
+        url: isLocal ? 'http://localhost:8000/mongodb/health' : `${getPublicServiceUrl('trainer', '/api/mongodb/health')}`,
+      },
     ];
 
     // Initial check

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 
+import { getPublicServiceUrl } from '@/lib/public-urls';
 import { Button } from '@/ui/button';
 import {
   Card,
@@ -35,11 +36,14 @@ export default async function StatusPage() {
 
   const local = isLocalHost(host);
 
-  const backendBase = local ? 'http://localhost:8000' : 'https://lorenzo.ehsanrahimi.com/api';
-  const trainerBase = local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
+  const backendHealthUrl = local ? 'http://localhost:8000/health' : `${origin}/api/health`;
+  const trainerHealthUrl = local ? 'http://localhost:8010/health' : `${origin}/api/trainer/health`;
 
-  const backendHealthUrl = `${backendBase}/health`;
-  const trainerHealthUrl = `${trainerBase}/health`;
+  const backendDocsUrl = local ? 'http://localhost:8000/docs' : `${getPublicServiceUrl('lorenzo', '/api/docs')}`;
+  const trainerDocsUrl = local ? 'http://localhost:8010/docs' : `${getPublicServiceUrl('trainer', '/api/docs')}`;
+  const trainerOpenApiUrl = local
+    ? 'http://localhost:8010/openapi.json'
+    : `${getPublicServiceUrl('trainer', '/api/openapi.json')}`;
 
   const [backendHealth, trainerHealth] = await Promise.all([
     check(backendHealthUrl),
@@ -61,7 +65,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Backend API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8000' : 'https://lorenzo.ehsanrahimi.com/api'}</CardDescription>
+              <CardDescription>{local ? 'http://localhost:8000' : '/api'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
@@ -78,17 +82,12 @@ export default async function StatusPage() {
             <CardFooter className="flex flex-wrap gap-2">
               <Button asChild variant="outline">
                 <Link href={backendHealthUrl} target="_blank">
-                  {local ? backendHealthUrl : '/api/health'}
+                  Health
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href={`${backendBase}/docs`} target="_blank">
-                  {local ? `${backendBase}/docs` : '/api/docs'}
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href={`${backendBase}/openapi.json`} target="_blank">
-                  {local ? `${backendBase}/openapi.json` : '/api/openapi.json'}
+                <Link href={backendDocsUrl} target="_blank">
+                  Docs
                 </Link>
               </Button>
             </CardFooter>
@@ -97,7 +96,7 @@ export default async function StatusPage() {
           <Card className="border-black/10">
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">Trainer Server API</CardTitle>
-              <CardDescription>{local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api'}</CardDescription>
+              <CardDescription>{local ? 'http://localhost:8010' : '/api/trainer'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="text-sm">
@@ -114,28 +113,22 @@ export default async function StatusPage() {
             <CardFooter className="flex flex-wrap gap-2">
               <Button asChild variant="outline">
                 <Link href={trainerHealthUrl} target="_blank">
-                  {local ? trainerHealthUrl : 'https://trainer.ehsanrahimi.com/api/health'}
+                  Health
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href={`${trainerBase}/docs`} target="_blank">
-                  {local ? `${trainerBase}/docs` : 'https://trainer.ehsanrahimi.com/api/docs'}
+                <Link href={trainerDocsUrl} target="_blank">
+                  Docs
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href={`${trainerBase}/openapi.json`} target="_blank">
-                  {local ? `${trainerBase}/openapi.json` : 'https://trainer.ehsanrahimi.com/api/openapi.json'}
+                <Link href={trainerOpenApiUrl} target="_blank">
+                  OpenAPI
                 </Link>
               </Button>
             </CardFooter>
           </Card>
         </section>
-
-        <footer className="border-t border-black/10 pt-6">
-          <Button asChild variant="outline">
-            <Link href="/">Back</Link>
-          </Button>
-        </footer>
       </div>
     </main>
   );

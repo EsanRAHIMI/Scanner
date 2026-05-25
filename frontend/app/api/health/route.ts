@@ -1,23 +1,6 @@
 import { NextResponse } from 'next/server';
 
-function getBackendHealthUrl() {
-  const v = process.env.BACKEND_HEALTH_URL;
-  if (v) return v;
-
-  const detect = process.env.BACKEND_DETECT_URL;
-  if (detect) {
-    try {
-      const u = new URL(detect);
-      u.pathname = u.pathname.replace(/\/detect\/?$/, '/health');
-      return u.toString();
-    } catch {
-      return detect.replace(/\/detect\/?$/, '/health');
-    }
-  }
-
-  if (process.env.NODE_ENV === 'production') return 'http://backend:8000/health';
-  return 'http://127.0.0.1:8000/health';
-}
+import { getBackendHealthUrl } from '@/lib/env';
 
 export async function GET() {
   try {

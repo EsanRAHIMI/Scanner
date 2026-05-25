@@ -7,6 +7,7 @@ import { DamCacheProvider } from './dam-cache-provider';
 import { ProductsCacheProvider } from './products-cache-provider';
 import { AuthGate } from './auth-gate';
 import { TrainerNavbar } from './trainer-navbar';
+import { getScannerUrl } from '@/lib/env';
 
 export const metadata: Metadata = {
   title: 'Lorenzo Trainer',
@@ -15,12 +16,6 @@ export const metadata: Metadata = {
     icon: '/favicon.ico',
   },
 };
-
-function getScannerUrl() {
-  const fromEnv = process.env.NEXT_PUBLIC_SCANNER_URL;
-  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-  return process.env.NODE_ENV === 'production' ? 'https://lorenzo.ehsanrahimi.com/scanner' : 'http://localhost:3003/scanner';
-}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const scannerUrl = getScannerUrl();

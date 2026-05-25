@@ -163,7 +163,7 @@ export function ListView({
         title: 'Google Drive image',
       };
     }
-    if (lower.includes('trainer.ehsanrahimi.com/api/static/product_images/')) {
+    if (/\/api\/static\/product_images\//i.test(lower)) {
       return {
         kind: 'trainer',
         title: 'Trainer static image',

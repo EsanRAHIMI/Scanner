@@ -558,7 +558,7 @@ export function isTrainerHostedMediaUrl(url: string | null | undefined): boolean
   if (!url) return false;
   const lower = url.trim().toLowerCase();
   return (
-    lower.includes('trainer.ehsanrahimi.com/api/static/product_images/') ||
+    /\/api\/static\/product_images\//i.test(lower) ||
     lower.startsWith('/api/trainer/files/') ||
     lower.startsWith('/files/') ||
     lower.includes('/api/trainer/files/') ||

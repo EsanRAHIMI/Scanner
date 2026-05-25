@@ -1,8 +1,12 @@
-export function getTrainerApiBase() {
-  const v = process.env.NEXT_PUBLIC_TRAINER_API_BASE;
-  if (!v) {
-    if (process.env.NODE_ENV === 'production') return '/trainer/api';
-    return 'http://localhost:8010';
-  }
-  return v;
+import { getDefaultTrainerApiBase } from '@/lib/public-urls';
+
+function trimBase(url: string): string {
+  return url.replace(/\/+$/, '');
+}
+
+export function getTrainerApiBase(): string {
+  const v = process.env.NEXT_PUBLIC_TRAINER_API_BASE?.trim();
+  if (v) return trimBase(v);
+  if (process.env.NODE_ENV !== 'production') return 'http://localhost:8010';
+  return trimBase(getDefaultTrainerApiBase());
 }

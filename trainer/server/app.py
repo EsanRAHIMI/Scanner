@@ -1002,6 +1002,37 @@ def _env_str(name: str, default: str) -> str:
   return raw if raw else default
 
 
+def _local_dev_cors_origins() -> list[str]:
+  return [
+    "http://localhost:3010",
+    "http://127.0.0.1:3010",
+    "http://localhost:3004",
+    "http://127.0.0.1:3004",
+    "http://localhost:3003",
+    "http://127.0.0.1:3003",
+    "http://localhost:3005",
+    "http://127.0.0.1:3005",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+  ]
+
+
+def _cors_allow_origins() -> list[str]:
+  raw = os.environ.get("TRAINER_CORS_ORIGINS")
+  if raw:
+    origins = [x.strip() for x in raw.split(",") if x.strip()]
+    return origins + _local_dev_cors_origins()
+
+  domain = os.environ.get("APP_BASE_DOMAIN", "ehsanrahimi.com").strip() or "ehsanrahimi.com"
+  production = [
+    f"https://lorenzo.{domain}",
+    f"https://products.{domain}",
+    f"https://marketing.{domain}",
+    f"https://trainer.{domain}",
+  ]
+  return production + _local_dev_cors_origins()
+
+
 def _is_production() -> bool:
   return (os.environ.get("ENV") == "production") or (os.environ.get("NODE_ENV") == "production")
 
@@ -1528,20 +1559,7 @@ async def _require_operator(user: dict[str, Any] = Depends(_get_current_user)) -
 
 api.add_middleware(
   CORSMiddleware,
-  allow_origins=[
-    "http://localhost:3010",
-    "http://127.0.0.1:3010",
-    "http://localhost:3004",
-    "http://127.0.0.1:3004",
-    "http://localhost:3003",
-    "http://127.0.0.1:3003",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://lorenzo.ehsanrahimi.com",
-    "https://products.ehsanrahimi.com",
-    "https://marketing.ehsanrahimi.com",
-    "https://trainer.ehsanrahimi.com",
-  ],
+  allow_origins=_cors_allow_origins(),
   allow_credentials=True,
   allow_methods=["*"],
   allow_headers=["*"],

@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server';
 
-function getBackendDetectUrl() {
-  const v = process.env.BACKEND_DETECT_URL;
-  if (v) return v;
-  if (process.env.NODE_ENV === 'production') return 'http://backend:8000/detect';
-  return 'http://127.0.0.1:8000/detect';
-}
+import { getBackendDetectUrl } from '@/lib/env';
 
 function getOptionalBackendDetectSignal(): AbortSignal | undefined {
   const raw = process.env.BACKEND_DETECT_TIMEOUT_MS;

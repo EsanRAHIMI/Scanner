@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server';
 
-function resolveTrainerBase(req: Request) {
-  const explicit = process.env.TRAINER_API_BASE?.trim();
-  if (explicit) return explicit.endsWith('/') ? explicit.slice(0, -1) : explicit;
+import { getTrainerApiBase } from '@/lib/env';
 
+function resolveTrainerBase(req: Request) {
+  const base = getTrainerApiBase();
   const host = req.headers.get('host') || '';
   const local = host.includes('localhost') || host.includes('127.0.0.1');
-  return local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
+  if (local && !base.startsWith('http')) return 'http://localhost:8010';
+  if (base.startsWith('/')) {
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+    return `${proto}://${host}${base}`;
+  }
+  return base;
 }
 
 export async function GET(req: Request) {

@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { NextResponse } from 'next/server';
 
+import { getTrainerApiBase } from '@/lib/env';
+
 const execFileAsync = promisify(execFile);
 const REPO_ROOT = process.env.LOCAL_GIT_REPO_ROOT || '/Users/ehsanrahimi/Works/scanner';
 
@@ -13,12 +15,15 @@ function isLocalRequest(req: Request): boolean {
 }
 
 function resolveTrainerBase(req: Request) {
-  const explicit = process.env.TRAINER_API_BASE?.trim();
-  if (explicit) return explicit.endsWith('/') ? explicit.slice(0, -1) : explicit;
-
+  const base = getTrainerApiBase();
   const host = req.headers.get('host') || '';
   const local = host.includes('localhost') || host.includes('127.0.0.1');
-  return local ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
+  if (local && !base.startsWith('http')) return 'http://localhost:8010';
+  if (base.startsWith('/')) {
+    const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+    return `${proto}://${host}${base}`;
+  }
+  return base;
 }
 
 async function isAuthorized(req: Request): Promise<boolean> {

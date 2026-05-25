@@ -5,6 +5,7 @@ import * as React from 'react';
 import { Button } from '@/ui/button';
 
 import { clientLog, safelyVoid } from '@/lib/client-log';
+import { getPublicServiceUrl } from '@/lib/public-urls';
 
 type Product = {
   id: string;
@@ -205,8 +206,8 @@ export default function ScannerPage() {
           ? true
           : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-      const base = isLocal ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
-      const res = await fetch(`${base}/classes`, { cache: 'no-store' });
+      const base = isLocal ? 'http://localhost:8010' : '/api/trainer';
+      const res = await fetch(`${base}/classes`, { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
 
       if (res.status === 401 || res.status === 403) {
@@ -583,9 +584,9 @@ export default function ScannerPage() {
           ? true
           : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-      const base = isLocal ? 'http://localhost:8010' : 'https://trainer.ehsanrahimi.com/api';
+      const base = isLocal ? 'http://localhost:8010' : '/api/trainer';
       const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
@@ -658,7 +659,8 @@ export default function ScannerPage() {
       typeof window === 'undefined'
         ? true
         : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    return isLocal ? 'http://localhost:3010/trainer/dam' : 'https://trainer.ehsanrahimi.com/dam';
+    if (isLocal) return 'http://localhost:3010/trainer/dam';
+    return getPublicServiceUrl('trainer', '/dam');
   }, []);
 
   React.useEffect(() => {
