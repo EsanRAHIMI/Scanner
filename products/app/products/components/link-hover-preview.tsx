@@ -8,7 +8,12 @@ import {
   isVideoUrl,
   getDriveDirectLink,
 } from '../lib/product-utils';
-import { prefetchMediaPreview, resolvePreviewSrc } from '../lib/media-preview-cache';
+import {
+  isPreviewLoadBlocked,
+  prefetchMediaPreview,
+  registerPreviewFailed,
+  resolvePreviewSrc,
+} from '../lib/media-preview-cache';
 import type { LinkHoverState } from '../types/shared-types';
 
 interface LinkHoverPreviewProps {
@@ -22,13 +27,22 @@ function HoverPreviewImage({ url }: { url: string }) {
   );
 
   React.useEffect(() => {
+    const hover = resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_HOVER);
     const thumb = resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB);
-    setSrc(thumb || getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER));
+    const resolved = hover || thumb;
+    if (resolved) {
+      setSrc(resolved);
+    } else if (!isPreviewLoadBlocked(url, DRIVE_IMAGE_WIDTH_HOVER)) {
+      const direct = getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER);
+      if (direct) setSrc(direct);
+    }
     let cancelled = false;
-    void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_HOVER).then((loaded) => {
-      if (cancelled || !loaded) return;
-      setSrc(loaded);
-    });
+    if (!isPreviewLoadBlocked(url, DRIVE_IMAGE_WIDTH_HOVER)) {
+      void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_HOVER).then((loaded) => {
+        if (cancelled || !loaded) return;
+        setSrc(loaded);
+      });
+    }
     return () => {
       cancelled = true;
     };
@@ -43,9 +57,8 @@ function HoverPreviewImage({ url }: { url: string }) {
       decoding="async"
       referrerPolicy="no-referrer"
       className="h-full w-full object-cover"
-      onError={(e) => {
-        const el = e.target as HTMLImageElement;
-        if (el.src !== url) el.src = url;
+      onError={() => {
+        registerPreviewFailed(url, DRIVE_IMAGE_WIDTH_HOVER);
       }}
     />
   );

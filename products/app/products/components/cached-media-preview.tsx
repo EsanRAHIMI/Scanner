@@ -1,7 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { registerPreviewLoaded, resolvePreviewSrc } from '../lib/media-preview-cache';
+import {
+  registerPreviewFailed,
+  registerPreviewLoaded,
+  resolvePreviewSrc,
+} from '../lib/media-preview-cache';
 
 interface CachedMediaPreviewProps {
   url: string;
@@ -67,7 +71,10 @@ export function CachedMediaPreview({
         const el = e.currentTarget;
         registerPreviewLoaded(url, width, el.currentSrc || el.src);
       }}
-      onError={() => setBroken(true)}
+      onError={() => {
+        registerPreviewFailed(url, width);
+        setBroken(true);
+      }}
       className={className}
     />
   );

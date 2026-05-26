@@ -38,6 +38,7 @@ import {
   getFirstVisibleListRecordId,
 } from './lib/product-utils';
 import { isScrollContainerNearEnd } from './lib/load-more-scroll';
+import { invalidateMediaPreviewForUrl } from './lib/media-preview-cache';
 
 import { 
   getTagColorStyles,
@@ -457,6 +458,12 @@ export function ProductsView({
     [handleHideMediaFromGallery],
   );
 
+  const bumpMediaPreviewCache = React.useCallback((...urls: Array<string | undefined>) => {
+    for (const u of urls) {
+      if (u?.trim()) invalidateMediaPreviewForUrl(u);
+    }
+  }, []);
+
   const handleSaveUrl = async () => {
     if (!editingUrl || mutations.isSaving) return;
     const savedRecordId = editingUrl.id;
@@ -481,6 +488,7 @@ export function ProductsView({
         if (!editingUrl.value.trim()) {
           const patch = buildFieldsAfterHidingGalleryMedia(record.fields, targetUrl, columns);
           await mutations.handleSaveFields(editingUrl.id, patch, records);
+          bumpMediaPreviewCache(targetUrl);
         } else {
           const patch = buildFieldsAfterReplacingMediaUrl(
             record.fields,
@@ -493,6 +501,7 @@ export function ProductsView({
           } else {
             await mutations.handleSaveFields(editingUrl.id, patch, records);
           }
+          bumpMediaPreviewCache(targetUrl, finalValueToSave);
         }
       } catch {
         window.alert('Could not save link. Please try again.');
@@ -531,6 +540,7 @@ export function ProductsView({
       } else {
         await mutations.handleSaveFields(editingUrl.id, patch, records);
       }
+      bumpMediaPreviewCache(trimmed);
     } catch {
       window.alert('Could not save link. Please try again.');
       return;
