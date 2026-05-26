@@ -19,6 +19,21 @@ html {
   textarea {
     font-size: 16px;
   }
+
+  /* List view: URL column — fixed inner scroll, row height must not grow with link count */
+  td.url-table-cell {
+    overflow: hidden;
+    vertical-align: top;
+  }
+
+  .url-cell-scroll {
+    max-height: 6rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
 }
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────── */

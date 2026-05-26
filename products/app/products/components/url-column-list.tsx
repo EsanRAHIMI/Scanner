@@ -15,6 +15,10 @@ import type { EditingUrlState, LinkHoverState } from '../types/shared-types';
 
 const REORDER_MIME = 'application/x-url-reorder';
 
+/** Mobile: `.url-cell-scroll` in globals.css caps height; table rows ignore td max-height. */
+const URL_LIST_SCROLL_CLASS =
+  'url-cell-scroll scrollbar-minimal flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-y-contain py-0.5 sm:max-h-[140px]';
+
 type UrlSourceBadge = { kind: string; title: string } | null;
 
 function reorderUrls(urls: string[], from: number, to: number): string[] {
@@ -30,7 +34,7 @@ function reorderUrls(urls: string[], from: number, to: number): string[] {
 function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
   const [broken, setBroken] = React.useState(false);
   const isVideo = isVideoUrl(url);
-  const { ref, inView } = useInView<HTMLDivElement>('120px 0px');
+  const { ref, inView } = useInView<HTMLDivElement>('40px 0px');
 
   React.useEffect(() => {
     setBroken(false);
@@ -238,10 +242,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
   );
 
   return (
-    <div
-      className="scrollbar-minimal flex max-h-[140px] flex-col gap-0.5 overflow-y-auto py-0.5"
-      onDragOver={onListDragOver}
-    >
+    <div className={URL_LIST_SCROLL_CLASS} onDragOver={onListDragOver}>
       {editingUrl?.id === recordId &&
       (editingUrl.column === column || !editingUrl.column) &&
       (editingUrl.mode === 'prepend' || (!editingUrl.mode && editingUrl.index === undefined)) ? (

@@ -1,11 +1,13 @@
 'use client';
 
 import * as React from 'react';
+import { useListScrollRoot } from '../components/list-scroll-root';
 
 /** True once the element intersects the viewport (optionally with rootMargin). Stays true after first hit. */
 export function useInView<T extends HTMLElement>(rootMargin = '200px 0px') {
   const ref = React.useRef<T>(null);
   const [inView, setInView] = React.useState(false);
+  const scrollRoot = useListScrollRoot();
 
   React.useEffect(() => {
     const el = ref.current;
@@ -18,12 +20,12 @@ export function useInView<T extends HTMLElement>(rootMargin = '200px 0px') {
           observer.disconnect();
         }
       },
-      { rootMargin },
+      { root: scrollRoot, rootMargin },
     );
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [inView, rootMargin]);
+  }, [inView, rootMargin, scrollRoot]);
 
   return { ref, inView };
 }

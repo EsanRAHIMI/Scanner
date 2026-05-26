@@ -9,6 +9,7 @@ import {
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { useInView } from '../hooks/use-in-view';
+import { useNarrowViewport } from '../hooks/use-narrow-viewport';
 import { CachedMediaPreview } from './cached-media-preview';
 
 import { PhotoDeckProps } from '../types/products-ui';
@@ -25,11 +26,72 @@ const PhotoDeck = React.memo(({
   onMouseEnter,
   onMouseLeave,
 }: PhotoDeckProps) => {
-  const visibleUrls = urls.slice(0, maxItems);
-  const { ref: inViewRef, inView } = useInView<HTMLDivElement>('280px 0px');
+  const narrow = useNarrowViewport();
+  const visibleUrls = urls.slice(0, narrow ? 1 : maxItems);
+  const previewWidth = DRIVE_IMAGE_WIDTH_LIST;
+  const inViewMargin = narrow ? '48px 0px' : '200px 0px';
+  const { ref: inViewRef, inView } = useInView<HTMLDivElement>(inViewMargin);
   const [stackExpanded, setStackExpanded] = React.useState(false);
 
   if (visibleUrls.length === 0) return null;
+
+  const primaryUrl = visibleUrls[0];
+  const primaryIsVideo = isVideoUrl(primaryUrl);
+  const primaryPreviewUrl = getDriveDirectLink(primaryUrl, DRIVE_IMAGE_WIDTH_FULL);
+
+  if (narrow) {
+    return (
+      <div ref={inViewRef} className="pointer-events-auto w-full">
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            beginLightboxTrace('photo-deck');
+            markLightboxTrace('click:handler');
+            onOpenPreview?.(primaryPreviewUrl);
+          }}
+          title={
+            primaryPreviewUrl
+              ? `${primaryIsVideo ? 'Video' : 'Image'}${urls.length > 1 ? ` (+${urls.length - 1} more)` : ''}`
+              : 'No content'
+          }
+          aria-label={`View ${primaryIsVideo ? 'video' : 'image'}`}
+          className="block w-full overflow-hidden rounded-md border border-black/15 bg-white shadow-sm focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-white/20 dark:bg-black/40"
+          draggable
+          onMouseEnter={(e) => onMouseEnter?.(primaryUrl, e)}
+          onMouseLeave={() => onMouseLeave?.()}
+          onDragStart={(e) => {
+            if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
+            e.dataTransfer.setData('text/plain', primaryUrl);
+            onDragStart?.(primaryUrl);
+          }}
+          onDragEnd={() => onDragEnd?.()}
+        >
+          <div className="relative aspect-square w-full overflow-hidden">
+            {primaryIsVideo ? (
+              <div className="flex h-full w-full items-center justify-center bg-black/10 dark:bg-white/10">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/30 shadow-lg backdrop-blur-sm">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </div>
+            ) : (
+              <CachedMediaPreview
+                url={primaryUrl}
+                width={previewWidth}
+                enabled={inView}
+                priority={inView}
+                className="block h-full w-full object-cover"
+                alt="Product image"
+              />
+            )}
+          </div>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -65,7 +127,7 @@ const PhotoDeck = React.memo(({
                 '--idx': revIdx,
                 zIndex: 10 - revIdx,
               } as React.CSSProperties}
-              className={`absolute transition-all duration-300 ease-out origin-bottom
+              className={`absolute origin-bottom transition-all duration-300 ease-out max-sm:transition-none
                 [transform:rotate(calc(var(--idx)*3.2deg))_translate(calc(var(--idx)*4px),calc(var(--idx)*-2px))]
                 group-hover:[transform:rotate(calc(var(--idx)*8deg))_translate(calc(var(--idx)*16px),calc(var(--idx)*-5px))]
                 hover:!scale-110 focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-md
@@ -81,7 +143,7 @@ const PhotoDeck = React.memo(({
               onDragEnd={() => onDragEnd?.()}
               tabIndex={0}
             >
-              <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
+              <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm ring-1 ring-black/10 backdrop-blur-[2px] dark:border-white/25 dark:bg-black/60 dark:ring-white/10">
                 {isVideo ? (
                   <div className="flex h-full w-full items-center justify-center bg-black/10 dark:bg-white/10">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">
@@ -93,7 +155,7 @@ const PhotoDeck = React.memo(({
                 ) : (
                   <CachedMediaPreview
                     url={u}
-                    width={DRIVE_IMAGE_WIDTH_LIST}
+                    width={previewWidth}
                     enabled={shouldLoadImage}
                     priority={isTopCard && inView}
                     className="block h-full w-full object-cover"
@@ -105,7 +167,7 @@ const PhotoDeck = React.memo(({
           );
         })}
       {urls.length > 1 ? (
-        <div className="pointer-events-none absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] translate-x-[20%] translate-y-[20%] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl transition-transform group-hover:scale-110">
+        <div className="pointer-events-none absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] translate-x-[20%] translate-y-[20%] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl transition-transform group-hover:scale-110 max-sm:hidden">
           +{urls.length - 1}
         </div>
       ) : null}

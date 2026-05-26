@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { prefetchMediaPreview, resolvePreviewSrc } from '../lib/media-preview-cache';
+import { registerPreviewLoaded, resolvePreviewSrc } from '../lib/media-preview-cache';
 
 interface CachedMediaPreviewProps {
   url: string;
@@ -35,14 +35,6 @@ export function CachedMediaPreview({
     }
     setBroken(false);
     setSrc(resolvePreviewSrc(url, width));
-    let cancelled = false;
-    void prefetchMediaPreview(url, width).then((loaded) => {
-      if (cancelled || !loaded) return;
-      setSrc(loaded);
-    });
-    return () => {
-      cancelled = true;
-    };
   }, [url, width, enabled]);
 
   React.useEffect(() => {
@@ -68,9 +60,13 @@ export function CachedMediaPreview({
       alt={alt}
       loading={priority ? 'eager' : 'lazy'}
       decoding="async"
-      fetchPriority={priority ? 'high' : 'auto'}
+      fetchPriority={priority ? 'high' : 'low'}
       referrerPolicy="no-referrer"
       draggable={false}
+      onLoad={(e) => {
+        const el = e.currentTarget;
+        registerPreviewLoaded(url, width, el.currentSrc || el.src);
+      }}
       onError={() => setBroken(true)}
       className={className}
     />

@@ -7,12 +7,21 @@ import {
 const loadedSrcByKey = new Map<string, string>();
 const loadPromises = new Map<string, Promise<string | null>>();
 
-const MAX_CONCURRENT_PREFETCH = 8;
+const MAX_CONCURRENT_PREFETCH_DESKTOP = 8;
+const MAX_CONCURRENT_PREFETCH_MOBILE = 3;
+
+function maxConcurrentPrefetches(): number {
+  if (typeof window === 'undefined') return MAX_CONCURRENT_PREFETCH_DESKTOP;
+  return window.matchMedia('(max-width: 639px)').matches
+    ? MAX_CONCURRENT_PREFETCH_MOBILE
+    : MAX_CONCURRENT_PREFETCH_DESKTOP;
+}
+
 let activePrefetches = 0;
 const prefetchQueue: Array<() => void> = [];
 
 function drainPrefetchQueue() {
-  while (activePrefetches < MAX_CONCURRENT_PREFETCH && prefetchQueue.length > 0) {
+  while (activePrefetches < maxConcurrentPrefetches() && prefetchQueue.length > 0) {
     const run = prefetchQueue.shift();
     if (run) run();
   }
@@ -30,7 +39,7 @@ function schedulePrefetch<T>(task: () => Promise<T>): Promise<T> {
           drainPrefetchQueue();
         });
     };
-    if (activePrefetches < MAX_CONCURRENT_PREFETCH) run();
+    if (activePrefetches < maxConcurrentPrefetches()) run();
     else prefetchQueue.push(run);
   });
 }
@@ -47,6 +56,13 @@ export function resolvePreviewSrc(url: string, width: number): string {
 
 export function isPreviewLoaded(url: string, width: number): boolean {
   return loadedSrcByKey.has(previewCacheKey(url, width));
+}
+
+/** Called when a preview `<img>` finishes loading (avoids duplicate prefetch fetches). */
+export function registerPreviewLoaded(url: string, width: number, loadedSrc: string): void {
+  const key = previewCacheKey(url, width);
+  loadedSrcByKey.set(key, loadedSrc);
+  loadPromises.delete(key);
 }
 
 function loadImageSrc(src: string, key: string): Promise<string | null> {

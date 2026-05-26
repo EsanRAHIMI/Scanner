@@ -28,6 +28,7 @@ import {
 } from '../lib/constants';
 import { isContentStatusFieldName } from '../lib/product-utils';
 import { PhotoDeck } from './photo-deck';
+import { ListScrollRootContext } from './list-scroll-root';
 import { UrlColumnList, isUrlReorderDragEvent } from './url-column-list';
 import { ProductsSkeleton } from './products-skeleton';
 
@@ -182,6 +183,15 @@ export function ListView({
   moderationMode = false,
   changeAudit,
 }: ListViewProps) {
+  const [listScrollRoot, setListScrollRoot] = React.useState<HTMLElement | null>(null);
+  const assignScrollContainerRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      setListScrollRoot(node);
+      if (scrollContainerRef) scrollContainerRef.current = node;
+    },
+    [scrollContainerRef],
+  );
+
   const recordById = React.useMemo(() => {
     const map = new Map<string, ProductsRecord>();
     for (const r of records) map.set(r.id, r);
@@ -393,7 +403,7 @@ export function ListView({
         }
 
         return (
-          <div className="relative flex min-h-[48px] w-full items-center justify-center transition-all rounded-lg max-sm:max-w-[6.5rem] max-sm:justify-start max-sm:overflow-hidden">
+          <div className="relative flex min-h-[48px] w-full items-center justify-center transition-all rounded-lg max-sm:min-h-0 max-sm:w-full max-sm:justify-stretch max-sm:overflow-hidden">
             <PhotoDeck 
               urls={urls} 
               maxItems={4} 
@@ -449,7 +459,12 @@ export function ListView({
                 </svg>
               </button>
             )}
-            <div className={`group flex min-h-[1.5rem] flex-col gap-1 ${urls.length === 0 ? 'items-center justify-center' : ''}`}>
+            <div
+              className={
+                'group flex min-h-[1.5rem] flex-col gap-1 max-sm:min-h-0 max-sm:gap-0 max-sm:overflow-hidden ' +
+                (urls.length === 0 ? 'items-center justify-center' : '')
+              }
+            >
               {urls.length === 0 ? (
                 <div className="flex w-full items-center justify-center py-1">
                   {canEdit ? (
@@ -768,8 +783,9 @@ export function ListView({
 
   return (
     <div className="relative flex-1 min-h-0 w-full animate-fade-in border border-x-0 border-black/10 bg-white shadow-none dark:border-white/10 dark:bg-black/25 max-sm:-ml-5 max-sm:w-[calc(100%+2.5rem)] max-sm:max-w-none max-sm:rounded-none sm:ml-0 sm:w-full sm:rounded-xl sm:border-x sm:shadow-sm">
+      <ListScrollRootContext.Provider value={listScrollRoot}>
       <div
-        ref={scrollContainerRef}
+        ref={assignScrollContainerRef}
         className="scrollbar-minimal h-full min-h-0 w-full overflow-auto"
       >
       <table className="min-w-full table-auto text-left text-sm border-separate border-spacing-0">
@@ -849,7 +865,7 @@ export function ListView({
                   key={r.id}
                   data-product-row-id={r.id}
                   className={
-                    'align-middle transition-colors ' +
+                    'align-middle transition-colors max-sm:[contain-intrinsic-size:auto_7rem] max-sm:[content-visibility:auto] max-sm:transition-none ' +
                     (isGroupStart ? `border-t-2 ${groupBorderClass} ` : 
                      isInGroup ? 'border-t-0 ' : 
                      'border-t border-black/10 dark:border-white/10 ') +
@@ -890,13 +906,14 @@ export function ListView({
                         key={c}
                         className={
                           listCellAlignClass() +
-                          'relative transition-all ' +
+                          'relative transition-all max-sm:transition-none ' +
                           listColumnStackClass(normalizedCol, isFirstCol, rowSelected, isInGroup) +
                           (isFirstCol ? (isGroupStart ? `border-t-0 ` : '') : '') +
-                          (isImageCol ? 'max-sm:overflow-hidden ' : '') +
+                          (isImageCol ? 'max-sm:overflow-hidden max-sm:!p-1 ' : '') +
                           (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
                           (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
                           listColumnWidthClass(normalizedCol, isURL, isContentStatus) +
+                          (isURL ? 'url-table-cell max-sm:!p-0 max-sm:overflow-hidden max-sm:align-top ' : '') +
                           (isURL || normalizedCol === 'variant number' ? 'overflow-hidden ' : '') +
                           (isCodeNumber ? 'max-sm:overflow-hidden ' : '') +
                           (isFirstCol
@@ -1015,6 +1032,7 @@ export function ListView({
         <LoadMoreScrollSentinel sentinelRef={loadMore.sentinelRef} />
       ) : null}
       </div>
+      </ListScrollRootContext.Provider>
       {showScrollFooter && loadMore ? (
         <LoadMoreFloatingIndicator
           pending={loadMore.pending}
