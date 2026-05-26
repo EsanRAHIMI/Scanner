@@ -1,21 +1,22 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import {
   extractUrls,
   getDriveDirectLink,
   formatScalar,
   highlightMatches,
   formatPrice,
-  supportsNextJsImageOptimization,
   mergeProductMediaUrls,
   filterUrlsForGalleryDisplay,
   resolveCollectionName,
   resolveCollectionCode,
   getCollectionDisplayKey,
+  DRIVE_IMAGE_WIDTH_FULL,
+  DRIVE_IMAGE_WIDTH_GALLERY,
 } from '../lib/product-utils';
-import type { ProductsRecord } from '@/types/trainer';
+import { useInView } from '../hooks/use-in-view';
+import { CachedMediaPreview } from './cached-media-preview';
 
 import { GalleryCardProps } from '../types/products-ui';
 
@@ -30,6 +31,7 @@ export function GalleryCard({
   variantCounts,
 }: GalleryCardProps) {
   const r = record;
+  const { ref: inViewRef, inView } = useInView<HTMLDivElement>('200px 0px');
   const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
     const kl = k.trim().toLowerCase();
     return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
@@ -41,19 +43,19 @@ export function GalleryCard({
     columns,
   );
   const rawImg = visibleUrls[0] ?? '';
-  const img = getDriveDirectLink(rawImg);
-  const useNextImg = Boolean(img && supportsNextJsImageOptimization(img));
+  const thumbSrc = rawImg ? getDriveDirectLink(rawImg, DRIVE_IMAGE_WIDTH_GALLERY) : '';
+  const lightboxSrc = rawImg ? getDriveDirectLink(rawImg, DRIVE_IMAGE_WIDTH_FULL) : '';
   const [imageFailed, setImageFailed] = React.useState(false);
   React.useEffect(() => {
     setImageFailed(false);
-  }, [img]);
+  }, [rawImg]);
 
   const name = resolveCollectionName(r.fields);
   const code = resolveCollectionCode(r.fields);
   const familyLabel = getCollectionDisplayKey(r.fields);
   const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
   const fields = r.fields ?? {};
-  
+
   const dimensionKey = (() => {
     const keys = Object.keys(fields);
     const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
@@ -76,46 +78,30 @@ export function GalleryCard({
     formatScalar(fields['Dimensions']) ||
     formatScalar(fields['SIZE']) ||
     formatScalar(fields['Size']);
-    
+
   const price = formatPrice(r.fields?.Price) ?? null;
   const isSelected = selectedIds.has(r.id);
 
   return (
     <div className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
       <div className="block w-full">
-        <div className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
-          {img && !imageFailed ? (
+        <div ref={inViewRef} className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
+          {thumbSrc && !imageFailed ? (
             <button
               type="button"
               className="relative h-full w-full outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500/30"
-              onClick={() => openPreviewByUrl?.(img)}
+              onClick={() => openPreviewByUrl?.(lightboxSrc || thumbSrc)}
               title="Click to maximize"
             >
-              {useNextImg ?
-                (
-                  <Image
-                    src={img}
-                    alt="product"
-                    fill
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
-                    loading="lazy"
-                    placeholder="empty"
-                    referrerPolicy="no-referrer"
-                    className="object-cover"
-                    onError={() => setImageFailed(true)}
-                  />
-                )
-              : (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={img}
-                  alt="product"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  onError={() => setImageFailed(true)}
-                  className="h-full w-full object-cover"
-                />
-              )}
+              <CachedMediaPreview
+                url={rawImg}
+                width={DRIVE_IMAGE_WIDTH_GALLERY}
+                enabled={inView}
+                priority={inView}
+                onBroken={() => setImageFailed(true)}
+                className="absolute inset-0 h-full w-full object-cover"
+                alt="product"
+              />
             </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs italic text-black/40 dark:bg-white/5 dark:text-white/40">
@@ -129,40 +115,32 @@ export function GalleryCard({
         type="button"
         className={
           'block w-full text-left space-y-0.5 p-2 ' +
-          (isSelected ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-white dark:bg-black/10')
+          (isSelected ? 'bg-emerald-50/80 dark:bg-emerald-900/30' : '')
         }
         onClick={() => toggleSelected(r.id)}
-        title={isSelected ? 'Selected' : 'Select'}
-        aria-pressed={isSelected}
       >
-        <div className="flex items-start justify-between gap-2 leading-snug">
-          <div className="line-clamp-2 min-w-0 text-sm font-semibold text-black dark:text-white">{highlightMatches(name || '—', search)}</div>
-          <div className="flex-none text-sm font-semibold text-black dark:text-white">
-            {price ? (
-              <>
-                <span className="hidden sm:inline">AED </span>
-                {price}
-              </>
-            ) : (
-              ''
-            )}
-          </div>
+        <div className="truncate text-xs font-bold text-black dark:text-white">
+          {highlightMatches(name || '—', search)}
         </div>
-        <div className="text-xs leading-snug text-black/60 dark:text-white/55">{code ? <span>Code: {highlightMatches(code, search)}</span> : ' '}</div>
-        <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-            <span className="truncate">{variant ? <span>Variant: {highlightMatches(variant, search)}</span> : ''}</span>
-            {familyMode === 'main' && familyLabel && (variantCounts[familyLabel] || 0) > 1 && (
-              <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
-                +{(variantCounts[familyLabel] || 0) - 1}
-              </span>
-            )}
-          </div>
-          <span className={isSelected ? 'text-emerald-700 dark:text-emerald-300' : 'text-black/35 dark:text-white/30'}>
-            {isSelected ? 'Selected' : ''}
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+          <span className="truncate text-[10px] text-black/60 dark:text-white/60">
+            {highlightMatches(code || '—', search)}
           </span>
+          {familyMode === 'main' && familyLabel ? (
+            <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
+              {variantCounts[familyLabel] ? `+${variantCounts[familyLabel] - 1}` : ''}
+            </span>
+          ) : null}
         </div>
-        <div className="text-xs leading-snug text-black/55 dark:text-white/50">{size ? `Size: ${size}` : ' '}</div>
+        <div className="truncate text-[10px] text-black/50 dark:text-white/50">
+          {highlightMatches(variant || '—', search)}
+        </div>
+        {size ? (
+          <div className="truncate text-[10px] text-black/45 dark:text-white/45">{highlightMatches(size, search)}</div>
+        ) : null}
+        {price ? (
+          <div className="text-[11px] font-bold text-black dark:text-white">{price}</div>
+        ) : null}
       </button>
     </div>
   );

@@ -1,91 +1,43 @@
 'use client';
 
 import * as React from 'react';
-import Image from 'next/image';
 import {
   DRIVE_IMAGE_WIDTH_FULL,
   DRIVE_IMAGE_WIDTH_LIST,
   getDriveDirectLink,
   isVideoUrl,
-  supportsNextJsImageOptimization,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
+import { useInView } from '../hooks/use-in-view';
+import { CachedMediaPreview } from './cached-media-preview';
 
 import { PhotoDeckProps } from '../types/products-ui';
 
-function DeckRaster({
-  finalUrl,
-  revIdx,
-  isVideo,
-}: {
-  finalUrl: string;
-  revIdx: number;
-  isVideo: boolean;
-}) {
-  const [broken, setBroken] = React.useState(false);
-  React.useEffect(() => {
-    setBroken(false);
-  }, [finalUrl]);
-
-  const optimize = !isVideo && supportsNextJsImageOptimization(finalUrl);
-
-  if (!finalUrl || broken) {
-    return (
-      <span
-        aria-hidden
-        className="block h-full w-full bg-gradient-to-br from-black/[0.06] to-black/[0.12] dark:from-white/[0.05] dark:to-white/[0.10]"
-      />
-    );
-  }
-
-  if (optimize) {
-    return (
-      <Image
-        src={finalUrl}
-        alt={`Product view ${revIdx + 1}`}
-        fill
-        sizes="96px"
-        loading="lazy"
-        placeholder="empty"
-        referrerPolicy="no-referrer"
-        className="object-cover"
-        onError={() => setBroken(true)}
-      />
-    );
-  }
-
-  /* eslint-disable-next-line @next/next/no-img-element */
-  return (
-    <img
-      src={finalUrl}
-      alt={`Product view ${revIdx + 1}`}
-      loading="lazy"
-      decoding="async"
-      fetchPriority="low"
-      referrerPolicy="no-referrer"
-      onError={() => setBroken(true)}
-      className="block h-full w-full object-cover"
-    />
-  );
-}
-
-const PhotoDeck = React.memo(({ 
-  urls, 
-  maxItems = 4, 
-  onOpenPreview, 
-  onDragStart, 
+const PhotoDeck = React.memo(({
+  urls,
+  maxItems = 4,
+  onOpenPreview,
+  onDragStart,
   onDragEnd,
   linkHoverTimerRef,
   recordId,
   column,
   onMouseEnter,
-  onMouseLeave
+  onMouseLeave,
 }: PhotoDeckProps) => {
   const visibleUrls = urls.slice(0, maxItems);
+  const { ref: inViewRef, inView } = useInView<HTMLDivElement>('280px 0px');
+  const [stackExpanded, setStackExpanded] = React.useState(false);
+
   if (visibleUrls.length === 0) return null;
 
   return (
-    <div className="group relative h-24 w-24 flex items-center justify-center pointer-events-auto">
+    <div
+      ref={inViewRef}
+      className="group relative flex h-24 w-24 items-center justify-center pointer-events-auto"
+      onMouseEnter={() => setStackExpanded(true)}
+      onMouseLeave={() => setStackExpanded(false)}
+    >
       {visibleUrls
         .slice()
         .reverse()
@@ -93,8 +45,9 @@ const PhotoDeck = React.memo(({
           const revIdx = visibleUrls.length - 1 - i;
           const isVideo = isVideoUrl(u);
           const previewUrl = getDriveDirectLink(u, DRIVE_IMAGE_WIDTH_FULL);
-          const thumbUrl = getDriveDirectLink(u, DRIVE_IMAGE_WIDTH_LIST);
-          
+          const isTopCard = revIdx === 0;
+          const shouldLoadImage = inView && (isTopCard || stackExpanded);
+
           return (
             <button
               key={u + i}
@@ -129,25 +82,33 @@ const PhotoDeck = React.memo(({
               tabIndex={0}
             >
               <div className="relative block h-24 w-24 overflow-hidden rounded-md border border-black/80 bg-white shadow-sm dark:border-white/25 dark:bg-black/60 ring-1 ring-black/10 dark:ring-white/10 backdrop-blur-[2px]">
-                <DeckRaster finalUrl={thumbUrl} revIdx={revIdx} isVideo={isVideo} />
-                {isVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+                {isVideo ? (
+                  <div className="flex h-full w-full items-center justify-center bg-black/10 dark:bg-white/10">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm border border-white/40 shadow-lg">
                       <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white" xmlns="http://www.w3.org/2000/svg">
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     </div>
                   </div>
+                ) : (
+                  <CachedMediaPreview
+                    url={u}
+                    width={DRIVE_IMAGE_WIDTH_LIST}
+                    enabled={shouldLoadImage}
+                    priority={isTopCard && inView}
+                    className="block h-full w-full object-cover"
+                    alt={`Product view ${revIdx + 1}`}
+                  />
                 )}
               </div>
             </button>
           );
         })}
-      {urls.length > 1 && (
-        <div className="absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl translate-x-[20%] translate-y-[20%] pointer-events-none group-hover:scale-110 transition-transform">
+      {urls.length > 1 ? (
+        <div className="pointer-events-none absolute bottom-1 right-1 z-[20] flex h-6 min-w-[24px] translate-x-[20%] translate-y-[20%] items-center justify-center rounded-full border border-white/30 bg-emerald-600 px-1.5 text-[10px] font-black text-white shadow-xl transition-transform group-hover:scale-110">
           +{urls.length - 1}
         </div>
-      )}
+      ) : null}
     </div>
   );
 });

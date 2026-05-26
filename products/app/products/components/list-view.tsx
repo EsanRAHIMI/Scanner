@@ -13,14 +13,12 @@ import {
   getImageColumnDisplayUrls,
   isGalleryMediaHidden,
   DRIVE_IMAGE_WIDTH_HOVER,
-  DRIVE_IMAGE_WIDTH_THUMB,
   getCollectionKey,
   getCollectionDisplayKey,
   resolveCollectionName,
   resolveCollectionCode,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
-import { prefetchMediaPreview } from '../lib/media-preview-cache';
 import {
   CONTENT_STATUS_OPTIONS,
   resolveContentStatusValue,
@@ -406,8 +404,6 @@ export function ListView({
               onDragEnd={() => setDraggedUrlInfo(null)}
               linkHoverTimerRef={linkHoverTimerRef}
               onMouseEnter={(url, e) => {
-                void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_THUMB);
-                void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_HOVER);
                 if (linkHoverTimerRef?.current) clearTimeout(linkHoverTimerRef.current);
                 (linkHoverTimerRef as any).current = setTimeout(() => {
                   const r = recordById.get(recordId);
@@ -774,7 +770,7 @@ export function ListView({
     <div className="relative flex-1 min-h-0 w-full animate-fade-in border border-x-0 border-black/10 bg-white shadow-none dark:border-white/10 dark:bg-black/25 max-sm:-ml-5 max-sm:w-[calc(100%+2.5rem)] max-sm:max-w-none max-sm:rounded-none sm:ml-0 sm:w-full sm:rounded-xl sm:border-x sm:shadow-sm">
       <div
         ref={scrollContainerRef}
-        className="scrollbar-minimal h-full min-h-0 w-full overflow-x-hidden overflow-y-auto"
+        className="scrollbar-minimal h-full min-h-0 w-full overflow-auto"
       >
       <table className="min-w-full table-auto text-left text-sm border-separate border-spacing-0">
         <thead className="bg-transparent text-[10px] uppercase tracking-wider text-black/40 dark:text-white/35 font-bold">

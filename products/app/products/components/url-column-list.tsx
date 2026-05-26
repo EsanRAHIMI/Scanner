@@ -10,6 +10,7 @@ import {
 } from '../lib/product-utils';
 import { prefetchMediaPreview } from '../lib/media-preview-cache';
 import { CachedMediaPreview } from './cached-media-preview';
+import { useInView } from '../hooks/use-in-view';
 import type { EditingUrlState, LinkHoverState } from '../types/shared-types';
 
 const REORDER_MIME = 'application/x-url-reorder';
@@ -29,13 +30,14 @@ function reorderUrls(urls: string[], from: number, to: number): string[] {
 function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
   const [broken, setBroken] = React.useState(false);
   const isVideo = isVideoUrl(url);
+  const { ref, inView } = useInView<HTMLDivElement>('120px 0px');
 
   React.useEffect(() => {
     setBroken(false);
-    void prefetchMediaPreview(url, DRIVE_IMAGE_WIDTH_THUMB);
   }, [url]);
 
   return (
+    <div ref={ref}>
     <div
       className={
         'relative h-7 w-7 shrink-0 overflow-hidden rounded border ' +
@@ -48,6 +50,7 @@ function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
         <CachedMediaPreview
           url={url}
           width={DRIVE_IMAGE_WIDTH_THUMB}
+          enabled={inView}
           onBroken={() => setBroken(true)}
           className="h-full w-full object-cover"
         />
@@ -70,6 +73,7 @@ function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
           )}
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -419,7 +423,6 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                   setDraggedUrlInfo(null);
                 }}
                 onMouseEnter={(e) => {
-                  void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_THUMB);
                   void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_HOVER);
                   if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
                   linkHoverTimerRef.current = setTimeout(() => {

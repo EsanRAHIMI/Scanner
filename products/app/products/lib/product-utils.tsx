@@ -231,6 +231,8 @@ export function collectNumOnlyStubIds(records: ProductsRecord[], columns: string
 export const DRIVE_IMAGE_WIDTH_FULL = 1200;
 /** List / deck thumbnails (~96px cell, 2× retina). */
 export const DRIVE_IMAGE_WIDTH_LIST = 256;
+/** Gallery grid cards (~200–400px cell, 2× retina). */
+export const DRIVE_IMAGE_WIDTH_GALLERY = 400;
 /** URL column row thumbnails (~28px cell, ~3× retina). */
 export const DRIVE_IMAGE_WIDTH_THUMB = 96;
 /** Hover popover (~200px, 2× retina). */
