@@ -296,8 +296,9 @@ export function ProductsView({
       preserveRowAfterEdit(recordId);
       try {
         await dnd.handleReorderUrls(recordId, fromIndex, toIndex);
-      } catch {
+      } catch (err) {
         window.alert('Could not reorder links. Please try again.');
+        throw err;
       }
     },
     [dnd.handleReorderUrls, preserveRowAfterEdit],
@@ -458,6 +459,7 @@ export function ProductsView({
     [handleHideMediaFromGallery],
   );
 
+  /** Force fresh previews after URL field edits (pairs with fingerprinted cache keys). */
   const bumpMediaPreviewCache = React.useCallback((...urls: Array<string | undefined>) => {
     for (const u of urls) {
       if (u?.trim()) invalidateMediaPreviewForUrl(u);

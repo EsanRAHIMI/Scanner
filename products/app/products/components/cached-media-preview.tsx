@@ -72,6 +72,7 @@ export function CachedMediaPreview({
         registerPreviewLoaded(url, width, el.currentSrc || el.src);
       }}
       onError={() => {
+        // Sync failure into module cache so hover prefetch does not retry in a loop.
         registerPreviewFailed(url, width);
         setBroken(true);
       }}

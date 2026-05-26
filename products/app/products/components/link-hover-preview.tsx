@@ -33,6 +33,7 @@ function HoverPreviewImage({ url }: { url: string }) {
     if (resolved) {
       setSrc(resolved);
     } else if (!isPreviewLoadBlocked(url, DRIVE_IMAGE_WIDTH_HOVER)) {
+      // First paint: use lh3 direct link only when not in the negative cache.
       const direct = getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER);
       if (direct) setSrc(direct);
     }
@@ -58,6 +59,7 @@ function HoverPreviewImage({ url }: { url: string }) {
       referrerPolicy="no-referrer"
       className="h-full w-full object-cover"
       onError={() => {
+        // Hover size only — do not mark thumb failed if a smaller cached size still works.
         registerPreviewFailed(url, DRIVE_IMAGE_WIDTH_HOVER);
       }}
     />

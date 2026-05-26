@@ -168,6 +168,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
   const [dragFrom, setDragFrom] = React.useState<number | null>(null);
   const [dropTarget, setDropTarget] = React.useState<number | null>(null);
 
+  // Reconcile with server/cache when parent data changes (also corrects failed reorders after refresh).
   React.useEffect(() => {
     setLocalUrls((prev) => {
       if (prev.length === urlsProp.length && prev.every((u, i) => u === urlsProp[i])) return prev;
@@ -213,36 +214,60 @@ export const UrlColumnList = React.memo(function UrlColumnList({
     e.stopPropagation();
   }, []);
 
+  /** Cancel in-row reorder when the pointer releases over list padding (not on a row). */
+  const onListDrop = React.useCallback(
+    (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(REORDER_MIME)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      finishReorderDrag();
+    },
+    [finishReorderDrag],
+  );
+
   const onRowDrop = React.useCallback(
     (e: React.DragEvent, toIndex: number) => {
       if (!e.dataTransfer.types.includes(REORDER_MIME)) return;
       e.preventDefault();
       e.stopPropagation();
-      let fromIndex = dragFrom;
+
       try {
-        const payload = JSON.parse(e.dataTransfer.getData(REORDER_MIME)) as {
-          recordId?: string;
-          fromIndex?: number;
-        };
-        if (payload.recordId !== recordId) return;
-        if (typeof payload.fromIndex === 'number') fromIndex = payload.fromIndex;
-      } catch {
-        return;
-      }
-      if (fromIndex === null || fromIndex === toIndex) {
+        let fromIndex = dragFrom;
+        try {
+          const payload = JSON.parse(e.dataTransfer.getData(REORDER_MIME)) as {
+            recordId?: string;
+            fromIndex?: number;
+          };
+          if (payload.recordId !== recordId) return;
+          if (typeof payload.fromIndex === 'number') fromIndex = payload.fromIndex;
+        } catch {
+          return;
+        }
+        if (fromIndex === null || fromIndex === toIndex) return;
+
+        const previousUrls = localUrls;
+        const optimisticNext = reorderUrls(previousUrls, fromIndex, toIndex);
+        setLocalUrls(optimisticNext);
+        void (async () => {
+          try {
+            await handleReorderUrls(recordId, fromIndex, toIndex);
+          } catch {
+            // Roll back only if no newer local reorder (or server sync) changed the list.
+            setLocalUrls((current) =>
+              current === optimisticNext ? previousUrls : current,
+            );
+          }
+        })();
+      } finally {
+        // Wrong row, bad payload, or no-op drop — still clear grip opacity and drop line.
         finishReorderDrag();
-        return;
       }
-      const next = reorderUrls(localUrls, fromIndex, toIndex);
-      setLocalUrls(next);
-      finishReorderDrag();
-      void handleReorderUrls(recordId, fromIndex, toIndex);
     },
     [dragFrom, finishReorderDrag, handleReorderUrls, localUrls, recordId],
   );
 
   return (
-    <div className={URL_LIST_SCROLL_CLASS} onDragOver={onListDragOver}>
+    <div className={URL_LIST_SCROLL_CLASS} onDragOver={onListDragOver} onDrop={onListDrop}>
       {editingUrl?.id === recordId &&
       (editingUrl.column === column || !editingUrl.column) &&
       (editingUrl.mode === 'prepend' || (!editingUrl.mode && editingUrl.index === undefined)) ? (

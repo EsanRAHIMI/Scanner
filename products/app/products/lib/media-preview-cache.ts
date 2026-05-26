@@ -1,3 +1,13 @@
+/**
+ * In-memory preview URL cache for list / gallery thumbnails and hover prefetch.
+ *
+ * - Success entries are LRU-bounded so long scroll sessions do not grow RAM without limit.
+ * - Failed entries are a separate short-TTL negative cache to avoid retry storms on broken links.
+ * - Keys combine host asset id + URL fingerprint so edited sharing links do not reuse stale previews.
+ *
+ * Eviction only drops this module's Map; mounted `<img>` nodes keep their src. The browser HTTP
+ * cache may still serve bytes after eviction. Call `invalidateMediaPreviewForUrl` after URL edits.
+ */
 import {
   DRIVE_IMAGE_WIDTH_FULL,
   DRIVE_IMAGE_WIDTH_GALLERY,
@@ -8,6 +18,7 @@ import {
   getDriveDirectLink,
 } from './product-utils';
 
+/** All lh3 widths used in the UI — invalidate clears every variant for a URL. */
 const PREVIEW_CACHE_WIDTHS = [
   DRIVE_IMAGE_WIDTH_THUMB,
   DRIVE_IMAGE_WIDTH_LIST,
@@ -124,7 +135,9 @@ if (typeof window !== 'undefined') {
   narrowViewportMq.addEventListener('change', syncPreviewCacheCapacity);
 }
 
+/** Resolved lh3 (or direct) src strings after a successful decode. */
 const loadedSrcByKey = new LruCache<string>(maxPreviewCacheEntries, onPreviewCacheEvict);
+/** Recent failures; peek-only reads so repeated hovers do not extend the block window. */
 const failedByKey = new LruCache<FailedPreviewEntry>(maxFailedPreviewCacheEntries, () => {});
 
 function isFailedKey(key: string): boolean {
@@ -141,6 +154,7 @@ function clearFailedKey(key: string): void {
   failedByKey.delete(key);
 }
 
+/** Blocks prefetch / resolve for this key until TTL expires or a load succeeds. */
 function rememberFailed(key: string): void {
   syncPreviewCacheCapacity();
   if (isFailedKey(key)) return;
@@ -199,6 +213,7 @@ function urlPreviewFingerprint(url: string): string {
   return `fnv${(h >>> 0).toString(36)}`;
 }
 
+/** hostKey dedupes identical URLs across rows; fingerprint separates different links to the same file. */
 function previewCacheKey(url: string, width: number): string {
   const trimmed = url.trim();
   if (!trimmed) return `|w${width}`;
@@ -236,6 +251,7 @@ export function isPreviewLoadBlocked(url: string, width: number): boolean {
 
 export function resolvePreviewSrc(url: string, width: number): string {
   const key = previewCacheKey(url, width);
+  // Empty string → CachedMediaPreview shows placeholder without mounting a doomed <img>.
   if (isFailedKey(key)) return '';
   return loadedSrcByKey.get(key) ?? getDriveDirectLink(url, width);
 }
