@@ -14,6 +14,31 @@ interface HeaderToolbarProps {
   onActivityLogs?: () => void;
 }
 
+function HeaderToggleCluster({
+  familyToggleNode,
+  viewToggleNode,
+  maxModeToggleNode,
+  themeToggleNode,
+  compact,
+}: Pick<
+  HeaderToolbarProps,
+  'familyToggleNode' | 'viewToggleNode' | 'maxModeToggleNode' | 'themeToggleNode'
+> & { compact?: boolean }) {
+  return (
+    <div
+      className={
+        'flex shrink-0 items-center gap-1 ' +
+        (compact ? '[&_button]:!h-8 [&_button]:!w-8 [&_button_svg]:!h-4 [&_button_svg]:!w-4' : 'gap-1.5 sm:gap-2')
+      }
+    >
+      {familyToggleNode}
+      {viewToggleNode}
+      {maxModeToggleNode}
+      {themeToggleNode}
+    </div>
+  );
+}
+
 export function HeaderToolbar({
   title,
   titleNode,
@@ -26,45 +51,55 @@ export function HeaderToolbar({
   fetchUserSession,
   onActivityLogs,
 }: HeaderToolbarProps) {
+  const togglesMobile = (
+    <HeaderToggleCluster
+      compact
+      familyToggleNode={familyToggleNode}
+      viewToggleNode={viewToggleNode}
+      maxModeToggleNode={maxModeToggleNode}
+      themeToggleNode={themeToggleNode}
+    />
+  );
+
+  const togglesDesktop = (
+    <HeaderToggleCluster
+      familyToggleNode={familyToggleNode}
+      viewToggleNode={viewToggleNode}
+      maxModeToggleNode={maxModeToggleNode}
+      themeToggleNode={themeToggleNode}
+    />
+  );
+
   return (
-    <div className="sticky top-0 z-40 -mx-5 px-5 py-2 border-b border-black/10 bg-white/95 backdrop-blur-md dark:border-white/10 dark:bg-black/80">
-      {/* Mobile Header */}
-      <div className="flex w-full min-w-0 items-center gap-2 sm:hidden">
-        <div className="min-w-0 shrink overflow-hidden">
-          {mobileTitleNode ?? <h1 className="truncate text-lg font-semibold">{title}</h1>}
+    <header className="sticky top-0 z-40 -mx-5 border-b border-black/10 bg-white/95 px-5 py-2 backdrop-blur-md dark:border-white/10 dark:bg-black/80 sm:py-2.5">
+      {/* Mobile: one row — logo | search | icons | menu */}
+      <div className="flex min-h-9 w-full min-w-0 items-center gap-1.5 sm:hidden">
+        {mobileTitleNode ?? <span className="shrink-0 text-sm font-semibold">{title}</span>}
+
+        <div className="min-w-0 flex-1 basis-0 self-stretch">{searchGroupNode}</div>
+
+        <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto scrollbar-none">
+          {togglesMobile}
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 overflow-x-auto scrollbar-none">
-          <div className="min-w-0 flex-1">{searchGroupNode}</div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {familyToggleNode}
-            {viewToggleNode}
-            {maxModeToggleNode}
-            {themeToggleNode}
-            <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
-          </div>
+
+        <div className="shrink-0">
+          <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
         </div>
       </div>
 
-      {/* Desktop Header */}
-      <div className="hidden w-full min-w-0 gap-3 sm:flex sm:items-center sm:justify-between">
-        <div className="flex min-w-0 max-w-[min(100%,20rem)] shrink items-center gap-4 overflow-hidden lg:max-w-[22rem]">
-          <div className="min-w-0">
-            {titleNode ?? <h1 className="truncate text-2xl font-semibold">{title}</h1>}
-            <p className="mt-1 text-sm text-black/60 dark:text-white/55"></p>
-          </div>
+      {/* Desktop — tight gap next to logo on narrower widths so search gets more room */}
+      <div className="hidden w-full min-w-0 items-center gap-1.5 sm:flex md:gap-2 lg:gap-3">
+        <div className="shrink-0 overflow-hidden">
+          {titleNode ?? <h1 className="truncate text-xl font-semibold tracking-tight lg:text-2xl">{title}</h1>}
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 pl-2">
-          <div className="min-w-0 flex-1">{searchGroupNode}</div>
-          <div className="flex shrink-0 items-center gap-2">
-            {familyToggleNode}
-            {viewToggleNode}
-            {maxModeToggleNode}
-            {themeToggleNode}
-            <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
-          </div>
+        <div className="min-w-0 flex-1 basis-0">{searchGroupNode}</div>
+
+        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+          {togglesDesktop}
+          <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
         </div>
       </div>
-    </div>
+    </header>
   );
 }

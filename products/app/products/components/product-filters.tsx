@@ -120,7 +120,7 @@ export function ProductFilters({
           (<span className="inline-block h-3 w-8 animate-pulse rounded bg-black/10 dark:bg-white/10" />)}
 
         {onPurgeNumOnlyStubs ? (
-          <>
+          <span className="hidden sm:contents">
             <span className="mx-2 text-black/25 dark:text-white/20">|</span>
             <button
               type="button"
@@ -131,7 +131,7 @@ export function ProductFilters({
             >
               Delete Num-only
             </button>
-          </>
+          </span>
         ) : null}
 
         <span className="mx-2 text-black/25 dark:text-white/20">|</span>

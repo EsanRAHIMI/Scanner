@@ -14,6 +14,10 @@ import {
   isGalleryMediaHidden,
   DRIVE_IMAGE_WIDTH_HOVER,
   DRIVE_IMAGE_WIDTH_THUMB,
+  getCollectionKey,
+  getCollectionDisplayKey,
+  resolveCollectionName,
+  resolveCollectionCode,
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { prefetchMediaPreview } from '../lib/media-preview-cache';
@@ -124,15 +128,6 @@ export function ListView({
     return map;
   }, [records]);
 
-  const getCollectionKey = React.useCallback((rec: ProductsRecord) => {
-    return (
-      formatScalar(rec.fields?.['Colecction Name']) ||
-      formatScalar(rec.fields?.Name) ||
-      formatScalar(rec.fields?.['Collection Name']) ||
-      ''
-    ).trim();
-  }, []);
-
   const getUrlFieldValue = React.useCallback((fields: Record<string, unknown> | undefined) => {
     const urlEntry = Object.entries(fields || {}).find(([k]) => {
       const kl = k.trim().toLowerCase();
@@ -220,7 +215,7 @@ export function ListView({
   }, [setEditingUrl, canEditField]);
 
   const rowGroupMeta = React.useMemo(() => {
-    const keys = visibleRecords.map(getCollectionKey);
+    const keys = visibleRecords.map((rec) => getCollectionKey(rec.fields));
     return keys.map((currentKey, i) => {
       const prevKey = i > 0 ? keys[i - 1] : null;
       const nextKey = i < keys.length - 1 ? keys[i + 1] : null;
@@ -229,20 +224,14 @@ export function ListView({
       const isInGroup = currentKey !== '' && (currentKey === prevKey || currentKey === nextKey);
       return { isGroupStart, isGroupEnd, isInGroup };
     });
-  }, [visibleRecords, getCollectionKey]);
+  }, [visibleRecords]);
 
   const getCollectionMeta = React.useCallback(
     (recordId: string) => {
       const r = recordById.get(recordId);
       return {
-        title:
-          formatScalar(r?.fields?.['Colecction Name']) ||
-          formatScalar(r?.fields?.Name) ||
-          'Product',
-        code:
-          formatScalar(r?.fields?.['Colecction Code']) ||
-          formatScalar(r?.fields?.Code) ||
-          '—',
+        title: resolveCollectionName(r?.fields) || 'Product',
+        code: resolveCollectionCode(r?.fields) || '—',
         variant:
           formatScalar(r?.fields?.['Variant Number']) ||
           formatScalar(r?.fields?.Num) ||
@@ -364,8 +353,8 @@ export function ListView({
                       url,
                       x: e.clientX,
                       y: e.clientY,
-                      title: formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || 'Product',
-                      code: formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code) || '—',
+                      title: resolveCollectionName(r.fields) || 'Product',
+                      code: resolveCollectionCode(r.fields) || '—',
                       variant: formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num) || '—'
                     });
                   }
@@ -676,8 +665,7 @@ export function ListView({
         const colLower = column.trim().toLowerCase();
         if (familyMode === 'main' && (colLower === 'num' || colLower === 'variant number')) {
           const rec = recordById.get(recordId);
-          const key = (formatScalar(rec?.fields?.['Colecction Name']) || formatScalar(rec?.fields?.Name) || 
-                      formatScalar(rec?.fields?.['Collection Name']) || '').trim();
+          const key = getCollectionDisplayKey(rec?.fields);
           const count = variantCounts[key] || 0;
           const extra = count - 1;
           if (extra > 0) {

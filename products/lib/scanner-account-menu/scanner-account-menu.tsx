@@ -229,7 +229,8 @@ export function ScannerAccountMenu({
         type="button"
         onClick={() => void onToggle()}
         className={
-          'group inline-flex h-10 items-center gap-2 rounded-full border px-1.5 pr-2.5 text-sm shadow-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2' +
+          'group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border p-0 text-sm shadow-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 ' +
+          'sm:h-10 sm:w-auto sm:gap-2 sm:px-1.5 sm:pr-2.5' +
           (darkChrome
             ? ' border-zinc-600 bg-zinc-900 text-zinc-100 hover:bg-zinc-800 focus-visible:ring-zinc-500/50' +
               (open ? ' ring-2 ring-zinc-500/60' : '')
@@ -243,7 +244,7 @@ export function ScannerAccountMenu({
       >
         <span
           className={
-            'inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ' +
+            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 ' +
             (darkChrome ? 'bg-white text-zinc-950' : 'bg-black text-white')
           }
         >
@@ -271,7 +272,9 @@ export function ScannerAccountMenu({
         <svg
           viewBox="0 0 20 20"
           fill="none"
-          className={`h-4 w-4 transition-transform ${darkChrome ? 'text-zinc-400' : 'text-black/45'} ${open ? 'rotate-180' : ''}`}
+          className={
+            `hidden h-4 w-4 shrink-0 transition-transform sm:block ${darkChrome ? 'text-zinc-400' : 'text-black/45'} ${open ? 'rotate-180' : ''}`
+          }
           stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"

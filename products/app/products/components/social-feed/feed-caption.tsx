@@ -91,11 +91,11 @@ export function FeedCaption({ variant, canEdit, canEditField, onUpdateVariant }:
                 </div>
                 <div className="min-w-0">
                   <h2
-                    className={`line-clamp-2 text-[15px] font-extrabold leading-tight text-white drop-shadow-sm ${canEditThisField('Colecction Name') ? 'cursor-edit hover:text-emerald-300 transition-colors' : ''}`}
+                    className={`line-clamp-2 text-[15px] font-extrabold leading-tight text-white drop-shadow-sm ${canEditThisField('Collection Name') ? 'cursor-edit hover:text-emerald-300 transition-colors' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (canEditThisField('Colecction Name')) {
-                        handleEdit('Collection Name', variant.collectionName, 'Colecction Name');
+                      if (canEditThisField('Collection Name')) {
+                        handleEdit('Collection Name', variant.collectionName, 'Collection Name');
                       }
                     }}
                   >

@@ -87,4 +87,14 @@ export interface ProductsCacheContextValue {
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
   /** Call synchronously before optimistic delete so pending-delete survives stale refetches. */
   notePendingDelete: (recordId: string) => void;
+  /** Undo a pending-delete marker (e.g. failed DELETE or false positive). */
+  clearPendingDelete: (recordId: string) => void;
+  clearPendingDeletes: (recordIds: Iterable<string>) => void;
+  /** Full cache snapshot without display-only overlays. */
+  getRawSnapshot: () => ProductsAssetsResponse | null;
+  /** Single serialized path for optimistic field edits. */
+  applyCacheUpdate: (
+    updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
+  ) => Promise<ProductsAssetsResponse | null>;
+  commitOptimisticSnapshot: (optimisticData: ProductsAssetsResponse) => Promise<void>;
 }

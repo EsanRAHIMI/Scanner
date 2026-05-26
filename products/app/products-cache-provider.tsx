@@ -87,49 +87,6 @@ function hasPendingFieldValues(pending: PendingFieldValues) {
   return Object.values(pending).some(fields => Object.keys(fields).length > 0);
 }
 
-function collectPendingDeletions(
-  pendingDeleted: Set<string>,
-  pendingFields: PendingFieldValues,
-  previousData: ProductsAssetsResponse | null,
-  nextData: ProductsAssetsResponse
-) {
-  const nextIds = new Set(nextData.records.map(r => r.id));
-  for (const r of previousData?.records ?? []) {
-    if (!nextIds.has(r.id)) {
-      pendingDeleted.add(r.id);
-      delete pendingFields[r.id];
-    }
-  }
-  // Rollback (e.g. failed DELETE): record is present again in the next optimistic snapshot.
-  for (const id of [...pendingDeleted]) {
-    if (nextIds.has(id)) {
-      pendingDeleted.delete(id);
-    }
-  }
-}
-
-function reconcilePendingDeletions(pendingDeleted: Set<string>, freshData: ProductsAssetsResponse) {
-  for (const id of [...pendingDeleted]) {
-    const stillThere = freshData.records.some(r => r.id === id);
-    if (!stillThere) {
-      pendingDeleted.delete(id);
-    }
-  }
-}
-
-function applyPendingDeletes(
-  data: ProductsAssetsResponse,
-  pendingDeleted: Set<string>
-): ProductsAssetsResponse {
-  if (pendingDeleted.size === 0) return data;
-  const records = data.records.filter(r => !pendingDeleted.has(r.id));
-  return {
-    ...data,
-    records,
-    count: records.length,
-  };
-}
-
 function hasAnyPending(
   pendingFields: PendingFieldValues,
   pendingDeleted: Set<string>
@@ -181,63 +138,104 @@ function reconcilePendingFieldValues(pending: PendingFieldValues, freshData: Pro
   }
 }
 
-function applyPendingFieldValues(
-  data: ProductsAssetsResponse,
-  pending: PendingFieldValues
+/** Drop pending-delete markers once the server no longer returns those rows. */
+function reconcilePendingDeletions(pendingDeleted: Set<string>, freshData: ProductsAssetsResponse) {
+  for (const id of [...pendingDeleted]) {
+    const stillThere = freshData.records.some(r => r.id === id);
+    if (!stillThere) {
+      pendingDeleted.delete(id);
+    }
+  }
+}
+
+/** Clear stale sessionStorage pending-delete ids when the server still has the product. */
+function clearFalsePendingDeletes(pendingDeleted: Set<string>, freshData: ProductsAssetsResponse) {
+  for (const id of [...pendingDeleted]) {
+    if (freshData.records.some(r => r.id === id)) {
+      pendingDeleted.delete(id);
+    }
+  }
+}
+
+/**
+ * Merge server snapshot with in-flight edits. Never drops rows unless explicitly
+ * pending-deleted. Restores rows from fallback when the server list is briefly stale.
+ */
+function buildMergedSnapshot(
+  fresh: ProductsAssetsResponse,
+  pendingFields: PendingFieldValues,
+  pendingDeleted: Set<string>,
+  fallbackSnapshot: ProductsAssetsResponse | null,
 ): ProductsAssetsResponse {
-  if (!hasPendingFieldValues(pending)) return data;
+  const byId = new Map(fresh.records.map(r => [r.id, r]));
 
+  for (const [recordId, fields] of Object.entries(pendingFields)) {
+    if (Object.keys(fields).length === 0) continue;
+    const existing = byId.get(recordId);
+    if (existing) {
+      byId.set(recordId, {
+        ...existing,
+        fields: { ...(existing.fields ?? {}), ...fields },
+      });
+      continue;
+    }
+    const fromFallback = fallbackSnapshot?.records.find(r => r.id === recordId);
+    if (fromFallback) {
+      byId.set(recordId, {
+        ...fromFallback,
+        fields: { ...(fromFallback.fields ?? {}), ...fields },
+      });
+    }
+  }
+
+  const records = [...byId.values()].filter(r => !pendingDeleted.has(r.id));
   return {
-    ...data,
-    records: data.records.map(record => {
-      const pendingFields = pending[record.id];
-      if (!pendingFields || Object.keys(pendingFields).length === 0) return record;
-
-      return {
-        ...record,
-        fields: {
-          ...(record.fields ?? {}),
-          ...pendingFields,
-        },
-      };
-    }),
+    ...fresh,
+    columns: fresh.columns.length > 0 ? fresh.columns : (fallbackSnapshot?.columns ?? []),
+    records,
+    count: records.length,
   };
 }
 
 export function ProductsCacheProvider({ children }: { children: React.ReactNode }) {
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
   const cacheKey = `${basePath}/api/products/assets`;
+  /** Avoid reading sessionStorage before mount — prevents SSR/client HTML drift. */
+  const [clientStorageReady, setClientStorageReady] = React.useState(false);
   const [hydratedCache, setHydratedCache] = React.useState<ProductsAssetsResponse | null>(null);
+  const pendingFieldValuesRef = React.useRef<PendingFieldValues>({});
+  const pendingDeletedIdsRef = React.useRef<Set<string>>(new Set());
+  const [pendingDeletedRenderTick, setPendingDeletedRenderTick] = React.useState(0);
+  const [pendingFieldsRenderTick, setPendingFieldsRenderTick] = React.useState(0);
 
   React.useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem('products_assets_cache_v1');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as ProductsAssetsResponse;
-      if (parsed && Array.isArray(parsed.records)) {
-        setHydratedCache(parsed);
+      if (raw) {
+        const parsed = JSON.parse(raw) as ProductsAssetsResponse;
+        if (parsed && Array.isArray(parsed.records)) {
+          setHydratedCache(parsed);
+        }
+      }
+
+      const pendingRaw = window.sessionStorage.getItem(PENDING_DELETES_STORAGE_KEY);
+      if (pendingRaw) {
+        const ids = JSON.parse(pendingRaw) as unknown;
+        if (Array.isArray(ids)) {
+          let added = false;
+          for (const id of ids) {
+            if (typeof id === 'string' && id.length > 0) {
+              pendingDeletedIdsRef.current.add(id);
+              added = true;
+            }
+          }
+          if (added) setPendingDeletedRenderTick(t => t + 1);
+        }
       }
     } catch {
       // Ignore invalid cached payload
-    }
-  }, []);
-
-  React.useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(PENDING_DELETES_STORAGE_KEY);
-      if (!raw) return;
-      const ids = JSON.parse(raw) as unknown;
-      if (!Array.isArray(ids)) return;
-      let added = false;
-      for (const id of ids) {
-        if (typeof id === 'string' && id.length > 0) {
-          pendingDeletedIdsRef.current.add(id);
-          added = true;
-        }
-      }
-      if (added) setPendingDeletedRenderTick(t => t + 1);
-    } catch {
-      // ignore
+    } finally {
+      setClientStorageReady(true);
     }
   }, []);
 
@@ -253,10 +251,10 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
       keepPreviousData: true,
-      fallbackData: hydratedCache ?? undefined,
+      fallbackData: clientStorageReady ? (hydratedCache ?? undefined) : undefined,
       shouldRetryOnError: true,
       errorRetryCount: 3,
-      dedupingInterval: 2000, // SWR default — prevents redundant requests on fast re-renders
+      dedupingInterval: 2000,
     }
   );
 
@@ -270,7 +268,6 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       const json = JSON.stringify(swrData);
       if (json === persistedCacheJsonRef.current) return;
 
-      /** Debounced write: large payloads on every mutate were blocking the main thread. */
       const flush = () => {
         try {
           window.sessionStorage.setItem('products_assets_cache_v1', json);
@@ -285,42 +282,56 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         if (t) clearTimeout(t);
       };
     } catch {
-      // Ignore serialization failures on odd proxy objects.
       return undefined;
     }
   }, [swrData]);
 
   const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
   const revalidationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingFieldValuesRef = React.useRef<PendingFieldValues>({});
-  const pendingDeletedIdsRef = React.useRef<Set<string>>(new Set());
-  const [pendingDeletedRenderTick, setPendingDeletedRenderTick] = React.useState(0);
-  const [pendingFieldsRenderTick, setPendingFieldsRenderTick] = React.useState(0);
+
+  /** Authoritative full snapshot (localOverride ?? swr). */
+  const rawSnapshotRef = React.useRef<ProductsAssetsResponse | null>(null);
+  /** Serialize optimistic updates so rapid edits (reorder, move URL) never race. */
+  const mutationChainRef = React.useRef<Promise<void>>(Promise.resolve());
 
   const bumpPendingFieldsTick = React.useCallback(() => {
     setPendingFieldsRenderTick((t) => t + 1);
   }, []);
 
-  const rawData = localOverride ?? swrData ?? null;
-  const data = React.useMemo(() => {
-    if (!rawData) return null;
-    let next = rawData;
-    if (hasPendingFieldValues(pendingFieldValuesRef.current)) {
-      next = applyPendingFieldValues(next, pendingFieldValuesRef.current);
-    }
-    if (pendingDeletedIdsRef.current.size > 0) {
-      next = applyPendingDeletes(next, pendingDeletedIdsRef.current);
-    }
-    return next;
-  }, [rawData, pendingDeletedRenderTick, pendingFieldsRenderTick]);
+  const bumpPendingDeletesTick = React.useCallback(() => {
+    setPendingDeletedRenderTick((t) => t + 1);
+  }, []);
 
-  const dataRef = React.useRef<ProductsAssetsResponse | null>(data);
+  const getRawSnapshot = React.useCallback((): ProductsAssetsResponse | null => {
+    return rawSnapshotRef.current ?? localOverride ?? swrData ?? null;
+  }, [localOverride, swrData]);
+
+  const rawData = localOverride ?? swrData ?? null;
 
   React.useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
+    rawSnapshotRef.current = rawData;
+  }, [rawData]);
 
-  // Cleanup the revalidation timer on unmount
+  const data = React.useMemo(() => {
+    if (!rawData) return null;
+    return buildMergedSnapshot(
+      rawData,
+      pendingFieldValuesRef.current,
+      pendingDeletedIdsRef.current,
+      rawSnapshotRef.current,
+    );
+  }, [rawData, pendingDeletedRenderTick, pendingFieldsRenderTick]);
+
+  React.useEffect(() => {
+    if (!swrData || pendingDeletedIdsRef.current.size === 0) return;
+    const before = pendingDeletedIdsRef.current.size;
+    clearFalsePendingDeletes(pendingDeletedIdsRef.current, swrData);
+    if (pendingDeletedIdsRef.current.size !== before) {
+      persistPendingDeleteIds(pendingDeletedIdsRef.current);
+      bumpPendingDeletesTick();
+    }
+  }, [swrData, bumpPendingDeletesTick]);
+
   React.useEffect(() => {
     return () => {
       if (revalidationTimerRef.current) {
@@ -330,33 +341,37 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const runRevalidation = React.useCallback(async () => {
+    const fallback = rawSnapshotRef.current ?? localOverride;
     const freshData = await fetcher(cacheKey);
+
     reconcilePendingFieldValues(pendingFieldValuesRef.current, freshData);
     bumpPendingFieldsTick();
+
     const deletedSizeBefore = pendingDeletedIdsRef.current.size;
     reconcilePendingDeletions(pendingDeletedIdsRef.current, freshData);
     if (pendingDeletedIdsRef.current.size !== deletedSizeBefore) {
       persistPendingDeleteIds(pendingDeletedIdsRef.current);
-      setPendingDeletedRenderTick(t => t + 1);
+      bumpPendingDeletesTick();
     }
 
     const hasPending = hasAnyPending(
       pendingFieldValuesRef.current,
-      pendingDeletedIdsRef.current
+      pendingDeletedIdsRef.current,
     );
-    let nextData = freshData;
-    if (hasPendingFieldValues(pendingFieldValuesRef.current)) {
-      nextData = applyPendingFieldValues(nextData, pendingFieldValuesRef.current);
-    }
-    if (pendingDeletedIdsRef.current.size > 0) {
-      nextData = applyPendingDeletes(nextData, pendingDeletedIdsRef.current);
-    }
+
+    const nextData = buildMergedSnapshot(
+      freshData,
+      pendingFieldValuesRef.current,
+      pendingDeletedIdsRef.current,
+      fallback,
+    );
 
     await swrMutate(nextData, {
       revalidate: false,
       populateCache: true,
     });
-    dataRef.current = nextData;
+
+    rawSnapshotRef.current = nextData;
     setLocalOverride(hasPending ? nextData : null);
 
     if (hasPending) {
@@ -365,7 +380,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         void runRevalidation();
       }, REVALIDATION_DELAY_MS);
     }
-  }, [cacheKey, swrMutate, bumpPendingFieldsTick]);
+  }, [cacheKey, localOverride, swrMutate, bumpPendingFieldsTick, bumpPendingDeletesTick]);
 
   const scheduleRevalidation = React.useCallback(() => {
     if (revalidationTimerRef.current) {
@@ -383,11 +398,11 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   const error =
     swrError instanceof Error ?
-      (swrError.message.trim() || 'Failed to load Products')
+      swrError.message.trim() || 'Failed to load Products'
     : swrError ?
-      (typeof swrError === 'object' && swrError !== null && String(swrError) !== '[object Object]' ?
+      typeof swrError === 'object' && swrError !== null && String(swrError) !== '[object Object]' ?
         String(swrError)
-      : 'Failed to load Products')
+      : 'Failed to load Products'
     : null;
 
   const notePendingDelete = React.useCallback((recordId: string) => {
@@ -395,70 +410,128 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     pendingDeletedIdsRef.current.add(recordId);
     delete pendingFieldValuesRef.current[recordId];
     persistPendingDeleteIds(pendingDeletedIdsRef.current);
-    setPendingDeletedRenderTick(t => t + 1);
-  }, []);
+    bumpPendingDeletesTick();
+  }, [bumpPendingDeletesTick]);
+
+  const clearPendingDelete = React.useCallback((recordId: string) => {
+    if (!pendingDeletedIdsRef.current.has(recordId)) return;
+    pendingDeletedIdsRef.current.delete(recordId);
+    persistPendingDeleteIds(pendingDeletedIdsRef.current);
+    bumpPendingDeletesTick();
+  }, [bumpPendingDeletesTick]);
+
+  const clearPendingDeletes = React.useCallback((recordIds: Iterable<string>) => {
+    let changed = false;
+    for (const id of recordIds) {
+      if (pendingDeletedIdsRef.current.delete(id)) changed = true;
+    }
+    if (!changed) return;
+    persistPendingDeleteIds(pendingDeletedIdsRef.current);
+    bumpPendingDeletesTick();
+  }, [bumpPendingDeletesTick]);
+
+  const commitOptimisticSnapshot = React.useCallback(
+    async (optimisticData: ProductsAssetsResponse) => {
+      const run = async () => {
+        const previousSnapshot = rawSnapshotRef.current ?? getRawSnapshot();
+
+        collectPendingFieldValues(
+          pendingFieldValuesRef.current,
+          previousSnapshot,
+          optimisticData,
+        );
+        bumpPendingFieldsTick();
+
+        rawSnapshotRef.current = optimisticData;
+        setLocalOverride(optimisticData);
+
+        await swrMutate(optimisticData, {
+          revalidate: false,
+          populateCache: true,
+        });
+
+        scheduleRevalidation();
+      };
+
+      const chained = mutationChainRef.current.then(run);
+      mutationChainRef.current = chained.catch(() => {});
+      await chained;
+    },
+    [getRawSnapshot, scheduleRevalidation, swrMutate, bumpPendingFieldsTick],
+  );
+
+  const applyCacheUpdate = React.useCallback(
+    async (
+      updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
+    ): Promise<ProductsAssetsResponse | null> => {
+      const prev = getRawSnapshot();
+      if (!prev) return null;
+      const next = updater(prev);
+      await commitOptimisticSnapshot(next);
+      return next;
+    },
+    [commitOptimisticSnapshot, getRawSnapshot],
+  );
 
   const value = React.useMemo<ProductsCacheContextValue>(
-    () => ({ 
-      data, 
-      loading, 
-      error, 
+    () => ({
+      data,
+      loading,
+      error,
       isStaleOfflineSnapshot,
       notePendingDelete,
+      clearPendingDelete,
+      clearPendingDeletes,
+      getRawSnapshot,
+      applyCacheUpdate,
+      commitOptimisticSnapshot,
       setData: (updater) => {
-        setLocalOverride(prev => {
-          const base = prev ?? swrData ?? null;
-          const next = typeof updater === 'function' ? updater(base) : updater;
-          return next;
-        });
+        const prev = getRawSnapshot();
+        if (!prev) return;
+        const next =
+          typeof updater === 'function' ?
+            updater(prev)
+          : updater;
+        if (!next) return;
+        void commitOptimisticSnapshot(next);
       },
       mutate: async (optimisticData?: ProductsAssetsResponse) => {
         if (optimisticData) {
-          collectPendingFieldValues(pendingFieldValuesRef.current, dataRef.current, optimisticData);
-          bumpPendingFieldsTick();
-          const deletedBeforeCollect = pendingDeletedIdsRef.current.size;
-          collectPendingDeletions(
-            pendingDeletedIdsRef.current,
-            pendingFieldValuesRef.current,
-            dataRef.current,
-            optimisticData
-          );
-          if (pendingDeletedIdsRef.current.size !== deletedBeforeCollect) {
-            persistPendingDeleteIds(pendingDeletedIdsRef.current);
-            setPendingDeletedRenderTick(t => t + 1);
-          }
-          dataRef.current = optimisticData;
-
-          // Keep a stable local source of truth during rapid edits to avoid
-          // falling back to stale swrData between back-to-back mutations.
-          setLocalOverride(optimisticData);
-
-          // 1. Update SWR cache immediately without revalidation
-          await swrMutate(optimisticData, {
-            revalidate: false,
-            populateCache: true,
-          });
-          
-          // 2. Sync in the background, but preserve pending edits if the
-          // public list briefly returns stale data after a successful PATCH.
-          scheduleRevalidation();
-        } else {
-          pendingFieldValuesRef.current = {};
-          bumpPendingFieldsTick();
-          pendingDeletedIdsRef.current.clear();
-          persistPendingDeleteIds(pendingDeletedIdsRef.current);
-          setPendingDeletedRenderTick(t => t + 1);
-          if (revalidationTimerRef.current) {
-            clearTimeout(revalidationTimerRef.current);
-            revalidationTimerRef.current = null;
-          }
-          const freshData = await swrMutate();
-          dataRef.current = freshData ?? null;
-          setLocalOverride(null);
+          await commitOptimisticSnapshot(optimisticData);
+          return;
         }
-      }
+
+        pendingFieldValuesRef.current = {};
+        bumpPendingFieldsTick();
+        pendingDeletedIdsRef.current.clear();
+        persistPendingDeleteIds(pendingDeletedIdsRef.current);
+        bumpPendingDeletesTick();
+
+        if (revalidationTimerRef.current) {
+          clearTimeout(revalidationTimerRef.current);
+          revalidationTimerRef.current = null;
+        }
+
+        const freshData = await swrMutate();
+        rawSnapshotRef.current = freshData ?? null;
+        setLocalOverride(null);
+      },
     }),
-    [data, error, isStaleOfflineSnapshot, loading, notePendingDelete, scheduleRevalidation, swrMutate, swrData, bumpPendingFieldsTick]
+    [
+      data,
+      error,
+      isStaleOfflineSnapshot,
+      loading,
+      notePendingDelete,
+      clearPendingDelete,
+      clearPendingDeletes,
+      getRawSnapshot,
+      applyCacheUpdate,
+      commitOptimisticSnapshot,
+      swrMutate,
+      bumpPendingFieldsTick,
+      bumpPendingDeletesTick,
+    ],
   );
 
   return <ProductsCacheContext.Provider value={value}>{children}</ProductsCacheContext.Provider>;

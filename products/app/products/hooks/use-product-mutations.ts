@@ -2,26 +2,32 @@ import * as React from 'react';
 import type { ProductsRecord, ProductsAssetsResponse } from '@/types/trainer';
 import { apiFetch } from '@/lib/api';
 import { logFrontendEvent } from '../lib/product-service';
-import { formatScalar } from '../lib/product-utils';
-import { mergeServerRecordIntoSnapshot } from '../lib/product-mutation-utils';
+import {
+  formatScalar,
+  getCollectionKey,
+  resolveCollectionName,
+  patchTouchesCollectionIdentity,
+  applyMediaListChange,
+  collectMergedProductMediaUrls,
+  sameProductMediaUrl,
+} from '../lib/product-utils';
+import {
+  mergeServerRecordIntoSnapshot,
+  resolveExactFieldName,
+  resolveExactFieldNames,
+} from '../lib/product-mutation-utils';
 
 interface UseProductMutationsProps {
-  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>;
+  applyCacheUpdate: (
+    updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
+  ) => Promise<ProductsAssetsResponse | null>;
+  commitOptimisticSnapshot: (optimisticData: ProductsAssetsResponse) => Promise<void>;
   mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>;
   notePendingDelete: (recordId: string) => void;
+  clearPendingDelete: (recordId: string) => void;
+  clearPendingDeletes: (recordIds: Iterable<string>) => void;
   columns: string[];
-  /** When provided, blocks save for fields sales cannot edit. */
   canEditField?: (fieldName: string) => boolean;
-}
-
-/** Extracts a collection name key from a record's fields. */
-function getCollectionKey(fields: Record<string, unknown> | undefined): string {
-  return (
-    formatScalar(fields?.['Colecction Name']) || 
-    formatScalar(fields?.Name) || 
-    formatScalar(fields?.['Collection Name']) || 
-    ''
-  ).trim();
 }
 
 function assertCanEditFields(
@@ -35,49 +41,31 @@ function assertCanEditFields(
   return false;
 }
 
-/** Apply optimistic snapshot to local override + SWR cache (single commit path). */
-async function commitOptimisticSnapshot(
-  setData: React.Dispatch<React.SetStateAction<ProductsAssetsResponse | null>>,
-  mutate: (optimisticData?: ProductsAssetsResponse) => Promise<void>,
-  next: ProductsAssetsResponse,
-) {
-  setData(next);
-  await mutate(next);
-}
-
 export function useProductMutations({
-  setData,
+  applyCacheUpdate,
+  commitOptimisticSnapshot,
   mutate,
   notePendingDelete,
+  clearPendingDelete,
+  clearPendingDeletes,
   columns,
   canEditField,
 }: UseProductMutationsProps) {
   const [isSaving, setIsSaving] = React.useState(false);
 
-  const rollbackRecords = React.useCallback(
+  const rollbackFields = React.useCallback(
     async (previousFieldsById: Record<string, Record<string, unknown> | undefined>) => {
       const ids = new Set(Object.keys(previousFieldsById));
       if (ids.size === 0) return;
 
-      let rolledBack: ProductsAssetsResponse | null = null;
-      setData((prev) => {
-        if (!prev) return prev;
-        rolledBack = {
-          ...prev,
-          records: prev.records.map((r) =>
-            ids.has(r.id) ? { ...r, fields: previousFieldsById[r.id] ?? r.fields } : r,
-          ),
-        };
-        return rolledBack;
-      });
-
-      if (rolledBack) {
-        await mutate(rolledBack);
-      } else {
-        await mutate();
-      }
+      await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map((r) =>
+          ids.has(r.id) ? { ...r, fields: previousFieldsById[r.id] ?? r.fields } : r,
+        ),
+      }));
     },
-    [setData, mutate],
+    [applyCacheUpdate],
   );
 
   const commitServerRecord = React.useCallback(
@@ -90,90 +78,83 @@ export function useProductMutations({
         id: serverRecord.id,
         fields: serverRecord.fields,
       });
-      await commitOptimisticSnapshot(setData, mutate, confirmed);
+      await commitOptimisticSnapshot(confirmed);
     },
-    [setData, mutate],
+    [commitOptimisticSnapshot],
   );
 
   const handleUpdateVariant = React.useCallback(async (
-    id: string, 
-    fields: Record<string, unknown>, 
-    records: ProductsRecord[]
+    id: string,
+    fields: Record<string, unknown>,
+    records: ProductsRecord[],
   ) => {
     if (isSaving) return;
 
     const targetRecord = records.find(r => r.id === id);
     if (!targetRecord) return;
 
-    if (!assertCanEditFields(canEditField, Object.keys(fields))) return;
+    const resolvedFields = resolveExactFieldNames(columns, fields);
+    if (!assertCanEditFields(canEditField, Object.keys(resolvedFields))) return;
 
-    const isNameUpdate = 'Colecction Name' in fields || 'Collection Name' in fields || 'Name' in fields;
     let idsToUpdate = [id];
 
-    if (isNameUpdate) {
-      const currentName = getCollectionKey(targetRecord.fields);
-      if (currentName) {
+    if (patchTouchesCollectionIdentity(resolvedFields)) {
+      const groupKey = getCollectionKey(targetRecord.fields);
+      if (groupKey) {
         idsToUpdate = records
-          .filter(r => getCollectionKey(r.fields) === currentName)
-          .map(r => r.id);
+          .filter((r) => getCollectionKey(r.fields) === groupKey)
+          .map((r) => r.id);
       }
     }
 
     const updateSet = new Set(idsToUpdate);
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
-    let optimisticNext: ProductsAssetsResponse | null = null;
+    for (const r of records) {
+      if (updateSet.has(r.id)) previousFieldsById[r.id] = r.fields;
+    }
 
-    setData(prev => {
-      if (!prev) return prev;
-      for (const r of prev.records) {
-        if (updateSet.has(r.id)) {
-          previousFieldsById[r.id] = r.fields;
-        }
-      }
-      optimisticNext = {
-        ...prev,
-        records: prev.records.map(r =>
-          updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...fields } } : r
-        )
-      };
-      return optimisticNext;
-    });
+    const optimisticNext = await applyCacheUpdate((prev) => ({
+      ...prev,
+      records: prev.records.map(r =>
+        updateSet.has(r.id) ? { ...r, fields: { ...r.fields, ...resolvedFields } } : r,
+      ),
+    }));
 
     if (!optimisticNext) return;
-    await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
     setIsSaving(true);
     try {
       const results = await Promise.all(
-        idsToUpdate.map(tid => 
+        idsToUpdate.map(tid =>
           apiFetch(`/products/assets/${tid}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields }),
-          })
-        )
+            body: JSON.stringify({ fields: resolvedFields }),
+          }),
+        ),
       );
 
       if (results.every(res => res.ok)) {
         logFrontendEvent(
-          'PRODUCT_INLINE_EDIT', 
-          `Updated fields: ${Object.keys(fields).join(', ')} across ${idsToUpdate.length} records`, 
-          id
+          'PRODUCT_INLINE_EDIT',
+          `Updated fields: ${Object.keys(resolvedFields).join(', ')} across ${idsToUpdate.length} records`,
+          id,
         );
       } else {
         throw new Error('Update variant API failed');
       }
     } catch (e) {
       console.error('Update failed', e);
-      await rollbackRecords(previousFieldsById);
+      await rollbackFields(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, rollbackRecords, canEditField]);
+  }, [isSaving, applyCacheUpdate, rollbackFields, canEditField, columns]);
 
   const handleToggleMain = React.useCallback(async (recordId: string, records: ProductsRecord[]) => {
     if (isSaving) return;
     setIsSaving(true);
+
     const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
     try {
       const targetRecord = records.find(r => r.id === recordId);
@@ -184,96 +165,78 @@ export function useProductMutations({
         .filter(r => r.id !== recordId && getCollectionKey(r.fields) === groupKey && r.fields?.Main === true)
         .map(r => r.id);
 
-      let optimisticNext: ProductsAssetsResponse | null = null;
-      setData(prev => {
-        if (!prev) return prev;
-        for (const r of prev.records) {
-          if (r.id === recordId || getCollectionKey(r.fields) === groupKey) {
-            previousFieldsById[r.id] = r.fields;
-          }
+      for (const r of records) {
+        if (r.id === recordId || getCollectionKey(r.fields) === groupKey) {
+          previousFieldsById[r.id] = r.fields;
         }
-        optimisticNext = {
-          ...prev,
-          records: prev.records.map(r => {
-            if (r.id === recordId) return { ...r, fields: { ...r.fields, Main: true } };
-            if (getCollectionKey(r.fields) === groupKey) return { ...r, fields: { ...r.fields, Main: false } };
-            return r;
-          })
-        };
-        return optimisticNext;
-      });
+      }
+
+      const mainField = resolveExactFieldName(columns, 'Main');
+      const optimisticNext = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map(r => {
+          if (r.id === recordId) return { ...r, fields: { ...r.fields, [mainField]: true } };
+          if (getCollectionKey(r.fields) === groupKey) return { ...r, fields: { ...r.fields, [mainField]: false } };
+          return r;
+        }),
+      }));
 
       if (!optimisticNext) return;
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
+      const mainTruePatch = resolveExactFieldNames(columns, { [mainField]: true });
+      const mainFalsePatch = resolveExactFieldNames(columns, { [mainField]: false });
       const updates = [
-        { id: recordId, fields: { Main: true } }, 
-        ...otherMainIds.map(oid => ({ id: oid, fields: { Main: false } }))
+        { id: recordId, fields: mainTruePatch },
+        ...otherMainIds.map((oid) => ({ id: oid, fields: mainFalsePatch })),
       ];
-      const responses = await Promise.all(updates.map(u => apiFetch(`/products/assets/${u.id}`, { 
-        method: 'PATCH', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: u.fields }) 
-      })));
+      const responses = await Promise.all(
+        updates.map(u =>
+          apiFetch(`/products/assets/${u.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: u.fields }),
+          }),
+        ),
+      );
       if (!responses.every(res => res.ok)) {
         throw new Error('Toggle Main API failed');
       }
     } catch (err) {
       console.error('Toggle Main failed', err);
-      await rollbackRecords(previousFieldsById);
+      await rollbackFields(previousFieldsById);
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, rollbackRecords, canEditField]);
+  }, [isSaving, applyCacheUpdate, rollbackFields, canEditField, columns]);
 
   const handleSaveFields = React.useCallback(async (
     recordId: string,
     fieldsPatch: Record<string, unknown>,
-    records: ProductsRecord[]
+    records: ProductsRecord[],
   ) => {
     const keys = Object.keys(fieldsPatch);
     if (keys.length === 0) return;
     if (!assertCanEditFields(canEditField, keys)) return;
 
-    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
-    let optimisticNext: ProductsAssetsResponse | null = null;
+    const record = records.find(r => r.id === recordId);
+    const previousFields = record?.fields;
 
     try {
-      setData(prev => {
-        if (!prev) return prev;
-        const existing = prev.records.find(r => r.id === recordId);
-        if (existing) {
-          previousFieldsById[recordId] = existing.fields;
-        }
-        const resolvedPatch: Record<string, unknown> = {};
-        for (const fieldName of keys) {
-          const exactFieldName =
-            columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
-          resolvedPatch[exactFieldName] = fieldsPatch[fieldName];
-        }
-        optimisticNext = {
-          ...prev,
-          records: prev.records.map(r =>
-            r.id === recordId ? { ...r, fields: { ...r.fields, ...resolvedPatch } } : r
-          ),
-        };
-        return optimisticNext;
-      });
+      const resolvedPatch = resolveExactFieldNames(columns, fieldsPatch);
+
+      const optimisticNext = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map(r =>
+          r.id === recordId ? { ...r, fields: { ...r.fields, ...resolvedPatch } } : r,
+        ),
+      }));
 
       if (!optimisticNext) return;
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
-
-      const resolvedForApi: Record<string, unknown> = {};
-      for (const fieldName of keys) {
-        const exactFieldName =
-          columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
-        resolvedForApi[exactFieldName] = fieldsPatch[fieldName];
-      }
 
       const res = await apiFetch(`/products/assets/${recordId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: resolvedForApi }),
+        body: JSON.stringify({ fields: resolvedPatch }),
       });
       if (!res.ok) {
         throw new Error('Save fields API failed');
@@ -286,47 +249,39 @@ export function useProductMutations({
       }
     } catch (err) {
       console.error('Save fields failed', err);
-      await rollbackRecords(previousFieldsById);
+      if (previousFields) {
+        await rollbackFields({ [recordId]: previousFields });
+      }
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, commitServerRecord, canEditField]);
+  }, [applyCacheUpdate, columns, rollbackFields, commitServerRecord, canEditField]);
 
   const handleSaveField = React.useCallback(async (
-    recordId: string, 
-    fieldName: string, 
-    newValue: unknown, 
-    records: ProductsRecord[]
+    recordId: string,
+    fieldName: string,
+    newValue: unknown,
+    records: ProductsRecord[],
   ) => {
     if (!assertCanEditFields(canEditField, [fieldName])) return;
 
-    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
-    let optimisticNext: ProductsAssetsResponse | null = null;
+    const record = records.find(r => r.id === recordId);
+    const previousFields = record?.fields;
+    const resolvedPatch = resolveExactFieldNames(columns, { [fieldName]: newValue });
 
     try {
-      const exactFieldName = columns.find(c => c.trim().toLowerCase() === fieldName.trim().toLowerCase()) || fieldName;
-      
-      setData(prev => {
-        if (!prev) return prev;
-        const existing = prev.records.find(r => r.id === recordId);
-        if (existing) {
-          previousFieldsById[recordId] = existing.fields;
-        }
-        optimisticNext = {
-          ...prev,
-          records: prev.records.map(r => 
-            r.id === recordId ? { ...r, fields: { ...r.fields, [exactFieldName]: newValue } } : r
-          )
-        };
-        return optimisticNext;
-      });
+      const optimisticNext = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map(r =>
+          r.id === recordId ? { ...r, fields: { ...r.fields, ...resolvedPatch } } : r,
+        ),
+      }));
 
       if (!optimisticNext) return;
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const res = await apiFetch(`/products/assets/${recordId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { [exactFieldName]: newValue } })
+        body: JSON.stringify({ fields: resolvedPatch }),
       });
       if (!res.ok) {
         throw new Error('Save field API failed');
@@ -335,55 +290,54 @@ export function useProductMutations({
         const json = await res.json() as { id?: string; fields?: Record<string, unknown> };
         await commitServerRecord(optimisticNext, json);
       } catch {
-        // keep optimistic state if response body is missing/invalid
+        // keep optimistic state
       }
     } catch (err) {
       console.error('Save field failed', err);
-      await rollbackRecords(previousFieldsById);
+      if (previousFields) {
+        await rollbackFields({ [recordId]: previousFields });
+      }
       throw err;
     }
-  }, [setData, mutate, columns, rollbackRecords, commitServerRecord, canEditField]);
+  }, [applyCacheUpdate, columns, rollbackFields, commitServerRecord, canEditField]);
 
   const handleAddMediaToVariant = React.useCallback(async (
-    variantId: string, 
-    newUrl: string, 
-    records: ProductsRecord[]
+    variantId: string,
+    newUrl: string,
+    records: ProductsRecord[],
   ) => {
     if (!newUrl || isSaving) return;
     setIsSaving(true);
-    const previousFieldsById: Record<string, Record<string, unknown> | undefined> = {};
-    let optimisticNext: ProductsAssetsResponse | null = null;
+
+    const record = records.find(r => r.id === variantId);
+    const previousFields = record?.fields;
 
     try {
-      const urlFieldName = columns.find((c) => c.trim().toLowerCase() === 'url') || 'URL';
-      const record = records.find(r => r.id === variantId);
       if (!record) throw new Error('Record not found in state');
-      
-      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
-      const finalValueToSave = currentFieldValue ? currentFieldValue + '\n' + newUrl.trim() : newUrl.trim();
 
-      setData(prev => {
-        if (!prev) return prev;
-        const existing = prev.records.find(r => r.id === variantId);
-        if (existing) {
-          previousFieldsById[variantId] = existing.fields;
-        }
-        optimisticNext = {
-          ...prev,
-          records: prev.records.map(r => 
-            r.id === variantId ? { ...r, fields: { ...r.fields, [urlFieldName]: finalValueToSave } } : r
-          )
-        };
-        return optimisticNext;
-      });
+      const trimmed = newUrl.trim();
+      const merged = collectMergedProductMediaUrls(record.fields, columns);
+      if (merged.some((u) => sameProductMediaUrl(u, trimmed))) return;
+
+      const patch = resolveExactFieldNames(
+        columns,
+        applyMediaListChange(record.fields, columns, [...merged, trimmed]),
+      );
+      if (Object.keys(patch).length === 0) return;
+
+      const optimisticNext = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map(r =>
+          r.id === variantId ? { ...r, fields: { ...r.fields, ...patch } } : r,
+        ),
+      }));
 
       if (!optimisticNext) return;
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
 
       const res = await apiFetch(`/products/assets/${variantId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: { [urlFieldName]: finalValueToSave } }),
+        body: JSON.stringify({ fields: patch }),
       });
       if (!res.ok) {
         throw new Error('Add media API failed');
@@ -396,15 +350,17 @@ export function useProductMutations({
       }
     } catch (err) {
       console.error('Add media failed', err);
-      await rollbackRecords(previousFieldsById);
+      if (previousFields) {
+        await rollbackFields({ [variantId]: previousFields });
+      }
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, columns, rollbackRecords, commitServerRecord]);
+  }, [isSaving, applyCacheUpdate, columns, rollbackFields, commitServerRecord]);
 
   const handleDeleteProduct = React.useCallback(async (
     recordId: string,
-    records: ProductsRecord[]
+    records: ProductsRecord[],
   ) => {
     if (isSaving) return;
     const targetRecord = records.find(r => r.id === recordId);
@@ -413,24 +369,15 @@ export function useProductMutations({
     notePendingDelete(recordId);
 
     let previousData: ProductsAssetsResponse | null = null;
-    let optimisticNext: ProductsAssetsResponse | null = null;
-    setData(prev => {
-      if (!prev) return prev;
-      previousData = prev;
-      optimisticNext = {
+
+    try {
+      previousData = await applyCacheUpdate((prev) => ({
         ...prev,
         records: prev.records.filter(r => r.id !== recordId),
         count: Math.max(0, prev.count - 1),
-      };
-      return optimisticNext;
-    });
+      }));
 
-    if (optimisticNext) {
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
-    }
-
-    setIsSaving(true);
-    try {
+      setIsSaving(true);
       const res = await apiFetch(`/products/assets/${recordId}`, {
         method: 'DELETE',
       });
@@ -439,13 +386,14 @@ export function useProductMutations({
       }
       logFrontendEvent(
         'PRODUCT_DELETE',
-        `Deleted product: ${formatScalar(targetRecord.fields?.['Colecction Name']) || formatScalar(targetRecord.fields?.Name) || recordId}`,
-        recordId
+        `Deleted product: ${resolveCollectionName(targetRecord.fields) || recordId}`,
+        recordId,
       );
     } catch (err) {
       console.error('Delete product failed', err);
+      clearPendingDelete(recordId);
       if (previousData) {
-        await commitOptimisticSnapshot(setData, mutate, previousData);
+        await commitOptimisticSnapshot(previousData);
       } else {
         await mutate();
       }
@@ -453,7 +401,14 @@ export function useProductMutations({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, notePendingDelete]);
+  }, [
+    isSaving,
+    applyCacheUpdate,
+    commitOptimisticSnapshot,
+    mutate,
+    notePendingDelete,
+    clearPendingDelete,
+  ]);
 
   const DELETE_CHUNK = 6;
 
@@ -467,28 +422,19 @@ export function useProductMutations({
     }
 
     let previousData: ProductsAssetsResponse | null = null;
-    let optimisticNext: ProductsAssetsResponse | null = null;
-    setData(prev => {
-      if (!prev) return prev;
-      previousData = prev;
-      optimisticNext = {
+
+    try {
+      previousData = await applyCacheUpdate((prev) => ({
         ...prev,
         records: prev.records.filter(r => !idSet.has(r.id)),
         count: Math.max(0, prev.count - ids.length),
-      };
-      return optimisticNext;
-    });
+      }));
 
-    if (optimisticNext) {
-      await commitOptimisticSnapshot(setData, mutate, optimisticNext);
-    }
-
-    setIsSaving(true);
-    try {
+      setIsSaving(true);
       for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
         const chunk = ids.slice(i, i + DELETE_CHUNK);
         const results = await Promise.all(
-          chunk.map(id => apiFetch(`/products/assets/${id}`, { method: 'DELETE' }))
+          chunk.map(id => apiFetch(`/products/assets/${id}`, { method: 'DELETE' })),
         );
         if (results.some(res => !res.ok)) {
           throw new Error('Bulk delete API failed');
@@ -497,12 +443,13 @@ export function useProductMutations({
       logFrontendEvent(
         'PRODUCT_BULK_DELETE',
         `Bulk deleted ${ids.length} product rows`,
-        ids[0] ?? ''
+        ids[0] ?? '',
       );
     } catch (err) {
       console.error('Bulk delete failed', err);
+      clearPendingDeletes(ids);
       if (previousData) {
-        await commitOptimisticSnapshot(setData, mutate, previousData);
+        await commitOptimisticSnapshot(previousData);
       } else {
         await mutate();
       }
@@ -510,7 +457,14 @@ export function useProductMutations({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, setData, mutate, notePendingDelete]);
+  }, [
+    isSaving,
+    applyCacheUpdate,
+    commitOptimisticSnapshot,
+    mutate,
+    notePendingDelete,
+    clearPendingDeletes,
+  ]);
 
   return {
     isSaving,

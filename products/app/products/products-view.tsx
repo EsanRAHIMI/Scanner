@@ -24,10 +24,14 @@ import {
   findUrlFieldName,
   resolveMediaFieldNames,
   collectMergedProductMediaUrls,
+  applyMediaListChange,
   buildFieldsAfterReplacingMediaUrl,
   buildFieldsAfterHidingGalleryMedia,
   buildFieldsAfterUnhidingGalleryMedia,
   sameProductMediaUrl,
+  getCollectionKey,
+  resolveCollectionName,
+  resolveCollectionCode,
   findMainGalleryItemForCollection,
   scrollElementIntoContainer,
   scrollRowToViewportOffset,
@@ -42,6 +46,7 @@ import {
 } from './lib/constants';
 
 import { HeaderToolbar } from './components/header-toolbar';
+import { ProductsHeaderSearch } from './components/products-header-search';
 import { LightboxViewer } from './components/lightbox-viewer';
 import { FieldEditPortal } from './components/field-edit-portal';
 import { LinkHoverPreview } from './components/link-hover-preview';
@@ -99,8 +104,19 @@ export function ProductsView({
     setShowActivityLogs((v) => !v);
   }, []);
 
-  const { data, loading, error, isStaleOfflineSnapshot, setData, mutate, notePendingDelete } =
-    useProductsCache();
+  const {
+    data,
+    loading,
+    error,
+    isStaleOfflineSnapshot,
+    setData,
+    mutate,
+    notePendingDelete,
+    clearPendingDelete,
+    clearPendingDeletes,
+    applyCacheUpdate,
+    commitOptimisticSnapshot,
+  } = useProductsCache();
   const { data: fieldOptionsData } = useSWR('/public/products/field-options', productFieldOptionsFetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
@@ -145,17 +161,21 @@ export function ProductsView({
   );
 
   const mutations = useProductMutations({
-    setData,
+    applyCacheUpdate,
+    commitOptimisticSnapshot,
     mutate,
     notePendingDelete,
+    clearPendingDelete,
+    clearPendingDeletes,
     columns,
     canEditField: canEditFieldForUser,
   });
-  const dnd = useProductDragDrop({ 
+  const dnd = useProductDragDrop({
+    applyCacheUpdate,
     handleSaveField: mutations.handleSaveField,
     handleSaveFields: mutations.handleSaveFields,
-    records, 
-    columns 
+    records,
+    columns,
   });
 
   // Mapping hook values to original names for JSX compatibility
@@ -236,8 +256,8 @@ export function ProductsView({
     linkHoverTimerRef.current = setTimeout(() => {
       const record = data?.records?.find(r => r.id === recordId);
       const fields = record?.fields || {};
-      const title = formatScalar(fields['Colecction Name']) || formatScalar(fields['Name']) || formatScalar(fields['Collection Name']) || '—';
-      const code = formatScalar(fields['Colecction Code']) || formatScalar(fields['Code']) || '—';
+      const title = resolveCollectionName(fields) || '—';
+      const code = resolveCollectionCode(fields) || '—';
       const variant = formatScalar(fields['Variant Number']) || formatScalar(fields['Num']) || '—';
       
       setLinkHoverState({ url, x, y, title, code, variant });
@@ -252,19 +272,41 @@ export function ProductsView({
     setLinkHoverState(null);
   }, []);
 
-  const handleMoveUrl = dnd.handleMoveUrl;
-  const handleReorderUrls = dnd.handleReorderUrls;
+  const preserveRowAfterEdit = React.useCallback((recordId: string) => {
+    suppressListLayoutResetRef.current = true;
+    setScrollTargetRecordId(recordId);
+  }, []);
+
+  const handleMoveUrl = React.useCallback(
+    async (url: string, fromId: string, toId: string, targetCol?: string) => {
+      preserveRowAfterEdit(fromId);
+      try {
+        await dnd.handleMoveUrl(url, fromId, toId, targetCol);
+      } catch {
+        window.alert('Could not move link. Please try again.');
+      }
+    },
+    [dnd.handleMoveUrl, preserveRowAfterEdit],
+  );
+
+  const handleReorderUrls = React.useCallback(
+    async (recordId: string, fromIndex: number, toIndex: number) => {
+      preserveRowAfterEdit(recordId);
+      try {
+        await dnd.handleReorderUrls(recordId, fromIndex, toIndex);
+      } catch {
+        window.alert('Could not reorder links. Please try again.');
+      }
+    },
+    [dnd.handleReorderUrls, preserveRowAfterEdit],
+  );
   const handleSaveField = (id: string, field: string, val: any) => mutations.handleSaveField(id, field, val, records);
   const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
   const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
   const handleUpdateVariant = (id: string, fields: any) => mutations.handleUpdateVariant(id, fields, records);
   const handleDeleteProduct = (id: string) => {
     const record = records.find(r => r.id === id);
-    const titleText =
-      formatScalar(record?.fields?.['Colecction Name']) ||
-      formatScalar(record?.fields?.Name) ||
-      formatScalar(record?.fields?.['Collection Name']) ||
-      id;
+    const titleText = resolveCollectionName(record?.fields) || id;
     const ok = window.confirm(`Delete this product row?\n\n${titleText}`);
     if (!ok) return;
     void mutations.handleDeleteProduct(id, records);
@@ -294,23 +336,6 @@ export function ProductsView({
   const hasInitializedMain = React.useRef(false);
   React.useEffect(() => {
     if (!loading && records.length > 0 && !hasInitializedMain.current) {
-      const getCollectionKey = (fields: any) => {
-        const collectionName =
-          formatScalar(fields?.['Collection Name']) ||
-          formatScalar(fields?.['Colecction Name']) ||
-          formatScalar(fields?.Name) ||
-          '';
-        const nameKey = collectionName.trim();
-        if (nameKey) return `name:${nameKey.toLowerCase()}`;
-
-        const collectionCode =
-          formatScalar(fields?.['Collection Code']) ||
-          formatScalar(fields?.['Colecction Code']) ||
-          formatScalar(fields?.Code) ||
-          '';
-        const codeKey = collectionCode.trim();
-        return codeKey ? `code:${codeKey.toLowerCase()}` : '';
-      };
       const groupHasMain = new Set<string>();
       const seenGroups = new Set<string>();
       for (const r of records) {
@@ -336,10 +361,17 @@ export function ProductsView({
         changed = true;
         return { ...r, fields: { ...r.fields, Main: true } };
       });
-      if (changed) setData({ records: nextRecords as any, columns, count: nextRecords.length });
+      if (changed) {
+        void applyCacheUpdate((prev) => ({
+          ...prev,
+          records: nextRecords,
+          columns,
+          count: nextRecords.length,
+        }));
+      }
       hasInitializedMain.current = true;
     }
-  }, [data, loading, records, setData]);
+  }, [data, loading, records, applyCacheUpdate, columns]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
   /** Row delete and bulk purge: admin role only (not sales or other roles). */
@@ -426,6 +458,7 @@ export function ProductsView({
 
   const handleSaveUrl = async () => {
     if (!editingUrl || mutations.isSaving) return;
+    const savedRecordId = editingUrl.id;
     const urlFieldName = findUrlFieldName(columns);
     let finalValueToSave = editingUrl.value;
     if (editingUrl.column?.trim().toLowerCase() === 'video' && finalValueToSave && !isVideoUrl(finalValueToSave)) {
@@ -452,7 +485,7 @@ export function ProductsView({
             record.fields,
             targetUrl,
             finalValueToSave,
-            mediaFieldNames,
+            columns,
           );
           if (Object.keys(patch).length === 0) {
             await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
@@ -464,6 +497,8 @@ export function ProductsView({
         window.alert('Could not save link. Please try again.');
         return;
       }
+      suppressListLayoutResetRef.current = true;
+      setScrollTargetRecordId(savedRecordId);
       setEditingUrl(null);
       return;
     }
@@ -475,24 +510,32 @@ export function ProductsView({
         window.alert('Could not save link. Please try again.');
         return;
       }
+      suppressListLayoutResetRef.current = true;
+      setScrollTargetRecordId(savedRecordId);
       setEditingUrl(null);
       return;
     }
 
-    if (editingUrl.mode === 'prepend') {
-      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
-      finalValueToSave = currentFieldValue ? `${finalValueToSave}\n${currentFieldValue}` : finalValueToSave;
-    } else if (!editingUrl.mode) {
-      const currentFieldValue = String(record.fields[urlFieldName] || '').trim();
-      finalValueToSave = currentFieldValue ? `${currentFieldValue}\n${finalValueToSave}` : finalValueToSave;
-    }
+    const merged = collectMergedProductMediaUrls(record.fields, columns);
+    const trimmed = finalValueToSave.trim();
+    const next =
+      editingUrl.mode === 'prepend'
+        ? [trimmed, ...merged.filter((u) => !sameProductMediaUrl(u, trimmed))]
+        : [...merged.filter((u) => !sameProductMediaUrl(u, trimmed)), trimmed];
 
     try {
-      await mutations.handleSaveField(editingUrl.id, urlFieldName, finalValueToSave, records);
+      const patch = applyMediaListChange(record.fields, columns, next);
+      if (Object.keys(patch).length === 0) {
+        await mutations.handleSaveField(editingUrl.id, urlFieldName, trimmed, records);
+      } else {
+        await mutations.handleSaveFields(editingUrl.id, patch, records);
+      }
     } catch {
       window.alert('Could not save link. Please try again.');
       return;
     }
+    suppressListLayoutResetRef.current = true;
+    setScrollTargetRecordId(savedRecordId);
     setEditingUrl(null);
   };
 
@@ -938,10 +981,12 @@ export function ProductsView({
   );
 
   const currentCollectionVariants = React.useMemo(() => {
-    const key = (currentItem?.collectionNameNormalized || '').trim();
-    if (!key) return [] as (typeof allGalleryItems)[number][];
+    const groupKey = getCollectionKey(currentItem?.fields);
+    if (!groupKey) return [] as (typeof allGalleryItems)[number][];
 
-    const variants = allGalleryItems.filter((x: any) => x.collectionNameNormalized === key);
+    const variants = allGalleryItems.filter(
+      (x: { fields?: Record<string, unknown> }) => getCollectionKey(x.fields) === groupKey,
+    );
 
     const currentId = currentItem?.id ?? null;
     if (!currentId) return variants;
@@ -1066,69 +1111,14 @@ export function ProductsView({
   const showInitialListSkeleton = loading && records.length === 0;
 
   const searchGroupNode = (
-    <div
-      className={`group flex min-h-10 w-full min-w-0 max-w-full items-center rounded-full border border-black/10 bg-white/50 shadow-sm backdrop-blur-md transition-all dark:border-white/10 dark:bg-black/40 ${
-        hasActiveFilters ? 'pr-1' : 'pr-0'
-      }`}
-    >
-      <div
-        className={`overflow-hidden transition-[width,opacity] duration-300 ease-out flex items-center ${
-          hasActiveFilters ? 'w-10 opacity-100' : 'w-0 opacity-0 pointer-events-none'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={handleClearAllFilters}
-          title="Clear all filters & search"
-          className="flex h-10 w-10 shrink-0 items-center justify-center text-red-600 transition-all hover:scale-110 active:scale-95 dark:text-red-400"
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 sm:gap-2.5 sm:px-3">
-        <svg
-          viewBox="0 0 24 24"
-          className={`h-5 w-5 shrink-0 ${
-            search.trim().length > 0
-              ? 'text-emerald-600 dark:text-emerald-400'
-              : 'text-black/40 dark:text-white/40'
-          }`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          aria-hidden
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
-        <input
-          ref={searchInputRef}
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && search.trim()) {
-              e.preventDefault();
-              handleClearSearch();
-            }
-          }}
-          placeholder="Search products, codes, collections…"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="search"
-          aria-label="Search products"
-          className="min-h-9 min-w-0 flex-1 bg-transparent py-2 text-sm text-black outline-none placeholder:text-black/40 dark:text-white dark:placeholder:text-white/45"
-        />
-      </div>
-      <div className="hidden shrink-0 items-center gap-1 sm:flex">
-        <kbd className="rounded-md border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-black/45 dark:border-white/15 dark:bg-white/10 dark:text-white/45">
-          ⌘K
-        </kbd>
-      </div>
-    </div>
+    <ProductsHeaderSearch
+      search={search}
+      onSearchChange={setSearch}
+      searchInputRef={searchInputRef}
+      hasActiveFilters={hasActiveFilters}
+      onClearSearch={handleClearSearch}
+      onClearAllFilters={handleClearAllFilters}
+    />
   );
 
   const viewToggleNode = (

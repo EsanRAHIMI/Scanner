@@ -2,7 +2,15 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { formatScalar, extractUrls, getDriveDirectLink, DRIVE_IMAGE_WIDTH_LIST, highlightMatches } from '../lib/product-utils';
+import {
+  formatScalar,
+  extractUrls,
+  getDriveDirectLink,
+  DRIVE_IMAGE_WIDTH_LIST,
+  highlightMatches,
+  resolveCollectionName,
+  resolveCollectionCode,
+} from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
 interface CommandPaletteProps {
@@ -118,8 +126,8 @@ export function CommandPalette({
               <h3 className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-emerald-500">Results</h3>
               <div className="space-y-2">
                 {filteredRecords.slice(0, 10).map((r, idx) => {
-                  const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name) || 'Unknown Product';
-                  const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code) || 'No Code';
+                  const name = resolveCollectionName(r.fields) || 'Unknown Product';
+                  const code = resolveCollectionCode(r.fields) || 'No Code';
                   return (
                     <button
                       key={r.id}

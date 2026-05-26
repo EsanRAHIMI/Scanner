@@ -66,6 +66,79 @@ export function formatScalar(value: unknown): string {
   return '';
 }
 
+/** Collection Name (canonical spellings first, then legacy Name). */
+export function resolveCollectionName(
+  fields: Record<string, unknown> | undefined,
+): string {
+  if (!fields) return '';
+  return (
+    formatScalar(fields['Collection Name']) ||
+    formatScalar(fields['Colecction Name']) ||
+    formatScalar(fields['Name']) ||
+    ''
+  ).trim();
+}
+
+/** Collection Code (canonical spellings first, then legacy Code). */
+export function resolveCollectionCode(
+  fields: Record<string, unknown> | undefined,
+): string {
+  if (!fields) return '';
+  return (
+    formatScalar(fields['Collection Code']) ||
+    formatScalar(fields['Colecction Code']) ||
+    formatScalar(fields['Code']) ||
+    ''
+  ).trim();
+}
+
+/**
+ * Stable group id for comparing rows: `name:…` when Collection Name is set, else `code:…`.
+ */
+export function getCollectionKey(
+  fields: Record<string, unknown> | undefined,
+): string {
+  const name = resolveCollectionName(fields);
+  if (name) return `name:${name.toLowerCase()}`;
+  const code = resolveCollectionCode(fields);
+  if (code) return `code:${code.toLowerCase()}`;
+  return '';
+}
+
+/** Display label for UI / counts: Collection Name, else Collection Code. */
+export function getCollectionDisplayKey(
+  fields: Record<string, unknown> | undefined,
+): string {
+  const name = resolveCollectionName(fields);
+  if (name) return name;
+  return resolveCollectionCode(fields);
+}
+
+export function sameCollectionGroup(
+  a: Record<string, unknown> | undefined,
+  b: Record<string, unknown> | undefined,
+): boolean {
+  const ka = getCollectionKey(a);
+  return Boolean(ka) && ka === getCollectionKey(b);
+}
+
+const COLLECTION_IDENTITY_FIELD_KEYS = new Set([
+  'collection name',
+  'colecction name',
+  'name',
+  'collection code',
+  'colecction code',
+  'code',
+]);
+
+export function isCollectionIdentityField(fieldName: string): boolean {
+  return COLLECTION_IDENTITY_FIELD_KEYS.has(fieldName.trim().toLowerCase());
+}
+
+export function patchTouchesCollectionIdentity(fieldsPatch: Record<string, unknown>): boolean {
+  return Object.keys(fieldsPatch).some((k) => isCollectionIdentityField(k));
+}
+
 /**
  * Extracts URLs from various input formats (string, array, objects).
  */
@@ -354,16 +427,140 @@ export function collectMergedProductMediaUrls(
   columns: string[],
 ): string[] {
   if (!fields) return [];
-  const urlFieldName = findUrlFieldName(columns);
-  const imageField = columns.find(c => c.trim().toLowerCase() === 'image');
-  const damField = columns.find(c => c.trim().toLowerCase() === 'dam');
+  const keys = resolveMediaFieldKeys(fields, columns);
   return extractUrls(
     mergeProductMediaUrls(
-      fields[urlFieldName] ?? findUrlFieldValue(fields),
-      imageField ? fields[imageField] : undefined,
-      damField ? fields[damField] : undefined,
+      fields[keys.url] ?? findUrlFieldValue(fields),
+      keys.image ? fields[keys.image] : undefined,
+      keys.dam ? fields[keys.dam] : undefined,
     ),
   );
+}
+
+export type MediaFieldKeys = {
+  url: string;
+  image: string | null;
+  dam: string | null;
+};
+
+export function resolveMediaFieldKeys(
+  fields: Record<string, unknown>,
+  columns: string[],
+): MediaFieldKeys {
+  return {
+    url: resolveUrlFieldKey(fields, columns),
+    image: columns.find((c) => c.trim().toLowerCase() === 'image') ?? null,
+    dam: columns.find((c) => c.trim().toLowerCase() === 'dam') ?? null,
+  };
+}
+
+function findUrlInFieldValue(fieldValue: unknown, listItem: string): string | undefined {
+  return extractUrls(fieldValue).find((u) => sameProductMediaUrl(u, listItem));
+}
+
+/** Keep the best existing stored string for a merged-list item (URL / Image / DAM variant). */
+function resolveStoredUrlForListItem(
+  listItem: string,
+  fields: Record<string, unknown>,
+  keys: MediaFieldKeys,
+): string {
+  return (
+    findUrlInFieldValue(fields[keys.url], listItem) ??
+    (keys.image ? findUrlInFieldValue(fields[keys.image], listItem) : undefined) ??
+    (keys.dam ? findUrlInFieldValue(fields[keys.dam], listItem) : undefined) ??
+    listItem.trim()
+  );
+}
+
+function fieldUrlsJoined(fieldValue: unknown): string {
+  return extractUrls(fieldValue).join('\n');
+}
+
+function buildImageFieldValueFromMediaList(
+  fields: Record<string, unknown>,
+  keys: MediaFieldKeys,
+  nextUrls: string[],
+): string {
+  if (!keys.image) return '';
+  const imageUrls = extractUrls(fields[keys.image]);
+  if (imageUrls.length === 0) return '';
+
+  const used = new Set<number>();
+  const next: string[] = [];
+
+  for (const u of nextUrls) {
+    if (isVideoUrl(u)) continue;
+    const matchIdx = imageUrls.findIndex(
+      (img, i) => !used.has(i) && sameProductMediaUrl(img, u),
+    );
+    if (matchIdx >= 0) {
+      used.add(matchIdx);
+      next.push(imageUrls[matchIdx]!);
+    }
+  }
+
+  return next.join('\n');
+}
+
+/** Drop DAM rows that now live in the URL list — prevents URL + DAM duplicates after reorder/move. */
+function buildDamFieldValueFromMediaList(
+  fields: Record<string, unknown>,
+  keys: MediaFieldKeys,
+  urlFieldValue: string,
+  nextUrls: string[],
+): string {
+  if (!keys.dam) return '';
+  const damUrls = extractUrls(fields[keys.dam]);
+  if (damUrls.length === 0) return '';
+
+  const urlFieldUrls = extractUrls(urlFieldValue);
+  const kept = damUrls.filter((d) => {
+    const representedInUrl = urlFieldUrls.some((u) => sameProductMediaUrl(u, d));
+    const representedInList = nextUrls.some((n) => sameProductMediaUrl(n, d));
+    return !representedInUrl && !representedInList;
+  });
+
+  return kept.join('\n');
+}
+
+/**
+ * Apply a new merged media list (URL column order) to URL, Image, and DAM together.
+ * Use for reorder, move, replace, and remove — not for gallery hide (Gallery Hidden only).
+ */
+export function applyMediaListChange(
+  fields: Record<string, unknown>,
+  columns: string[],
+  nextUrls: string[],
+): Record<string, unknown> {
+  const keys = resolveMediaFieldKeys(fields, columns);
+  const normalizedNext = nextUrls.map((u) => u.trim()).filter(Boolean);
+  const patch: Record<string, unknown> = {};
+
+  const urlValue = normalizedNext
+    .map((u) => resolveStoredUrlForListItem(u, fields, keys))
+    .join('\n');
+  const prevUrlJoined = fieldUrlsJoined(fields[keys.url] ?? findUrlFieldValue(fields));
+  if (prevUrlJoined !== urlValue) {
+    patch[keys.url] = urlValue;
+  }
+
+  if (keys.image) {
+    const imageValue = buildImageFieldValueFromMediaList(fields, keys, normalizedNext);
+    const prevImageJoined = fieldUrlsJoined(fields[keys.image]);
+    if (prevImageJoined !== imageValue) {
+      patch[keys.image] = imageValue;
+    }
+  }
+
+  if (keys.dam) {
+    const damValue = buildDamFieldValueFromMediaList(fields, keys, urlValue, normalizedNext);
+    const prevDamJoined = fieldUrlsJoined(fields[keys.dam]);
+    if (prevDamJoined !== damValue) {
+      patch[keys.dam] = damValue;
+    }
+  }
+
+  return patch;
 }
 
 export function removeUrlFromFieldValue(fieldValue: unknown, urlToRemove: string): string {
@@ -374,34 +571,23 @@ export function removeUrlFromFieldValue(fieldValue: unknown, urlToRemove: string
 export function buildFieldsAfterRemovingMediaUrl(
   fields: Record<string, unknown>,
   urlToRemove: string,
-  fieldNames: string[],
+  columns: string[],
 ): Record<string, unknown> {
-  const patch: Record<string, unknown> = {};
-  for (const name of fieldNames) {
-    const before = extractUrls(fields[name]).join('\n');
-    const after = removeUrlFromFieldValue(fields[name], urlToRemove);
-    if (before !== after) {
-      patch[name] = after;
-    }
-  }
-  return patch;
+  const merged = collectMergedProductMediaUrls(fields, columns);
+  const next = merged.filter((u) => !sameProductMediaUrl(u, urlToRemove));
+  return applyMediaListChange(fields, columns, next);
 }
 
 export function buildFieldsAfterReplacingMediaUrl(
   fields: Record<string, unknown>,
   oldUrl: string,
   newUrl: string,
-  fieldNames: string[],
+  columns: string[],
 ): Record<string, unknown> {
-  const patch: Record<string, unknown> = {};
   const trimmed = newUrl.trim();
-  for (const name of fieldNames) {
-    const urls = extractUrls(fields[name]);
-    if (!urls.some(u => sameProductMediaUrl(u, oldUrl))) continue;
-    const next = urls.map(u => (sameProductMediaUrl(u, oldUrl) ? trimmed : u));
-    patch[name] = next.join('\n');
-  }
-  return patch;
+  const merged = collectMergedProductMediaUrls(fields, columns);
+  const next = merged.map((u) => (sameProductMediaUrl(u, oldUrl) ? trimmed : u));
+  return applyMediaListChange(fields, columns, next);
 }
 
 /** Internal field: URLs hidden from Image column / Feed (still listed under URL). */
@@ -505,39 +691,13 @@ export function getImageColumnDisplayUrls(
   return filterUrlsForGalleryDisplay(result, fields, columns);
 }
 
-/** After URL reorder, mirror the same order onto the Image field when it stores matching assets. */
+/** After URL reorder, sync URL / Image / DAM from the merged list. */
 export function buildImageFieldOrderPatch(
   fields: Record<string, unknown>,
   columns: string[],
   reorderedUrlList: string[],
 ): Record<string, unknown> {
-  const imageField = columns.find(c => c.trim().toLowerCase() === 'image');
-  if (!imageField) return {};
-
-  const imageUrls = extractUrls(fields[imageField]).filter(u => !isVideoUrl(u));
-  if (imageUrls.length === 0) return {};
-
-  const used = new Set<number>();
-  const next: string[] = [];
-
-  for (const u of reorderedUrlList.filter(u => !isVideoUrl(u))) {
-    const matchIdx = imageUrls.findIndex(
-      (img, i) => !used.has(i) && sameProductMediaUrl(img, u),
-    );
-    if (matchIdx >= 0) {
-      used.add(matchIdx);
-      next.push(imageUrls[matchIdx]!);
-    }
-  }
-
-  for (let i = 0; i < imageUrls.length; i++) {
-    if (!used.has(i)) next.push(imageUrls[i]!);
-  }
-
-  const prev = imageUrls.join('\n');
-  const joined = next.join('\n');
-  if (prev === joined) return {};
-  return { [imageField]: joined };
+  return applyMediaListChange(fields, columns, reorderedUrlList);
 }
 
 export function buildFieldsAfterHidingGalleryMedia(
@@ -657,12 +817,23 @@ export function findMainGalleryItemForCollection<
     fields?: Record<string, unknown>;
     isMain?: boolean;
   },
->(items: T[], collectionKey: string): T | null {
-  const key = collectionKey.trim().toLowerCase();
-  if (!key) return null;
-  const siblings = items.filter(
-    (x) => (x.collectionNameNormalized || '').trim().toLowerCase() === key,
-  );
+>(items: T[], collectionKeyOrDisplay: string): T | null {
+  const needle = collectionKeyOrDisplay.trim().toLowerCase();
+  if (!needle) return null;
+  const siblings = items.filter((x) => {
+    if (x.fields) {
+      const groupKey = getCollectionKey(x.fields);
+      if (groupKey === `name:${needle}` || groupKey === `code:${needle}`) return true;
+    }
+    const display = (
+      x.collectionNameNormalized ||
+      getCollectionDisplayKey(x.fields) ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    return display === needle;
+  });
   if (siblings.length === 0) return null;
   return (
     siblings.find((x) => x.isMain === true || x.fields?.Main === true) ?? siblings[0]

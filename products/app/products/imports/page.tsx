@@ -129,8 +129,8 @@ function getFirstField(fields: Record<string, unknown>, names: string[]) {
 }
 
 function buildProductMatchKeys(fields: Record<string, unknown>) {
-  const collectionName = normalizeComparable(getFirstField(fields, ['Colecction Name', 'Collection Name', 'Name']));
-  const collectionCode = normalizeComparable(getFirstField(fields, ['Colecction Code', 'Collection Code', 'Code']));
+  const collectionName = normalizeComparable(getFirstField(fields, ['Collection Name', 'Colecction Name', 'Name']));
+  const collectionCode = normalizeComparable(getFirstField(fields, ['Collection Code', 'Colecction Code', 'Code']));
   const variant = normalizeComparable(getFirstField(fields, ['Variant Number', 'Variant', 'Num']));
   const codeNumber = normalizeComparable(getFirstField(fields, ['CODE NUMBER', 'Code Number', 'Code No']));
 
@@ -145,12 +145,12 @@ function buildProductMatchKeys(fields: Record<string, unknown>) {
 function getEquivalentFieldValue(fields: Record<string, unknown>, column: string) {
   const lower = column.trim().toLowerCase();
   const aliases: Record<string, string[]> = {
-    'colecction name': ['Colecction Name', 'Collection Name', 'Name'],
-    'collection name': ['Colecction Name', 'Collection Name', 'Name'],
-    name: ['Colecction Name', 'Collection Name', 'Name'],
-    'colecction code': ['Colecction Code', 'Collection Code', 'Code'],
-    'collection code': ['Colecction Code', 'Collection Code', 'Code'],
-    code: ['Colecction Code', 'Collection Code', 'Code'],
+    'colecction name': ['Collection Name', 'Colecction Name', 'Name'],
+    'collection name': ['Collection Name', 'Colecction Name', 'Name'],
+    name: ['Collection Name', 'Colecction Name', 'Name'],
+    'colecction code': ['Collection Code', 'Colecction Code', 'Code'],
+    'collection code': ['Collection Code', 'Colecction Code', 'Code'],
+    code: ['Collection Code', 'Colecction Code', 'Code'],
     'variant number': ['Variant Number', 'Variant', 'Num'],
     variant: ['Variant Number', 'Variant', 'Num'],
     num: ['Num', 'Variant Number', 'Variant'],

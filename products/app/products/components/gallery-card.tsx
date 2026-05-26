@@ -11,6 +11,9 @@ import {
   supportsNextJsImageOptimization,
   mergeProductMediaUrls,
   filterUrlsForGalleryDisplay,
+  resolveCollectionName,
+  resolveCollectionCode,
+  getCollectionDisplayKey,
 } from '../lib/product-utils';
 import type { ProductsRecord } from '@/types/trainer';
 
@@ -45,8 +48,9 @@ export function GalleryCard({
     setImageFailed(false);
   }, [img]);
 
-  const name = formatScalar(r.fields?.['Colecction Name']) || formatScalar(r.fields?.Name);
-  const code = formatScalar(r.fields?.['Colecction Code']) || formatScalar(r.fields?.Code);
+  const name = resolveCollectionName(r.fields);
+  const code = resolveCollectionCode(r.fields);
+  const familyLabel = getCollectionDisplayKey(r.fields);
   const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
   const fields = r.fields ?? {};
   
@@ -148,9 +152,9 @@ export function GalleryCard({
         <div className="flex items-center justify-between gap-2 text-xs leading-snug text-black/70 dark:text-white/65">
           <div className="flex min-w-0 items-center gap-2 overflow-hidden">
             <span className="truncate">{variant ? <span>Variant: {highlightMatches(variant, search)}</span> : ''}</span>
-            {familyMode === 'main' && (name?.trim() ? (variantCounts[name.trim()] || 0) : 0) > 1 && (
+            {familyMode === 'main' && familyLabel && (variantCounts[familyLabel] || 0) > 1 && (
               <span className="flex-none rounded bg-black/5 px-1 py-0.5 text-[9px] font-bold text-black/40 dark:bg-white/10 dark:text-white/40">
-                +{(variantCounts[name?.trim() || ''] || 0) - 1}
+                +{(variantCounts[familyLabel] || 0) - 1}
               </span>
             )}
           </div>
