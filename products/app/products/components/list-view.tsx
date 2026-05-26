@@ -700,10 +700,10 @@ export function ListView({
   );
 
   return (
-    <div className="relative flex-1 min-h-0 w-full animate-fade-in rounded-xl border border-black/10 bg-white shadow-sm dark:border-white/10 dark:bg-black/25">
+    <div className="relative flex-1 min-h-0 w-full animate-fade-in border border-x-0 border-black/10 bg-white shadow-none dark:border-white/10 dark:bg-black/25 max-sm:-ml-5 max-sm:w-[calc(100%+2.5rem)] max-sm:max-w-none max-sm:rounded-none sm:ml-0 sm:w-full sm:rounded-xl sm:border-x sm:shadow-sm">
       <div
         ref={scrollContainerRef}
-        className="scrollbar-minimal h-full min-h-0 w-full overflow-auto"
+        className="scrollbar-minimal h-full min-h-0 w-full overflow-x-hidden overflow-y-auto"
       >
       <table className="min-w-full table-auto text-left text-sm border-separate border-spacing-0">
         <thead className="bg-transparent text-[10px] uppercase tracking-wider text-black/40 dark:text-white/35 font-bold">
@@ -721,7 +721,7 @@ export function ListView({
                     (isURL ? 'w-[220px] min-w-[220px] max-w-[220px] ' :
                      normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' :
                      isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
-                    'px-4 py-3 text-left'
+                    'px-2 py-2.5 text-left sm:px-4 sm:py-3'
                   }
                 >
                   <button
@@ -739,7 +739,7 @@ export function ListView({
               );
             })}
             {canDelete ? (
-              <th className="sticky top-0 z-20 w-[92px] min-w-[92px] bg-white/95 px-3 py-3 text-left shadow-sm backdrop-blur-md dark:bg-black/85">
+              <th className="sticky top-0 z-20 w-[92px] min-w-[92px] bg-white/95 px-2 py-2.5 text-left shadow-sm backdrop-blur-md dark:bg-black/85 sm:px-3 sm:py-3">
                 Actions
               </th>
             ) : null}
@@ -819,14 +819,14 @@ export function ListView({
                            normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' :
                            isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
                           (isFirstCol
-                            ? 'px-4 py-1 whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
+                            ? 'px-2 py-1 whitespace-pre-wrap text-xs sm:px-4 ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
                             : (isEditableTag
                                 ? 'p-0'
                                 : isContentStatus
                                   ? 'px-2 py-2 whitespace-nowrap text-xs'
                                 : (isDAM
                                   ? 'px-1 py-1 whitespace-pre-wrap text-xs text-black/80 dark:text-white/80'
-                                  : (isURL ? 'px-0 py-3' : 'px-4 py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80'))))
+                                  : (isURL ? 'px-0 py-2.5 sm:py-3' : 'px-2 py-2.5 sm:px-4 sm:py-3') + ' whitespace-pre-wrap text-xs ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80'))))
                         }
                         onDragOver={(e) => {
                           if (isUrlReorderDragEvent(e)) return;
@@ -912,7 +912,7 @@ export function ListView({
           )}
           {visibleRecords.length === 0 && !loading ? (
             <tr>
-              <td className="px-4 py-32 text-center" colSpan={displayedColumns.length + (canDelete ? 1 : 0)}>
+              <td className="px-2 py-32 text-center sm:px-4" colSpan={displayedColumns.length + (canDelete ? 1 : 0)}>
                 <div className="flex flex-col items-center justify-center animate-fade-in">
                    <div className="h-16 w-16 items-center justify-center rounded-full bg-black/5 dark:bg-white/5 flex mb-4 text-black/20 dark:text-white/20">
                       <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>

@@ -3,15 +3,29 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { withBasePath } from '@/lib/pwa';
+
+import { PwaRegister } from './pwa-register';
 import { ProductsCacheProvider } from './products-cache-provider';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 export const metadata: Metadata = {
   title: 'Products',
-  description: 'Products table',
+  description: 'Lorenzo products catalog and inventory',
+  applicationName: 'Lorenzo Products',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Products',
+    statusBarStyle: 'black-translucent',
+  },
+  formatDetection: {
+    telephone: false,
+  },
   icons: {
     icon: `${basePath}/favicon.ico`,
+    apple: withBasePath('/icons/apple-touch-icon.png'),
   },
 };
 
@@ -20,12 +34,14 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: '#000000',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">
       <body className="h-dvh overflow-hidden bg-white text-black dark:bg-black dark:text-white">
+        <PwaRegister />
         <ProductsCacheProvider>
           <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-4 box-border px-5 py-6">
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>

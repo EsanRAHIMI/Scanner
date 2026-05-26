@@ -62,6 +62,7 @@ import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
 import { GalleryCard } from './components/gallery-card';
 import { ListView } from './components/list-view';
+import { PwaInstallFab } from './components/pwa-install-fab';
 import {
   LoadMoreFloatingIndicator,
   LoadMoreScrollSentinel,
@@ -1515,6 +1516,8 @@ export function ProductsView({
         ) : null}
         </div>
       )}
+
+      {!currentItem ? <PwaInstallFab raised={selectedCount > 0} /> : null}
 
       {selectedCount > 0 && !currentItem ? (
         <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
