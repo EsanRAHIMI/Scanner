@@ -40,6 +40,68 @@ import {
   LoadMoreScrollSentinel,
 } from './load-more-floating-indicator';
 
+function isCodeNumberColumn(normalizedCol: string): boolean {
+  return normalizedCol === 'code number' || normalizedCol === 'code no';
+}
+
+/** Mobile-only: fixed width + clip overflow so text cannot paint under the next column. */
+function listColumnWidthClass(
+  normalizedCol: string,
+  isURL: boolean,
+  isContentStatus: boolean,
+): string {
+  if (isURL) return 'w-[220px] min-w-[220px] max-w-[220px] ';
+  if (normalizedCol === 'variant number') return 'w-[110px] min-w-[110px] max-w-[110px] ';
+  if (isCodeNumberColumn(normalizedCol)) {
+    return 'max-sm:w-[6.25rem] max-sm:min-w-[6.25rem] max-sm:max-w-[6.25rem] max-sm:box-border ';
+  }
+  if (normalizedCol === 'image') {
+    return 'max-sm:w-[6.5rem] max-sm:min-w-[6.5rem] max-sm:max-w-[6.5rem] max-sm:overflow-hidden ';
+  }
+  if (isContentStatus) return 'w-[148px] min-w-[148px] max-w-[180px] ';
+  return '';
+}
+
+function codeNumberCellShellClass(): string {
+  return 'text-left max-sm:min-w-0 max-sm:max-w-full max-sm:break-words max-sm:[overflow-wrap:anywhere] max-sm:whitespace-pre-wrap max-sm:leading-snug ';
+}
+
+function listCellAlignClass(): string {
+  return 'align-middle text-left ';
+}
+
+function listRowCellBackgroundClass(selected: boolean, isInGroup: boolean): string {
+  if (selected) return 'bg-emerald-50 dark:bg-emerald-900/30 ';
+  if (isInGroup) return 'bg-emerald-50/40 dark:bg-emerald-900/10 ';
+  return 'bg-white dark:bg-black/10 ';
+}
+
+/** Desktop: first column sticky z-30 (unchanged). Mobile: Code Number above image deck fan-out. */
+function listColumnStackClass(
+  normalizedCol: string,
+  isFirstCol: boolean,
+  selected: boolean,
+  isInGroup: boolean,
+): string {
+  let cls = '';
+  if (isFirstCol) {
+    cls += 'sticky left-0 z-30 ' + listRowCellBackgroundClass(selected, isInGroup);
+    if (normalizedCol === 'image') {
+      cls += 'max-sm:static max-sm:left-auto max-sm:z-0 ';
+    }
+  }
+  if (isCodeNumberColumn(normalizedCol)) {
+    cls +=
+      'max-sm:relative max-sm:z-30 ' +
+      (selected
+        ? 'max-sm:bg-emerald-50 max-sm:dark:bg-emerald-900/30 '
+        : isInGroup
+          ? 'max-sm:bg-emerald-50/40 max-sm:dark:bg-emerald-900/10 '
+          : 'max-sm:bg-white max-sm:dark:bg-black/10 ');
+  }
+  return cls;
+}
+
 function ContentStatusSelect({
   recordId,
   column,
@@ -182,7 +244,7 @@ export function ListView({
     const normalized = column.trim().toLowerCase();
     if (normalized === 'colecction name' || normalized === 'collection name') return 'Collection Name';
     if (normalized === 'colecction code' || normalized === 'collection code') return 'Collection Code';
-    if (normalized === 'code number') return 'Code Number';
+    if (isCodeNumberColumn(normalized)) return 'Code Number';
     if (normalized === 'dimension (mm)' || normalized === 'dimension') return 'Dimension (mm)';
     if (normalized === 'content status') return 'Content Status';
     return column;
@@ -192,6 +254,7 @@ export function ListView({
     const normalized = getColumnLabel(column).trim().toLowerCase();
     const inlineEditable = [
       'code number',
+      'code no',
       'collection name',
       'price',
       'collection code',
@@ -293,7 +356,7 @@ export function ListView({
               );
             }
             return (
-              <div className="flex h-12 w-full items-center justify-center">
+              <div className="flex h-12 w-full items-center justify-center max-sm:justify-start">
                 <button
                   type="button"
                   onPointerDown={(e) => e.stopPropagation()}
@@ -323,7 +386,7 @@ export function ListView({
             );
           }
           return (
-            <div className="flex h-12 w-full items-center justify-center bg-black/5 dark:bg-white/5 rounded-md">
+            <div className="flex h-12 w-full items-center justify-center bg-black/5 dark:bg-white/5 rounded-md max-sm:justify-start max-sm:px-2">
               <span className="text-[10px] font-medium italic text-black/40 dark:text-white/40 uppercase tracking-tight">
                 No {isVideoCol ? 'video' : 'image'}
               </span>
@@ -332,7 +395,7 @@ export function ListView({
         }
 
         return (
-          <div className="relative min-h-[48px] w-full flex items-center justify-center transition-all rounded-lg">
+          <div className="relative flex min-h-[48px] w-full items-center justify-center transition-all rounded-lg max-sm:max-w-[6.5rem] max-sm:justify-start max-sm:overflow-hidden">
             <PhotoDeck 
               urls={urls} 
               maxItems={4} 
@@ -481,10 +544,15 @@ export function ListView({
         const displayValue = formatScalar(value);
         const isActiveEdit = editingUrl?.id === recordId && editingUrl?.column === column;
         const formattedPrice = col === 'price' ? formatPrice(value) : null;
+        const isCodeNumber = isCodeNumberColumn(col);
         if (isActiveEdit) {
           return (
             <input
-              className="absolute inset-0 h-full w-full bg-white px-3 py-2 text-xs font-semibold text-black outline outline-2 -outline-offset-2 outline-emerald-500 dark:bg-zinc-950 dark:text-white"
+              className={
+                (isCodeNumber
+                  ? 'block w-full min-w-0 rounded border-2 border-emerald-500 bg-white px-2 py-1.5 text-xs font-semibold text-black outline-none dark:border-emerald-400 dark:bg-zinc-950 dark:text-white '
+                  : 'absolute inset-0 h-full w-full bg-white px-3 py-2 text-xs font-semibold text-black outline outline-2 -outline-offset-2 outline-emerald-500 dark:bg-zinc-950 dark:text-white ')
+              }
               value={editingUrl.value}
               autoFocus
               onFocus={(event) => event.currentTarget.select()}
@@ -521,8 +589,11 @@ export function ListView({
               event.stopPropagation();
               startInlineEdit(recordId, column, value);
             }}
-            className="block min-h-[34px] w-full text-left hover:text-emerald-700 dark:hover:text-emerald-300"
-            title="Edit"
+            className={
+              'block min-h-[34px] w-full min-w-0 max-w-full text-left hover:text-emerald-700 dark:hover:text-emerald-300 ' +
+              (isCodeNumberColumn(col) ? 'break-words whitespace-pre-wrap leading-snug ' : '')
+            }
+            title={displayValue || 'Edit'}
           >
             {formattedPrice ? (
               <span className="inline-flex items-center gap-1.5 font-bold text-black dark:text-white">
@@ -559,8 +630,8 @@ export function ListView({
             }}
           >
             {activeValues.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center">
-                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+              <div className="flex flex-1 items-center justify-start px-2">
+                <span className={`text-left text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
                   {canEdit ? '+ Add space' : '—'}
                 </span>
               </div>
@@ -568,7 +639,7 @@ export function ListView({
               activeValues.map((v, i) => (
                 <div 
                   key={v} 
-                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80 ${
+                  className={`flex flex-1 items-center justify-start px-3 py-1 text-left text-[10px] font-semibold transition-colors bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80 ${
                     i !== activeValues.length - 1 ? 'border-b border-black/5 dark:border-white/5' : ''
                   }`}
                 >
@@ -617,8 +688,8 @@ export function ListView({
             }}
           >
             {activeValues.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center">
-                <span className={`text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
+              <div className="flex flex-1 items-center justify-start px-2">
+                <span className={`text-left text-[11px] italic ${canEdit ? 'text-black/25 dark:text-white/25 group-hover:text-emerald-600/60 dark:group-hover:text-emerald-400/60' : 'text-black/20 dark:text-white/20'}`}>
                   {canEdit ? `+ Add ${col}` : '—'}
                 </span>
               </div>
@@ -626,7 +697,7 @@ export function ListView({
               activeValues.map((v, i) => (
                 <div 
                   key={v} 
-                  className={`flex flex-1 items-center justify-center px-3 py-1 text-center text-[10px] font-semibold transition-colors border-b last:border-b-0 ${
+                  className={`flex flex-1 items-center justify-start px-3 py-1 text-left text-[10px] font-semibold transition-colors border-b last:border-b-0 ${
                     col === 'category'
                       ? 'border-black/5 bg-white/5 text-black/80 dark:bg-white/5 dark:text-white/80'
                       : col === 'color'
@@ -712,25 +783,41 @@ export function ListView({
               const normalizedCol = c.trim().toLowerCase();
               const isURL = normalizedCol === 'url';
               const isContentStatus = isContentStatusFieldName(c);
+              const isImageCol = normalizedCol === 'image';
+              const isCodeNumber = isCodeNumberColumn(normalizedCol);
               return (
                 <th
                   key={c}
                   className={
                     'sticky top-0 bg-white/95 shadow-sm backdrop-blur-md dark:bg-black/85 ' +
                     (idx === 0 ? 'left-0 z-30 ' : 'z-20 ') +
-                    (isURL ? 'w-[220px] min-w-[220px] max-w-[220px] ' :
-                     normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] ' :
-                     isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
+                    (idx === 0 && isImageCol ? 'max-sm:static max-sm:left-auto max-sm:z-10 ' : '') +
+                    (isCodeNumber ? 'max-sm:relative max-sm:z-40 ' : '') +
+                    listColumnWidthClass(normalizedCol, isURL, isContentStatus) +
+                    (isCodeNumberColumn(normalizedCol) ? 'max-sm:whitespace-normal ' : '') +
                     'px-2 py-2.5 text-left sm:px-4 sm:py-3'
                   }
                 >
                   <button
                     type="button"
                     onClick={() => toggleSort(c)}
-                    className="inline-flex items-center gap-2 hover:text-black dark:hover:text-white"
+                    className={
+                      (isCodeNumberColumn(normalizedCol)
+                        ? 'inline-flex max-sm:flex-col max-sm:items-start max-sm:gap-0.5 '
+                        : 'inline-flex items-center gap-2 ') + 'hover:text-black dark:hover:text-white'
+                    }
                     title="Sort"
                   >
-                    <span>{getColumnLabel(c)}</span>
+                    {isCodeNumberColumn(normalizedCol) ? (
+                      <>
+                        <span className="sm:hidden" title="Code Number">
+                          Code
+                        </span>
+                        <span className="hidden sm:inline">Code Number</span>
+                      </>
+                    ) : (
+                      <span>{getColumnLabel(c)}</span>
+                    )}
                     {sortKey === c ? (
                       <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>
                     ) : null}
@@ -785,7 +872,8 @@ export function ListView({
                     const isURL = normalizedCol === 'url';
                     const isContentStatus = isContentStatusFieldName(c);
                     const isEditableTag = normalizedCol === 'space' || normalizedCol === 'color' || normalizedCol === 'material' || normalizedCol === 'category';
-                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name' || normalizedCol === 'name' || normalizedCol === 'code number';
+                    const isCodeNumber = isCodeNumberColumn(normalizedCol);
+                    const isBoldCol = normalizedCol === 'price' || normalizedCol === 'colecction name' || normalizedCol === 'collection name' || normalizedCol === 'name' || isCodeNumber;
                     let cellValue = r.fields?.[c];
                     const urlFieldValue = getUrlFieldValue(r.fields);
                     if (normalizedCol === 'image') {
@@ -798,26 +886,23 @@ export function ListView({
                     
                     const isFirstCol = idx === 0;
                     const isLastCol = idx === displayedColumns.length - 1;
+                    const isImageCol = normalizedCol === 'image';
+                    const rowSelected = selectedIds.has(r.id);
 
                     return (
                       <td
                         key={c}
                         className={
+                          listCellAlignClass() +
                           'relative transition-all ' +
-                          (isFirstCol
-                            ? 'sticky left-0 z-10 ' +
-                              (isGroupStart ? `border-t-0 ` : '') +
-                              (selectedIds.has(r.id)
-                                ? 'bg-emerald-50 dark:bg-emerald-900/30 '
-                                : isInGroup
-                                  ? 'bg-emerald-50/40 dark:bg-emerald-900/10 '
-                                  : 'bg-white dark:bg-black/10 ')
-                            : '') +
+                          listColumnStackClass(normalizedCol, isFirstCol, rowSelected, isInGroup) +
+                          (isFirstCol ? (isGroupStart ? `border-t-0 ` : '') : '') +
+                          (isImageCol ? 'max-sm:overflow-hidden ' : '') +
                           (isInGroup && isFirstCol ? `border-l-2 ${groupBorderClass} ` : '') +
                           (isInGroup && isLastCol ? `border-r-2 ${groupBorderClass} ` : '') +
-                          (isURL ? 'w-[220px] min-w-[220px] max-w-[220px] overflow-hidden ' :
-                           normalizedCol === 'variant number' ? 'w-[110px] min-w-[110px] max-w-[110px] overflow-hidden ' :
-                           isContentStatus ? 'w-[148px] min-w-[148px] max-w-[180px] ' : '') +
+                          listColumnWidthClass(normalizedCol, isURL, isContentStatus) +
+                          (isURL || normalizedCol === 'variant number' ? 'overflow-hidden ' : '') +
+                          (isCodeNumber ? 'max-sm:overflow-hidden ' : '') +
                           (isFirstCol
                             ? 'px-2 py-1 whitespace-pre-wrap text-xs sm:px-4 ' + (isBoldCol ? 'font-bold text-black dark:text-white' : 'text-black/80 dark:text-white/80')
                             : (isEditableTag
@@ -878,13 +963,18 @@ export function ListView({
                           fieldName={c}
                           changeAudit={changeAudit}
                         >
-                          {renderCell(c, cellValue, r.id)}
+                          {isCodeNumber ? (
+                            <div className={codeNumberCellShellClass()}>{renderCell(c, cellValue, r.id)}</div>
+                          ) : (
+                            renderCell(c, cellValue, r.id)
+                          )}
                         </CellChangeAudit>
                       </td>
                     );
                   })}
                   {canDelete ? (
                     <td className={
+                      listCellAlignClass() +
                       'w-[92px] min-w-[92px] border-l border-black/5 px-2 py-2 dark:border-white/5 ' +
                       (selectedIds.has(r.id)
                         ? 'bg-emerald-50 dark:bg-emerald-900/30'
