@@ -1276,7 +1276,7 @@ export function ProductsView({
         maxModeToggleNode={
           <>
             {moderationToggleNode}
-            {maxModeToggleNode}
+            <span className="hidden sm:contents">{maxModeToggleNode}</span>
           </>
         }
         themeToggleNode={themeToggleNode}
