@@ -49,7 +49,7 @@ const PhotoDeck = React.memo(({
             e.stopPropagation();
             beginLightboxTrace('photo-deck');
             markLightboxTrace('click:handler');
-            onOpenPreview?.(primaryPreviewUrl);
+            onOpenPreview?.(primaryPreviewUrl, recordId);
           }}
           title={
             primaryPreviewUrl
@@ -119,7 +119,7 @@ const PhotoDeck = React.memo(({
                 e.stopPropagation();
                 beginLightboxTrace('photo-deck');
                 markLightboxTrace('click:handler');
-                onOpenPreview?.(previewUrl);
+                onOpenPreview?.(previewUrl, recordId);
               }}
               title={previewUrl ? `${isVideo ? 'Video' : 'Image'} ${revIdx + 1} of ${urls.length} (Click to maximize)` : 'No content'}
               aria-label={`View ${isVideo ? 'video' : 'image'} ${revIdx + 1} of ${urls.length}`}

@@ -963,7 +963,7 @@ export function ListView({
                             if (finalUrl) {
                               beginLightboxTrace('list-cell');
                               markLightboxTrace('click:handler');
-                              openPreviewByUrl(finalUrl);
+                              openPreviewByUrl(finalUrl, r.id);
                             }
                             return;
                           }

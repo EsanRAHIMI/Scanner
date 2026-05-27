@@ -13,7 +13,7 @@ export interface ListViewProps {
   toggleSort: (key: string) => void;
   sortKey: string | null;
   sortDir: 'asc' | 'desc';
-  openPreviewByUrl: (url: string) => void;
+  openPreviewByUrl: (url: string, recordId?: string) => void;
   setEditingUrl: (data: EditingUrlState | null) => void;
   handleMoveUrl: (url: string, sourceId: string, targetId: string, column: string) => void;
   handleReorderUrls: (recordId: string, fromIndex: number, toIndex: number) => void | Promise<void>;
@@ -68,7 +68,7 @@ export interface GalleryCardProps {
 export interface PhotoDeckProps {
   urls: string[];
   maxItems?: number;
-  onOpenPreview?: (url: string) => void;
+  onOpenPreview?: (url: string, recordId?: string) => void;
   onDragStart?: (url: string) => void;
   onDragEnd?: () => void;
   linkHoverTimerRef?: React.RefObject<NodeJS.Timeout | null>;

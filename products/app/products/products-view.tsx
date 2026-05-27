@@ -307,6 +307,21 @@ export function ProductsView({
   const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
   const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
   const handleUpdateVariant = (id: string, fields: any) => mutations.handleUpdateVariant(id, fields, records);
+  const openPreviewByRecordOrUrl = React.useCallback(
+    (url: string, recordId?: string) => {
+      if (recordId) {
+        const idx = galleryItems.findIndex((item) => item.id === recordId);
+        if (idx >= 0) {
+          markLightboxTrace('click:record-open');
+          setPreviewIndex(idx);
+          setPreviewId(recordId);
+          return;
+        }
+      }
+      openPreviewByUrl(url);
+    },
+    [galleryItems, openPreviewByUrl, setPreviewId, setPreviewIndex],
+  );
   const handleDeleteProduct = (id: string) => {
     const record = records.find(r => r.id === id);
     const titleText = resolveCollectionName(record?.fields) || id;
@@ -1395,7 +1410,7 @@ export function ProductsView({
           toggleSort={toggleSort}
           sortKey={sortKey}
           sortDir={sortDir}
-          openPreviewByUrl={openPreviewByUrl}
+          openPreviewByUrl={openPreviewByRecordOrUrl}
           setEditingUrl={setEditingUrl}
           handleMoveUrl={handleMoveUrl}
           handleReorderUrls={handleReorderUrls}
@@ -1435,7 +1450,7 @@ export function ProductsView({
             toggleSort={toggleSort}
             sortKey={sortKey}
             sortDir={sortDir}
-            openPreviewByUrl={openPreviewByUrl}
+            openPreviewByUrl={openPreviewByRecordOrUrl}
             setEditingUrl={setEditingUrl}
             handleMoveUrl={handleMoveUrl}
           handleReorderUrls={handleReorderUrls}
