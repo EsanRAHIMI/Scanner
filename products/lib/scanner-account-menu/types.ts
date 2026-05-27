@@ -49,6 +49,8 @@ export type ScannerAccountMenuProps = {
   onActivityLogs?: () => void;
   /** Force light or dark palette (dashboard uses dark on black header) */
   surface?: 'light' | 'dark';
+  /** Visual connectivity hint for the trigger avatar. */
+  connectionStatus?: 'online' | 'offline';
   className?: string;
   align?: 'left' | 'right';
 };

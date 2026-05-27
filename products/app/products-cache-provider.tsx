@@ -44,18 +44,87 @@ function formatTrainerAssetsErrorMessage(rawBody: string, httpHint?: string): st
   return `${httpHint ? `${httpHint}: ` : ''}${clip}`;
 }
 
-async function fetcher(url: string): Promise<ProductsAssetsResponse> {
-  const res = await fetch(url, { cache: 'no-store' });
+/** Typed fetch failures — network (offline / Trainer down) vs HTTP vs JSON. */
+export class ProductsAssetsFetchError extends Error {
+  readonly kind: 'network' | 'http' | 'parse';
+
+  constructor(
+    message: string,
+    kind: 'network' | 'http' | 'parse',
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'ProductsAssetsFetchError';
+    this.kind = kind;
+  }
+}
+
+function formatNetworkFetchMessage(cause: unknown): string {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return 'No network connection. Showing cached data.';
+  }
+  if (cause instanceof ProductsAssetsFetchError) return cause.message;
+  if (cause instanceof TypeError) {
+    // Browser / extension wrappers surface "Failed to fetch" for unreachable hosts.
+    if (/failed to fetch|networkerror|load failed/i.test(cause.message)) {
+      return (
+        'Could not reach the Products API. Ensure the Trainer service is running ' +
+        '(see README: Terminal 5 — Products depends on Trainer on port 8010).'
+      );
+    }
+    return cause.message;
+  }
+  if (cause instanceof Error && cause.message.trim()) return cause.message.trim();
+  return 'Network request failed while loading products.';
+}
+
+/** Shared GET for SWR and background revalidation — never leaves raw TypeError uncaught. */
+async function fetchProductsAssets(
+  url: string,
+  init?: RequestInit,
+): Promise<ProductsAssetsResponse> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    throw new ProductsAssetsFetchError(
+      'No network connection. Showing cached data.',
+      'network',
+    );
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: 'no-store', ...init });
+  } catch (cause) {
+    throw new ProductsAssetsFetchError(formatNetworkFetchMessage(cause), 'network');
+  }
+
   const text = await res.text();
   if (!res.ok) {
     const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
-    throw new Error(formatted || `Request failed (${res.status})`);
+    throw new ProductsAssetsFetchError(
+      formatted || `Request failed (${res.status})`,
+      'http',
+      res.status,
+    );
   }
-  return JSON.parse(text) as ProductsAssetsResponse;
+
+  try {
+    const parsed = JSON.parse(text) as ProductsAssetsResponse;
+    if (!parsed || !Array.isArray(parsed.records)) {
+      throw new ProductsAssetsFetchError('Invalid products payload from server.', 'parse');
+    }
+    return parsed;
+  } catch (cause) {
+    if (cause instanceof ProductsAssetsFetchError) throw cause;
+    throw new ProductsAssetsFetchError('Invalid JSON from products API.', 'parse');
+  }
 }
+
+const swrFetcher = (url: string) => fetchProductsAssets(url);
 
 /** Delay (ms) before background revalidation after an optimistic update. */
 const REVALIDATION_DELAY_MS = 2500;
+/** Cap exponential backoff when background sync keeps failing (Trainer down, offline). */
+const REVALIDATION_BACKOFF_MAX_MS = 60_000;
 
 const PENDING_DELETES_STORAGE_KEY = 'products_pending_delete_ids_v1';
 
@@ -246,7 +315,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     mutate: swrMutate,
   } = useSWR<ProductsAssetsResponse>(
     cacheKey,
-    fetcher,
+    swrFetcher,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
@@ -287,12 +356,36 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   }, [swrData]);
 
   const [localOverride, setLocalOverride] = React.useState<ProductsAssetsResponse | null>(null);
+  /** Background sync after optimistic edits — separate from initial SWR load error. */
+  const [backgroundSyncError, setBackgroundSyncError] = React.useState<string | null>(null);
   const revalidationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revalidationInFlightRef = React.useRef(false);
+  const revalidationBackoffMsRef = React.useRef(REVALIDATION_DELAY_MS);
+  const runRevalidationRef = React.useRef<(() => Promise<void>) | null>(null);
 
   /** Authoritative full snapshot (localOverride ?? swr). */
   const rawSnapshotRef = React.useRef<ProductsAssetsResponse | null>(null);
   /** Serialize optimistic updates so rapid edits (reorder, move URL) never race. */
   const mutationChainRef = React.useRef<Promise<void>>(Promise.resolve());
+
+  const clearRevalidationTimer = React.useCallback(() => {
+    if (revalidationTimerRef.current) {
+      clearTimeout(revalidationTimerRef.current);
+      revalidationTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRevalidationRetry = React.useCallback((reason: 'pending' | 'backoff') => {
+    clearRevalidationTimer();
+    const delay =
+      reason === 'pending' ?
+        REVALIDATION_DELAY_MS
+      : revalidationBackoffMsRef.current;
+    revalidationTimerRef.current = setTimeout(() => {
+      revalidationTimerRef.current = null;
+      void runRevalidationRef.current?.();
+    }, delay);
+  }, [clearRevalidationTimer]);
 
   const bumpPendingFieldsTick = React.useCallback(() => {
     setPendingFieldsRenderTick((t) => t + 1);
@@ -334,69 +427,117 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   React.useEffect(() => {
     return () => {
-      if (revalidationTimerRef.current) {
-        clearTimeout(revalidationTimerRef.current);
-      }
+      clearRevalidationTimer();
     };
-  }, []);
+  }, [clearRevalidationTimer]);
 
   const runRevalidation = React.useCallback(async () => {
-    const fallback = rawSnapshotRef.current ?? localOverride;
-    const freshData = await fetcher(cacheKey);
+    if (revalidationInFlightRef.current) return;
+    revalidationInFlightRef.current = true;
 
-    reconcilePendingFieldValues(pendingFieldValuesRef.current, freshData);
-    bumpPendingFieldsTick();
-
-    const deletedSizeBefore = pendingDeletedIdsRef.current.size;
-    reconcilePendingDeletions(pendingDeletedIdsRef.current, freshData);
-    if (pendingDeletedIdsRef.current.size !== deletedSizeBefore) {
-      persistPendingDeleteIds(pendingDeletedIdsRef.current);
-      bumpPendingDeletesTick();
-    }
-
-    const hasPending = hasAnyPending(
+    const fallback = rawSnapshotRef.current;
+    const hasPendingBefore = hasAnyPending(
       pendingFieldValuesRef.current,
       pendingDeletedIdsRef.current,
     );
 
-    const nextData = buildMergedSnapshot(
-      freshData,
-      pendingFieldValuesRef.current,
-      pendingDeletedIdsRef.current,
-      fallback,
-    );
+    try {
+      const freshData = await fetchProductsAssets(cacheKey);
 
-    await swrMutate(nextData, {
-      revalidate: false,
-      populateCache: true,
-    });
+      setBackgroundSyncError(null);
+      revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
 
-    rawSnapshotRef.current = nextData;
-    setLocalOverride(hasPending ? nextData : null);
+      reconcilePendingFieldValues(pendingFieldValuesRef.current, freshData);
+      bumpPendingFieldsTick();
 
-    if (hasPending) {
-      revalidationTimerRef.current = setTimeout(() => {
-        revalidationTimerRef.current = null;
-        void runRevalidation();
-      }, REVALIDATION_DELAY_MS);
+      const deletedSizeBefore = pendingDeletedIdsRef.current.size;
+      reconcilePendingDeletions(pendingDeletedIdsRef.current, freshData);
+      if (pendingDeletedIdsRef.current.size !== deletedSizeBefore) {
+        persistPendingDeleteIds(pendingDeletedIdsRef.current);
+        bumpPendingDeletesTick();
+      }
+
+      const hasPending = hasAnyPending(
+        pendingFieldValuesRef.current,
+        pendingDeletedIdsRef.current,
+      );
+
+      const nextData = buildMergedSnapshot(
+        freshData,
+        pendingFieldValuesRef.current,
+        pendingDeletedIdsRef.current,
+        fallback,
+      );
+
+      await swrMutate(nextData, {
+        revalidate: false,
+        populateCache: true,
+      });
+
+      rawSnapshotRef.current = nextData;
+      setLocalOverride(hasPending ? nextData : null);
+
+      if (hasPending) {
+        scheduleRevalidationRetry('pending');
+      }
+    } catch (cause) {
+      const message = formatNetworkFetchMessage(cause);
+      setBackgroundSyncError(message);
+
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[ProductsCache] background revalidation failed:', cause);
+      }
+
+      const shouldRetry =
+        hasPendingBefore ||
+        hasAnyPending(pendingFieldValuesRef.current, pendingDeletedIdsRef.current) ||
+        localOverride !== null;
+
+      if (shouldRetry) {
+        revalidationBackoffMsRef.current = Math.min(
+          Math.max(revalidationBackoffMsRef.current, REVALIDATION_DELAY_MS) * 2,
+          REVALIDATION_BACKOFF_MAX_MS,
+        );
+        scheduleRevalidationRetry('backoff');
+      }
+    } finally {
+      revalidationInFlightRef.current = false;
     }
-  }, [cacheKey, localOverride, swrMutate, bumpPendingFieldsTick, bumpPendingDeletesTick]);
+  }, [
+    cacheKey,
+    localOverride,
+    swrMutate,
+    bumpPendingFieldsTick,
+    bumpPendingDeletesTick,
+    scheduleRevalidationRetry,
+  ]);
+
+  runRevalidationRef.current = runRevalidation;
+
+  React.useEffect(() => {
+    const onOnline = () => {
+      revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
+      const needsSync =
+        localOverride !== null ||
+        hasAnyPending(pendingFieldValuesRef.current, pendingDeletedIdsRef.current) ||
+        backgroundSyncError !== null;
+      if (needsSync) {
+        clearRevalidationTimer();
+        void runRevalidationRef.current?.();
+      }
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [localOverride, backgroundSyncError, clearRevalidationTimer]);
 
   const scheduleRevalidation = React.useCallback(() => {
-    if (revalidationTimerRef.current) {
-      clearTimeout(revalidationTimerRef.current);
-    }
-
-    revalidationTimerRef.current = setTimeout(() => {
-      revalidationTimerRef.current = null;
-      void runRevalidation();
-    }, REVALIDATION_DELAY_MS);
-  }, [runRevalidation]);
+    revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
+    scheduleRevalidationRetry('pending');
+  }, [scheduleRevalidationRetry]);
 
   const loading = isLoading;
-  const isStaleOfflineSnapshot = Boolean(swrError && data);
-
-  const error =
+  const syncErrorMessage = backgroundSyncError?.trim() || null;
+  const loadErrorMessage =
     swrError instanceof Error ?
       swrError.message.trim() || 'Failed to load Products'
     : swrError ?
@@ -404,6 +545,10 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         String(swrError)
       : 'Failed to load Products'
     : null;
+
+  const isStaleOfflineSnapshot = Boolean((swrError || syncErrorMessage) && data);
+
+  const error = loadErrorMessage ?? syncErrorMessage;
 
   const notePendingDelete = React.useCallback((recordId: string) => {
     if (pendingDeletedIdsRef.current.has(recordId)) return;
@@ -507,10 +652,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         persistPendingDeleteIds(pendingDeletedIdsRef.current);
         bumpPendingDeletesTick();
 
-        if (revalidationTimerRef.current) {
-          clearTimeout(revalidationTimerRef.current);
-          revalidationTimerRef.current = null;
-        }
+        clearRevalidationTimer();
+        setBackgroundSyncError(null);
+        revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
 
         const freshData = await swrMutate();
         rawSnapshotRef.current = freshData ?? null;
@@ -531,6 +675,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       swrMutate,
       bumpPendingFieldsTick,
       bumpPendingDeletesTick,
+      clearRevalidationTimer,
     ],
   );
 

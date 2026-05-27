@@ -51,6 +51,7 @@ export function ScannerAccountMenu({
   onLoggedOut,
   onActivityLogs,
   surface,
+  connectionStatus = 'online',
   className,
   align = 'right',
 }: ScannerAccountMenuProps) {
@@ -245,7 +246,13 @@ export function ScannerAccountMenu({
         <span
           className={
             'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 ' +
-            (darkChrome ? 'bg-white text-zinc-950' : 'bg-black text-white')
+            (
+              connectionStatus === 'offline' ?
+                'bg-red-600 text-white'
+              : darkChrome ?
+                'bg-white text-zinc-950'
+              : 'bg-black text-white'
+            )
           }
         >
           {me ? (

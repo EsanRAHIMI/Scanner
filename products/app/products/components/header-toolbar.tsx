@@ -12,6 +12,7 @@ interface HeaderToolbarProps {
   themeToggleNode: React.ReactNode;
   fetchUserSession: () => void;
   onActivityLogs?: () => void;
+  backendDisconnected?: boolean;
 }
 
 function HeaderToggleCluster({
@@ -50,6 +51,7 @@ export function HeaderToolbar({
   themeToggleNode,
   fetchUserSession,
   onActivityLogs,
+  backendDisconnected = false,
 }: HeaderToolbarProps) {
   const togglesMobile = (
     <HeaderToggleCluster
@@ -83,7 +85,11 @@ export function HeaderToolbar({
         </div>
 
         <div className="shrink-0">
-          <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
+          <AccountMenu
+            onAuthChange={fetchUserSession}
+            onActivityLogs={onActivityLogs}
+            backendDisconnected={backendDisconnected}
+          />
         </div>
       </div>
 
@@ -97,7 +103,11 @@ export function HeaderToolbar({
 
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
           {togglesDesktop}
-          <AccountMenu onAuthChange={fetchUserSession} onActivityLogs={onActivityLogs} />
+          <AccountMenu
+            onAuthChange={fetchUserSession}
+            onActivityLogs={onActivityLogs}
+            backendDisconnected={backendDisconnected}
+          />
         </div>
       </div>
     </header>

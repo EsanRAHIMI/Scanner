@@ -1294,6 +1294,7 @@ export function ProductsView({
         themeToggleNode={themeToggleNode}
         fetchUserSession={fetchUserSession}
         onActivityLogs={toggleActivityLogs}
+        backendDisconnected={isStaleOfflineSnapshot}
       />
 
       <ProductFilters
