@@ -69,6 +69,11 @@ function listCellAlignClass(): string {
   return 'align-middle text-left ';
 }
 
+/** Desktop fixed-height cell content scroller (keeps row height stable). */
+function desktopCellScrollClass(): string {
+  return 'sm:max-h-[140px] sm:overflow-y-auto sm:overscroll-y-contain sm:pr-1';
+}
+
 function listRowCellBackgroundClass(selected: boolean, isInGroup: boolean): string {
   if (selected) return 'bg-emerald-50 dark:bg-emerald-900/30 ';
   if (isInGroup) return 'bg-emerald-50/40 dark:bg-emerald-900/10 ';
@@ -462,6 +467,7 @@ export function ListView({
             <div
               className={
                 'group flex min-h-[1.5rem] flex-col gap-1 max-sm:min-h-0 max-sm:gap-0 max-sm:overflow-hidden ' +
+                desktopCellScrollClass() + ' ' +
                 (urls.length === 0 ? 'items-center justify-center' : '')
               }
             >
@@ -616,6 +622,16 @@ export function ListView({
                 />
                 <span>{formattedPrice}</span>
               </span>
+            ) : col === 'note' ? (
+              <div className={desktopCellScrollClass()}>
+                {displayValue ? (
+                  <span className="block whitespace-pre-wrap break-words leading-snug">
+                    {highlightMatches(displayValue, search)}
+                  </span>
+                ) : (
+                  <span className="text-black/25 dark:text-white/25">-</span>
+                )}
+              </div>
             ) : displayValue ? (
               highlightMatches(displayValue, search)
             ) : (
@@ -744,6 +760,15 @@ export function ListView({
 
       const scalar = formatScalar(value);
       if (scalar) {
+        if (col === 'note') {
+          return (
+            <div className={desktopCellScrollClass()}>
+              <span className="block whitespace-pre-wrap break-words leading-snug">
+                {highlightMatches(scalar, search)}
+              </span>
+            </div>
+          );
+        }
         const colLower = column.trim().toLowerCase();
         if (familyMode === 'main' && (colLower === 'num' || colLower === 'variant number')) {
           const rec = recordById.get(recordId);

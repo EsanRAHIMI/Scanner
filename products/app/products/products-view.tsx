@@ -307,6 +307,10 @@ export function ProductsView({
   const handleAddMediaToVariant = (id: string, url: string) => mutations.handleAddMediaToVariant(id, url, records);
   const handleToggleMain = (id: string) => mutations.handleToggleMain(id, records);
   const handleUpdateVariant = (id: string, fields: any) => mutations.handleUpdateVariant(id, fields, records);
+  /**
+   * List clicks must open by record id first (not URL-only) to avoid jumping to
+   * a different product when multiple rows share/rewrite similar media links.
+   */
   const openPreviewByRecordOrUrl = React.useCallback(
     (url: string, recordId?: string) => {
       if (recordId) {
