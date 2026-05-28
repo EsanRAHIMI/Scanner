@@ -373,6 +373,17 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 
 ---
 
+## Code Invariants (Do Not Break)
+
+- Products preview open flow is **recordId-first** (URL is fallback only) to prevent wrong-item jumps in Feed.
+- Products assets API uses **cursor pagination** (`limit`, `cursor`, `has_more`, `next_cursor`) — do not reintroduce fixed hard limits.
+- Trainer assets pagination order is **stable**: `created_at desc` + `_id desc`; cursor logic must use the same tuple.
+- Products cache provider may aggregate paged responses into one snapshot; keep response schema backward-compatible.
+- Trainer Server deploy target is `trainer/server` with a local `.dockerignore`; avoid building from repo root.
+- `trainer/server/requirements.txt` is **CPU-only by default**; use `requirements.gpu.txt` only on GPU hosts.
+
+---
+
 # Useful Links
 
 - Scanner UI: `/scanner`

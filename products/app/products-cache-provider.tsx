@@ -90,7 +90,9 @@ async function fetchProductsAssets(
     );
   }
 
+  // Keep each payload bounded; client aggregates pages into one snapshot for current UI logic.
   const PAGE_LIMIT = 500;
+  // Hard stop to prevent infinite loops on malformed cursor responses.
   const MAX_PAGES = 200;
 
   const allRecords: ProductsAssetsResponse['records'] = [];
@@ -308,7 +310,24 @@ function buildMergedSnapshot(
 
 export function ProductsCacheProvider({ children }: { children: React.ReactNode }) {
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-  const cacheKey = `${basePath}/api/products/assets`;
+  /**
+   * Base path must be path-only (e.g. "" or "/products").
+   * Ignore accidental full URL/env noise to prevent cross-origin/mixed-content fetch failures.
+   */
+  const normalizedBasePath = React.useMemo(() => {
+    const raw = basePath.trim();
+    if (!raw) return '';
+    if (
+      raw.startsWith('http://') ||
+      raw.startsWith('https://') ||
+      raw.startsWith('//')
+    ) {
+      return '';
+    }
+    const withLeadingSlash = raw.startsWith('/') ? raw : `/${raw}`;
+    return withLeadingSlash.replace(/\/+$/, '');
+  }, [basePath]);
+  const cacheKey = `${normalizedBasePath}/api/products/assets`;
   /** Avoid reading sessionStorage before mount — prevents SSR/client HTML drift. */
   const [clientStorageReady, setClientStorageReady] = React.useState(false);
   const [hydratedCache, setHydratedCache] = React.useState<ProductsAssetsResponse | null>(null);

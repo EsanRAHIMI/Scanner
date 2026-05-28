@@ -2473,6 +2473,7 @@ async def dam_assets(
 PRODUCTS_ASSETS_DEFAULT_LIMIT = 500
 PRODUCTS_ASSETS_MAX_LIMIT = 1000
 
+# Cursor payload is intentionally opaque to clients; it stores the last row boundary.
 def _encode_products_assets_cursor(created_time: Any, record_id: Any) -> str:
   payload = {
     "createdTime": str(created_time or ""),
@@ -2518,6 +2519,8 @@ async def _products_assets_page(
 
   if cursor:
     cursor_created_time, cursor_id = _decode_products_assets_cursor(cursor)
+    # Stable seek pagination: fetch rows strictly "older" than the cursor tuple
+    # based on the same compound sort used below (created_at desc, _id desc).
     query = {
       "$or": [
         {"created_at": {"$lt": cursor_created_time}},
@@ -2528,6 +2531,7 @@ async def _products_assets_page(
       ]
     }
 
+  # Read one extra row to compute has_more/next_cursor without a second query.
   docs = await db["products"].find(query).sort([("created_at", -1), ("_id", -1)]).limit(safe_limit + 1).to_list(
     length=safe_limit + 1
   )
@@ -2546,6 +2550,7 @@ async def _products_assets_page(
 
   next_cursor = None
   if has_more and page_docs:
+    # Next cursor points to the last returned row, never to the lookahead row.
     last = page_docs[-1]
     next_cursor = _encode_products_assets_cursor(last.get("created_at"), last.get("_id"))
 
