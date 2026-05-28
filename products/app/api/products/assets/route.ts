@@ -7,12 +7,14 @@ export const revalidate = 0;
 
 export async function GET(req: Request) {
   const base = getTrainerApiBase();
-  const origin = new URL(req.url).origin;
+  const reqUrl = new URL(req.url);
+  const origin = reqUrl.origin;
 
   const baseResolved = base.startsWith('/') ? `${origin}${base}` : base;
-  const url = `${baseResolved}/public/products/assets`;
+  const targetUrl = new URL(`${baseResolved}/public/products/assets`);
+  reqUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
 
-  const res = await fetch(url, {
+  const res = await fetch(targetUrl.toString(), {
     cache: 'no-store',
     headers: {
       accept: 'application/json',

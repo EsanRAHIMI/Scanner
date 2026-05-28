@@ -90,33 +90,73 @@ async function fetchProductsAssets(
     );
   }
 
-  let res: Response;
-  try {
-    res = await fetch(url, { cache: 'no-store', ...init });
-  } catch (cause) {
-    throw new ProductsAssetsFetchError(formatNetworkFetchMessage(cause), 'network');
-  }
+  const PAGE_LIMIT = 500;
+  const MAX_PAGES = 200;
 
-  const text = await res.text();
-  if (!res.ok) {
-    const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
-    throw new ProductsAssetsFetchError(
-      formatted || `Request failed (${res.status})`,
-      'http',
-      res.status,
-    );
-  }
+  const allRecords: ProductsAssetsResponse['records'] = [];
+  let mergedColumns: string[] = [];
+  let cursor: string | null = null;
+  let pageCount = 0;
 
-  try {
-    const parsed = JSON.parse(text) as ProductsAssetsResponse;
+  while (pageCount < MAX_PAGES) {
+    pageCount += 1;
+    const reqUrl = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    reqUrl.searchParams.set('limit', String(PAGE_LIMIT));
+    if (cursor) reqUrl.searchParams.set('cursor', cursor);
+
+    let res: Response;
+    try {
+      res = await fetch(reqUrl.toString(), { cache: 'no-store', ...init });
+    } catch (cause) {
+      throw new ProductsAssetsFetchError(formatNetworkFetchMessage(cause), 'network');
+    }
+
+    const text = await res.text();
+    if (!res.ok) {
+      const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
+      throw new ProductsAssetsFetchError(
+        formatted || `Request failed (${res.status})`,
+        'http',
+        res.status,
+      );
+    }
+
+    let parsed: ProductsAssetsResponse;
+    try {
+      parsed = JSON.parse(text) as ProductsAssetsResponse;
+    } catch {
+      throw new ProductsAssetsFetchError('Invalid JSON from products API.', 'parse');
+    }
     if (!parsed || !Array.isArray(parsed.records)) {
       throw new ProductsAssetsFetchError('Invalid products payload from server.', 'parse');
     }
-    return parsed;
-  } catch (cause) {
-    if (cause instanceof ProductsAssetsFetchError) throw cause;
-    throw new ProductsAssetsFetchError('Invalid JSON from products API.', 'parse');
+
+    if (parsed.columns.length > 0 && mergedColumns.length === 0) {
+      mergedColumns = parsed.columns;
+    }
+    allRecords.push(...parsed.records);
+
+    const nextCursor = typeof parsed.next_cursor === 'string' && parsed.next_cursor.trim()
+      ? parsed.next_cursor
+      : null;
+    const hasMore = Boolean(parsed.has_more && nextCursor);
+    if (!hasMore) {
+      return {
+        ...parsed,
+        columns: mergedColumns.length > 0 ? mergedColumns : parsed.columns,
+        records: allRecords,
+        count: allRecords.length,
+        has_more: false,
+        next_cursor: null,
+      };
+    }
+    cursor = nextCursor;
   }
+
+  throw new ProductsAssetsFetchError(
+    'Products pagination exceeded safe page limit. Refine query or increase server page size.',
+    'parse',
+  );
 }
 
 const swrFetcher = (url: string) => fetchProductsAssets(url);

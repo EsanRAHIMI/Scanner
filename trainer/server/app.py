@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -18,7 +19,7 @@ from urllib.request import Request
 from typing_extensions import TypedDict
 
 import yaml
-from fastapi import Depends, FastAPI, File, HTTPException, Request as FastAPIRequest, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request as FastAPIRequest, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -2469,18 +2470,31 @@ async def dam_assets(
   return {"columns": columns, "records": records, "count": len(records)}
 
 
-@api.get("/public/products/assets")
-async def public_products_assets(db=Depends(_get_db)):
-  records: list[dict[str, Any]] = []
-  cursor = db["products"].find({}).sort("created_at", -1).limit(2000)
-  
-  async for doc in cursor:
-    records.append({
-      "id": doc.get("_id"),
-      "fields": doc.get("fields") or {},
-      "createdTime": doc.get("created_at")
-    })
+PRODUCTS_ASSETS_DEFAULT_LIMIT = 500
+PRODUCTS_ASSETS_MAX_LIMIT = 1000
 
+def _encode_products_assets_cursor(created_time: Any, record_id: Any) -> str:
+  payload = {
+    "createdTime": str(created_time or ""),
+    "id": str(record_id or ""),
+  }
+  raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+  return base64.urlsafe_b64encode(raw).decode("ascii")
+
+def _decode_products_assets_cursor(cursor: str) -> tuple[str, str]:
+  try:
+    padded = cursor + "=" * (-len(cursor) % 4)
+    decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    parsed = json.loads(decoded)
+    created_time = str(parsed.get("createdTime") or "")
+    record_id = str(parsed.get("id") or "")
+    if not created_time or not record_id:
+      raise ValueError("cursor fields missing")
+    return created_time, record_id
+  except Exception as exc:
+    raise HTTPException(status_code=400, detail="INVALID_CURSOR") from exc
+
+def _build_products_assets_columns(records: list[dict[str, Any]]) -> list[str]:
   columns_set: set[str] = set()
   for r in records:
     f = r.get("fields")
@@ -2492,10 +2506,66 @@ async def public_products_assets(db=Depends(_get_db)):
   columns_set.add("Color")
   columns_set.add("Material")
   columns_set.add("Content Status")
+  return sorted(columns_set)
 
-  columns = sorted(columns_set)
+async def _products_assets_page(
+  db: Any,
+  limit: int,
+  cursor: str | None,
+) -> dict[str, Any]:
+  safe_limit = max(1, min(limit, PRODUCTS_ASSETS_MAX_LIMIT))
+  query: dict[str, Any] = {}
 
-  return {"columns": columns, "records": records, "count": len(records)}
+  if cursor:
+    cursor_created_time, cursor_id = _decode_products_assets_cursor(cursor)
+    query = {
+      "$or": [
+        {"created_at": {"$lt": cursor_created_time}},
+        {
+          "created_at": cursor_created_time,
+          "_id": {"$lt": cursor_id},
+        },
+      ]
+    }
+
+  docs = await db["products"].find(query).sort([("created_at", -1), ("_id", -1)]).limit(safe_limit + 1).to_list(
+    length=safe_limit + 1
+  )
+
+  has_more = len(docs) > safe_limit
+  page_docs = docs[:safe_limit]
+
+  records = [
+    {
+      "id": doc.get("_id"),
+      "fields": doc.get("fields") or {},
+      "createdTime": doc.get("created_at"),
+    }
+    for doc in page_docs
+  ]
+
+  next_cursor = None
+  if has_more and page_docs:
+    last = page_docs[-1]
+    next_cursor = _encode_products_assets_cursor(last.get("created_at"), last.get("_id"))
+
+  columns = _build_products_assets_columns(records)
+  return {
+    "columns": columns,
+    "records": records,
+    "count": len(records),
+    "has_more": has_more,
+    "next_cursor": next_cursor,
+    "page_size": safe_limit,
+  }
+
+@api.get("/public/products/assets")
+async def public_products_assets(
+  limit: int = Query(PRODUCTS_ASSETS_DEFAULT_LIMIT, ge=1, le=PRODUCTS_ASSETS_MAX_LIMIT),
+  cursor: str | None = Query(None),
+  db=Depends(_get_db),
+):
+  return await _products_assets_page(db, limit=limit, cursor=cursor)
 
 
 @api.get("/public/products/field-options")
@@ -3405,32 +3475,11 @@ async def admin_delete_backup(
 @api.get("/products/assets")
 async def products_assets(
   _: dict[str, Any] = Depends(_get_current_user), 
+  limit: int = Query(PRODUCTS_ASSETS_DEFAULT_LIMIT, ge=1, le=PRODUCTS_ASSETS_MAX_LIMIT),
+  cursor: str | None = Query(None),
   db=Depends(_get_db)
 ):
-  records: list[dict[str, Any]] = []
-  cursor = db["products"].find({}).sort("created_at", -1).limit(2000)
-  
-  async for doc in cursor:
-    records.append({
-      "id": doc.get("_id"),
-      "fields": doc.get("fields") or {},
-      "createdTime": doc.get("created_at")
-    })
-
-  columns_set: set[str] = set()
-  for r in records:
-    f = r.get("fields")
-    if isinstance(f, dict):
-      for k in f.keys():
-        columns_set.add(k)
-
-  columns_set.add("DAM")
-  columns_set.add("Space")
-  columns_set.add("Color")
-  columns_set.add("Material")
-  columns_set.add("Content Status")
-  columns = sorted(columns_set)
-  return {"columns": columns, "records": records, "count": len(records)}
+  return await _products_assets_page(db, limit=limit, cursor=cursor)
 
 
 @api.get("/dam/collection-code")
