@@ -1,0 +1,31 @@
+.git
+.gitignore
+
+# Python local/dev artifacts
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Local env/secrets
+.env
+.env.*
+!.env.example
+
+# Heavy training/runtime artifacts not needed at image build time
+storage/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.ckpt
+*.bin
+*.weights
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/

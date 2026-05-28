@@ -190,6 +190,17 @@ Health check:
 curl http://127.0.0.1:8000/health
 ```
 
+> 🟥 **Trainer Server Deployment Note (CPU-only now):**  
+> `trainer/server/requirements.txt` is currently optimized for **non-GPU hosts** (CPU-only PyTorch).  
+> If/when you move Trainer Server to a GPU machine, install with:
+>
+> ```bash
+> cd trainer/server
+> pip install -r requirements.gpu.txt
+> ```
+>
+> This switches Trainer to CUDA-enabled PyTorch for better YOLO performance.
+
 ---
 
 ## Terminal 4 — Frontend (Scanner UI)

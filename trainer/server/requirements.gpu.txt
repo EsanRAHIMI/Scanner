@@ -1,0 +1,6 @@
+-r requirements.base.txt
+
+# GPU profile (enable on CUDA-capable servers only).
+torch==2.12.0
+torchvision==0.27.0
+ultralytics==8.3.0

@@ -11,6 +11,16 @@ pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8010 --reload
 ```
 
+> 🟥 **IMPORTANT (Current Production Mode = CPU-only):**  
+> `requirements.txt` is intentionally set to CPU-only PyTorch for non-GPU servers.  
+> When you migrate this service to a GPU server, switch install target to:
+>
+> ```bash
+> pip install -r requirements.gpu.txt
+> ```
+>
+> This enables CUDA wheels for better YOLO inference/training performance.
+
 Health check:
 
 ```bash

@@ -165,6 +165,17 @@ TRAINER_ADMIN_EMAIL=admin@example.com
 
 `MONGODB_Username` / `MONGODB_Password` در کد خوانده نمی‌شوند — فقط `MONGODB_URI` کافی است.
 
+### Build Context (Very Important)
+
+- Dokploy service root **must** be `trainer/server` (not repo root).
+- This folder now includes a dedicated `.dockerignore` to keep Nixpacks context small.
+- Current default install profile is **CPU-only** (`requirements.txt`).
+- For future GPU hosts, switch install command to:
+
+```bash
+pip install -r requirements.gpu.txt
+```
+
 ---
 
 ## ۵) Products
