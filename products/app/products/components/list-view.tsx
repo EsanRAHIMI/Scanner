@@ -467,6 +467,7 @@ export function ListView({
             <div
               className={
                 'group flex min-h-[1.5rem] flex-col gap-1 max-sm:min-h-0 max-sm:gap-0 max-sm:overflow-hidden ' +
+                // Desktop mirrors mobile URL behavior: fixed row height, inner scroll per cell.
                 desktopCellScrollClass() + ' ' +
                 (urls.length === 0 ? 'items-center justify-center' : '')
               }
@@ -623,6 +624,7 @@ export function ListView({
                 <span>{formattedPrice}</span>
               </span>
             ) : col === 'note' ? (
+              // Note can be long; keep table density stable by scrolling inside the cell.
               <div className={desktopCellScrollClass()}>
                 {displayValue ? (
                   <span className="block whitespace-pre-wrap break-words leading-snug">
@@ -762,6 +764,7 @@ export function ListView({
       if (scalar) {
         if (col === 'note') {
           return (
+            // Non-edit mode for Note uses the same desktop fixed-height scroll container.
             <div className={desktopCellScrollClass()}>
               <span className="block whitespace-pre-wrap break-words leading-snug">
                 {highlightMatches(scalar, search)}
