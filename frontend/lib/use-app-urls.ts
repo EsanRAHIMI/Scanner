@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { LOCAL_APP_URLS, type AppUrls, isLocalHostname } from '@/lib/app-urls';
+import { HUB_APP_URLS_PATH } from '@/lib/hub-paths';
 
 export function useAppUrls(): AppUrls | null {
   const [urls, setUrls] = useState<AppUrls | null>(null);
@@ -15,7 +16,7 @@ export function useAppUrls(): AppUrls | null {
     }
 
     let cancelled = false;
-    fetch('/api/app-urls', { cache: 'no-store' })
+    fetch(HUB_APP_URLS_PATH, { cache: 'no-store' })
       .then((res) => {
         if (!res.ok) throw new Error(`app-urls ${res.status}`);
         return res.json() as Promise<AppUrls>;

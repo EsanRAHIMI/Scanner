@@ -1,5 +1,6 @@
 'use client';
 
+import { HUB_SERVICE_URLS_PATH, HUB_TRAINER_API_PREFIX } from '@/lib/hub-paths';
 import { ScannerAccountMenu } from '@/lib/scanner-account-menu';
 
 type AppAccountMenuProps = {
@@ -22,8 +23,8 @@ export function AppAccountMenu({
   return (
     <ScannerAccountMenu
       app={app}
-      authApiPrefix="/api/trainer"
-      serviceUrlsPath="/api/service-urls"
+      authApiPrefix={HUB_TRAINER_API_PREFIX}
+      serviceUrlsPath={HUB_SERVICE_URLS_PATH}
       onAuthChange={onAuthChange}
       onActivityLogs={onActivityLogs}
       surface={surface}

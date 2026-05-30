@@ -1,3 +1,4 @@
+import { HUB_TRAINER_API_PREFIX } from '@/lib/hub-paths';
 import {
   getDefaultBackendDetectUrl,
   getDefaultTrainerApiBase,
@@ -49,5 +50,5 @@ export function getTrainerApiBaseForBrowser(isLocal: boolean): string {
   const pub = process.env.NEXT_PUBLIC_TRAINER_API_BASE?.trim();
   if (pub) return trimBase(pub);
 
-  return '/api/trainer';
+  return HUB_TRAINER_API_PREFIX;
 }

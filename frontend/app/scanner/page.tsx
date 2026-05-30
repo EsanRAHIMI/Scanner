@@ -5,6 +5,8 @@ import * as React from 'react';
 import { Button } from '@/ui/button';
 
 import { clientLog, safelyVoid } from '@/lib/client-log';
+import { getTrainerApiBaseForBrowser } from '@/lib/env';
+import { isLocalHostname } from '@/lib/app-urls';
 import { getPublicServiceUrl } from '@/lib/public-urls';
 
 type Product = {
@@ -204,9 +206,9 @@ export default function ScannerPage() {
       const isLocal =
         typeof window === 'undefined'
           ? true
-          : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          : isLocalHostname(window.location.hostname);
 
-      const base = isLocal ? 'http://localhost:8010' : '/api/trainer';
+      const base = getTrainerApiBaseForBrowser(isLocal);
       const res = await fetch(`${base}/classes`, { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
 
@@ -582,9 +584,9 @@ export default function ScannerPage() {
       const isLocal =
         typeof window === 'undefined'
           ? true
-          : window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+          : isLocalHostname(window.location.hostname);
 
-      const base = isLocal ? 'http://localhost:8010' : '/api/trainer';
+      const base = getTrainerApiBaseForBrowser(isLocal);
       const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
       const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
