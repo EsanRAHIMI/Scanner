@@ -1502,9 +1502,11 @@ def _validate_class_id(value: str) -> None:
 api = FastAPI(title="Lorenzo Trainer Server")
 
 BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-api.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+api.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/trainer/api", api)
 app.mount("/api", api)
 app.mount("/", api)
