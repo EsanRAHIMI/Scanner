@@ -1,19 +1,110 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { AppAccountMenu } from '@/components/scanner-account-menu';
 import type { AppUrls } from '@/lib/app-urls';
 import { safelyVoid } from '@/lib/client-log';
 import { HUB_LOCAL_GIT_PATH, HUB_TRAINER_API_PREFIX } from '@/lib/hub-paths';
+import {
+  BACKEND_SERVICE_NAMES,
+  FRONTEND_SERVICE_NAMES,
+  type ServiceHealthSnapshot,
+} from '@/lib/service-health';
 
 interface ServiceStatus {
   name: string;
-  url: string;
-  status: 'loading' | 'online' | 'offline';
+  checkUrl: string;
+  openUrl: string;
+  status: 'loading' | 'online' | 'offline' | 'degraded';
   responseTime?: number;
   error?: string;
+  detail?: string;
+}
+
+function ExternalLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!href || href === '#') {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      {children}
+    </a>
+  );
+}
+
+function entryToStatus(entry: ServiceHealthSnapshot['frontend'][string]): ServiceStatus {
+  return {
+    name: entry.name,
+    checkUrl: entry.checkUrl,
+    openUrl: entry.openUrl,
+    status: entry.status,
+    responseTime: entry.responseTime,
+    error: entry.error,
+    detail: entry.detail,
+  };
+}
+
+function loadingFrontendStatuses(urls: AppUrls): Record<string, ServiceStatus> {
+  return {
+    'Products App': {
+      name: 'Products App',
+      checkUrl: urls.products,
+      openUrl: urls.products,
+      status: 'loading',
+    },
+    'Scanner UI': {
+      name: 'Scanner UI',
+      checkUrl: urls.scanner,
+      openUrl: urls.scanner,
+      status: 'loading',
+    },
+    'Trainer Web': {
+      name: 'Trainer Web',
+      checkUrl: urls.trainer,
+      openUrl: urls.trainer,
+      status: 'loading',
+    },
+    'Marketing App': {
+      name: 'Marketing App',
+      checkUrl: urls.marketing,
+      openUrl: urls.marketing,
+      status: 'loading',
+    },
+  };
+}
+
+function loadingBackendStatuses(urls: AppUrls): Record<string, ServiceStatus> {
+  return {
+    'Inference API': {
+      name: 'Inference API',
+      checkUrl: urls.backendHealth,
+      openUrl: urls.backendHealth,
+      status: 'loading',
+    },
+    'Trainer API': {
+      name: 'Trainer API',
+      checkUrl: urls.trainerHealth,
+      openUrl: urls.trainerHealth,
+      status: 'loading',
+    },
+    MongoDB: {
+      name: 'MongoDB',
+      checkUrl: urls.mongodbHealth,
+      openUrl: urls.mongodbHealth,
+      status: 'loading',
+    },
+  };
 }
 
 type DashboardHomeProps = {
@@ -23,7 +114,12 @@ type DashboardHomeProps = {
 
 export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
   const [isVisible, setIsVisible] = useState(false);
-  const [serviceStatuses, setServiceStatuses] = useState<Record<string, ServiceStatus>>({});
+  const [frontendStatuses, setFrontendStatuses] = useState<Record<string, ServiceStatus>>(() =>
+    loadingFrontendStatuses(urls),
+  );
+  const [backendStatuses, setBackendStatuses] = useState<Record<string, ServiceStatus>>(() =>
+    loadingBackendStatuses(urls),
+  );
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<{ email?: string; username?: string; is_admin?: boolean; role?: string | null } | null>(null);
@@ -46,12 +142,12 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
 
   const trainerUrl = urls.trainer;
   const productsUrl = urls.products;
-  const calendarUrl = urls.calendar;
   const marketingUrl = urls.marketing;
   const scannerUrl = urls.scanner;
   const statusUrl = urls.status;
-  const apiDocsUrl = urls.apiDocs;
-  const trainerApiDocsUrl = urls.trainerApiDocs;
+  const backendHealthUrl = urls.backendHealth;
+  const trainerHealthUrl = urls.trainerHealth;
+  const mongodbHealthUrl = urls.mongodbHealth;
   const trainerLoginUrl = urls.trainerLogin;
   const canManageLocalGit = isLocal && !!authUser && (Boolean(authUser.is_admin) || (authUser.role || '').toLowerCase() === 'admin');
   const gitStatusLines = useMemo(
@@ -122,82 +218,78 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
     };
   }, [isLocal]);
 
-  // Service health check
   useEffect(() => {
-    const checkServiceHealth = async (serviceName: string, url: string) => {
-      try {
-        const startTime = Date.now();
-        const response = await fetch(url, {
-          method: 'GET',
-          cache: 'no-store',
-          signal: AbortSignal.timeout(5000),
-        });
-        const endTime = Date.now();
+    let cancelled = false;
 
-        setServiceStatuses(prev => ({
-          ...prev,
-          [serviceName]: {
-            name: serviceName,
-            url: url,
-            status: response.ok ? 'online' : 'offline',
-            responseTime: endTime - startTime,
-            ...(response.ok ? {} : { error: `HTTP ${response.status}` }),
-          }
-        }));
-      } catch (error) {
-        setServiceStatuses(prev => ({
-          ...prev,
-          [serviceName]: {
-            name: serviceName,
-            url: url,
-            status: 'offline',
-            error: error instanceof Error ? error.message : 'Unknown error'
-          }
-        }));
+    const applySnapshot = (snapshot: ServiceHealthSnapshot) => {
+      const nextFrontend: Record<string, ServiceStatus> = {};
+      for (const entry of Object.values(snapshot.frontend)) {
+        nextFrontend[entry.name] = entryToStatus(entry);
+      }
+
+      const nextBackend: Record<string, ServiceStatus> = {};
+      for (const entry of Object.values(snapshot.backend)) {
+        nextBackend[entry.name] = entryToStatus(entry);
+      }
+
+      if (!cancelled) {
+        setFrontendStatuses(nextFrontend);
+        setBackendStatuses(nextBackend);
       }
     };
 
-    // Check all services
-    const services: { name: string; url: string }[] = [
-      { name: 'Backend API', url: urls.backendHealth },
-      { name: 'Trainer API', url: urls.trainerHealth },
-      { name: 'Products Service', url: urls.products },
-      { name: 'Marketing Service', url: urls.marketing },
-      { name: 'MongoDB', url: urls.mongodbHealth },
-    ];
+    const refreshHealth = async () => {
+      try {
+        const res = await fetch('/hub/service-health', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`health ${res.status}`);
+        const snapshot = (await res.json()) as ServiceHealthSnapshot;
+        applySnapshot(snapshot);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Health check failed';
+        setFrontendStatuses((prev) => {
+          const next = { ...prev };
+          for (const name of FRONTEND_SERVICE_NAMES) {
+            next[name] = {
+              ...(next[name] || { name, checkUrl: '', openUrl: '' }),
+              status: 'offline',
+              error: message,
+            };
+          }
+          return next;
+        });
+        setBackendStatuses((prev) => {
+          const next = { ...prev };
+          for (const name of BACKEND_SERVICE_NAMES) {
+            next[name] = {
+              ...(next[name] || { name, checkUrl: '', openUrl: '' }),
+              status: 'offline',
+              error: message,
+            };
+          }
+          return next;
+        });
+      }
+    };
 
-    // Initial check
-    services.forEach(service => {
-      setServiceStatuses(prev => ({
-        ...prev,
-        [service.name]: {
-          name: service.name,
-          url: service.url,
-          status: 'loading'
-        }
-      }));
-    });
+    setFrontendStatuses(loadingFrontendStatuses(urls));
+    setBackendStatuses(loadingBackendStatuses(urls));
 
-    // Check services with delay for loading effect
-    setTimeout(() => {
-      services.forEach(service => {
-        safelyVoid(`home_service_health_${service.name}`, checkServiceHealth(service.name, service.url));
-      });
-    }, 1000);
-
-    // Set up interval for real-time updates
+    safelyVoid('home_service_health_initial', refreshHealth());
     const interval = setInterval(() => {
-      services.forEach(service => {
-        checkServiceHealth(service.name, service.url);
-      });
-    }, 30000); // Check every 30 seconds
+      safelyVoid('home_service_health_poll', refreshHealth());
+    }, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [urls]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'online': return 'bg-green-500';
+      case 'degraded': return 'bg-yellow-500';
       case 'offline': return 'bg-red-500';
       case 'loading': return 'bg-yellow-500 animate-pulse';
       default: return 'bg-gray-500';
@@ -207,11 +299,31 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
   const getStatusTextColor = (status: string) => {
     switch (status) {
       case 'online': return 'text-green-400';
+      case 'degraded': return 'text-yellow-400';
       case 'offline': return 'text-red-400';
       case 'loading': return 'text-yellow-400';
       default: return 'text-gray-400';
     }
   };
+
+  const getServiceStatusLabel = (serviceName: string, status?: ServiceStatus['status']) => {
+    if (!status || status === 'loading') return 'Checking...';
+    if (status === 'degraded') return 'Degraded';
+    if (status === 'online') return serviceName === 'MongoDB' ? 'Connected' : 'Online';
+    return serviceName === 'MongoDB' ? 'Disconnected' : 'Offline';
+  };
+
+  const frontendHealthValues = Object.values(frontendStatuses);
+  const backendHealthValues = Object.values(backendStatuses);
+  const frontendHealthy = frontendHealthValues.length > 0 && frontendHealthValues.every(
+    (service) => service.status === 'online',
+  );
+  const frontendOffline = frontendHealthValues.some((service) => service.status === 'offline');
+  const backendHealthy = backendHealthValues.length > 0 && backendHealthValues.every(
+    (service) => service.status === 'online' || service.status === 'degraded',
+  );
+  const backendOffline = backendHealthValues.some((service) => service.status === 'offline');
+  const backendDegraded = backendHealthValues.some((service) => service.status === 'degraded');
 
   const callGitApi = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
     const res = await fetch(HUB_LOCAL_GIT_PATH, {
@@ -333,17 +445,19 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
               </div>
               <div className="flex items-center space-x-6">
                 <div className="flex items-center space-x-3">
-                  <span className="text-gray-500 text-sm">Services:</span>
+                  <span className="text-gray-500 text-sm">Frontends:</span>
                   <div className="flex items-center space-x-2">
-                    {Object.entries(serviceStatuses).slice(0, 3).map(([key, service]) => (
-                      <div key={key} className="flex items-center space-x-1">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(service.status)}`}></div>
-                        <span className={`text-xs ${getStatusTextColor(service.status)}`}>
-                          {service.status === 'loading' ? '...' : 
-                           service.status === 'online' ? '↑' : '↓'}
+                    {FRONTEND_SERVICE_NAMES.map((name) => {
+                      const service = frontendStatuses[name];
+                      return (
+                      <div key={name} className="flex items-center space-x-1" title={name}>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(service?.status || 'loading')}`}></div>
+                        <span className={`text-xs ${getStatusTextColor(service?.status || 'loading')}`}>
+                          {service?.status === 'loading' ? '...' :
+                           service?.status === 'online' ? '↑' : '↓'}
                         </span>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
@@ -367,13 +481,13 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
         <main className="relative z-0 flex-1 container mx-auto px-6 py-12">
           <div className="max-w-7xl mx-auto">
             
-            {/* Quick Actions */}
+            {/* Quick Actions — frontend apps */}
             <section className={`mb-12 transition-all duration-1000 delay-200 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <h2 className="text-xl font-semibold text-gray-300 mb-6">Quick Actions</h2>
+              <h2 className="text-xl font-semibold text-gray-300 mb-2">Quick Actions</h2>
+              <p className="text-sm text-gray-500 mb-6">Frontend apps — status and open in a new tab</p>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Link 
+                <ExternalLink
                   href={href(productsUrl)}
-                  aria-disabled={false}
                   className="group relative overflow-hidden bg-gradient-to-r from-pink-600/20 to-rose-600/20 border border-pink-800/50 rounded-xl p-6 hover:border-pink-600 transition-all duration-300 hover:shadow-lg hover:shadow-pink-600/20"
                 >
                   <div className="relative z-10">
@@ -384,24 +498,24 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                         </svg>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Products Service']?.status || 'loading')}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(frontendStatuses['Products App']?.status || 'loading')}`}></div>
                         <svg className="w-5 h-5 text-pink-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
                     <h3 className="text-lg font-semibold text-white mb-2">Products Manager</h3>
-                    <p className="text-gray-400 text-sm">Manage marketing campaigns</p>
-                    {serviceStatuses['Products Service']?.responseTime && (
+                    <p className="text-gray-400 text-sm">Browse and manage the product catalog</p>
+                    {frontendStatuses['Products App']?.responseTime && (
                       <p className="text-gray-500 text-xs mt-2">
-                        Response: {serviceStatuses['Products Service'].responseTime}ms
+                        Response: {frontendStatuses['Products App'].responseTime}ms
                       </p>
                     )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-pink-600/10 to-rose-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                </Link>
+                </ExternalLink>
 
-                <Link 
+                <ExternalLink
                   href={href(scannerUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-800/50 rounded-xl p-6 hover:border-purple-600 transition-all duration-300 hover:shadow-lg hover:shadow-purple-600/20"
                 >
@@ -414,24 +528,24 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                         </svg>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Backend API']?.status || 'loading')}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(frontendStatuses['Scanner UI']?.status || 'loading')}`}></div>
                         <svg className="w-5 h-5 text-purple-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
                     <h3 className="text-lg font-semibold text-white mb-2">Scanner UI</h3>
-                    <p className="text-gray-400 text-sm">Analyze and scan marketing data</p>
-                    {serviceStatuses['Backend API']?.responseTime && (
+                    <p className="text-gray-400 text-sm">Live camera scanning with YOLO detection</p>
+                    {frontendStatuses['Scanner UI']?.responseTime && (
                       <p className="text-gray-500 text-xs mt-2">
-                        Response: {serviceStatuses['Backend API'].responseTime}ms
+                        Response: {frontendStatuses['Scanner UI'].responseTime}ms
                       </p>
                     )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-purple-600/10 to-indigo-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                </Link>
+                </ExternalLink>
 
-                <Link 
+                <ExternalLink
                   href={href(trainerUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-green-600/20 to-teal-600/20 border border-green-800/50 rounded-xl p-6 hover:border-green-600 transition-all duration-300 hover:shadow-lg hover:shadow-green-600/20"
                 >
@@ -443,24 +557,24 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                         </svg>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Trainer API']?.status || 'loading')}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(frontendStatuses['Trainer Web']?.status || 'loading')}`}></div>
                         <svg className="w-5 h-5 text-green-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
                     <h3 className="text-lg font-semibold text-white mb-2">Trainer Dashboard</h3>
-                    <p className="text-gray-400 text-sm">Train AI models</p>
-                    {serviceStatuses['Trainer API']?.responseTime && (
+                    <p className="text-gray-400 text-sm">Label, train, and publish models</p>
+                    {frontendStatuses['Trainer Web']?.responseTime && (
                       <p className="text-gray-500 text-xs mt-2">
-                        Response: {serviceStatuses['Trainer API'].responseTime}ms
+                        Response: {frontendStatuses['Trainer Web'].responseTime}ms
                       </p>
                     )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-green-600/10 to-teal-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                </Link>
+                </ExternalLink>
 
-                <Link
+                <ExternalLink
                   href={href(marketingUrl)}
                   className="group relative overflow-hidden bg-gradient-to-r from-cyan-600/20 to-sky-600/20 border border-cyan-800/50 rounded-xl p-6 hover:border-cyan-600 transition-all duration-300 hover:shadow-lg hover:shadow-cyan-600/20"
                 >
@@ -477,188 +591,163 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                         </svg>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full ${getStatusColor(serviceStatuses['Marketing Service']?.status || 'loading')}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${getStatusColor(frontendStatuses['Marketing App']?.status || 'loading')}`}></div>
                         <svg className="w-5 h-5 text-cyan-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
                     <h3 className="text-lg font-semibold text-white mb-2">Digital Marketing OS</h3>
-                    <p className="text-gray-400 text-sm">Digital Marketing OS</p>
-                    {serviceStatuses['Marketing Service']?.responseTime && (
+                    <p className="text-gray-400 text-sm">Marketing calendar and campaign planning</p>
+                    {frontendStatuses['Marketing App']?.responseTime && (
                       <p className="text-gray-500 text-xs mt-2">
-                        Response: {serviceStatuses['Marketing Service'].responseTime}ms
+                        Response: {frontendStatuses['Marketing App'].responseTime}ms
                       </p>
                     )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/10 to-sky-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                </Link>
+                </ExternalLink>
               </div>
             </section>
 
-            {/* Service Status Monitor */}
+            {/* Service Status Monitor — backend APIs */}
             <section className={`mb-12 transition-all duration-1000 delay-300 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <h2 className="text-xl font-semibold text-gray-300 mb-6">Service Status Monitor</h2>
+              <h2 className="text-xl font-semibold text-gray-300 mb-2">Service Status Monitor</h2>
+              <p className="text-sm text-gray-500 mb-6">Backend health endpoints — click to view JSON in a new tab</p>
               <div className="bg-gray-900/30 border border-gray-800 rounded-xl p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Inference API Status */}
-                  <Link 
-                    href={href(apiDocsUrl)}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <ExternalLink
+                    href={href(backendHealthUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-2">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(serviceStatuses['Backend API']?.status || 'loading')}`}></div>
+                        <div className={`w-3 h-3 rounded-full ${getStatusColor(backendStatuses['Inference API']?.status || 'loading')}`}></div>
                         <h4 className="text-white font-medium text-sm">Inference API</h4>
                       </div>
                       <div className="flex items-center space-x-1">
-                        <span className={`text-xs ${getStatusTextColor(serviceStatuses['Backend API']?.status || 'loading')}`}>
-                          {serviceStatuses['Backend API']?.status === 'loading' ? 'Checking...' : 
-                           serviceStatuses['Backend API']?.status === 'online' ? 'Online' : 'Offline'}
+                        <span className={`text-xs ${getStatusTextColor(backendStatuses['Inference API']?.status || 'loading')}`}>
+                          {getServiceStatusLabel('Inference API', backendStatuses['Inference API']?.status)}
                         </span>
                         <svg className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
-                    {serviceStatuses['Backend API']?.responseTime && (
+                    <p className="text-gray-600 text-xs truncate mb-2">{backendHealthUrl}</p>
+                    {backendStatuses['Inference API']?.responseTime && (
                       <div className="text-gray-500 text-xs">
-                        Response: {serviceStatuses['Backend API'].responseTime}ms
+                        Response: {backendStatuses['Inference API'].responseTime}ms
                       </div>
                     )}
-                    {serviceStatuses['Backend API']?.error && (
+                    {backendStatuses['Inference API']?.detail && (
+                      <div className="text-yellow-400 text-xs mt-1">
+                        {backendStatuses['Inference API'].detail}
+                      </div>
+                    )}
+                    {backendStatuses['Inference API']?.error && (
                       <div className="text-red-400 text-xs mt-1">
-                        {serviceStatuses['Backend API'].error}
+                        {backendStatuses['Inference API'].error}
                       </div>
                     )}
-                  </Link>
+                  </ExternalLink>
 
-                  {/* Trainer API Status */}
-                  <Link 
-                    href={href(trainerApiDocsUrl)}
+                  <ExternalLink
+                    href={href(trainerHealthUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-2">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(serviceStatuses['Trainer API']?.status || 'loading')}`}></div>
+                        <div className={`w-3 h-3 rounded-full ${getStatusColor(backendStatuses['Trainer API']?.status || 'loading')}`}></div>
                         <h4 className="text-white font-medium text-sm">Trainer API</h4>
                       </div>
                       <div className="flex items-center space-x-1">
-                        <span className={`text-xs ${getStatusTextColor(serviceStatuses['Trainer API']?.status || 'loading')}`}>
-                          {serviceStatuses['Trainer API']?.status === 'loading' ? 'Checking...' : 
-                           serviceStatuses['Trainer API']?.status === 'online' ? 'Online' : 'Offline'}
+                        <span className={`text-xs ${getStatusTextColor(backendStatuses['Trainer API']?.status || 'loading')}`}>
+                          {getServiceStatusLabel('Trainer API', backendStatuses['Trainer API']?.status)}
                         </span>
                         <svg className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
-                    {serviceStatuses['Trainer API']?.responseTime && (
+                    <p className="text-gray-600 text-xs truncate mb-2">{trainerHealthUrl}</p>
+                    {backendStatuses['Trainer API']?.responseTime && (
                       <div className="text-gray-500 text-xs">
-                        Response: {serviceStatuses['Trainer API'].responseTime}ms
+                        Response: {backendStatuses['Trainer API'].responseTime}ms
                       </div>
                     )}
-                    {serviceStatuses['Trainer API']?.error && (
+                    {backendStatuses['Trainer API']?.error && (
                       <div className="text-red-400 text-xs mt-1">
-                        {serviceStatuses['Trainer API'].error}
+                        {backendStatuses['Trainer API'].error}
                       </div>
                     )}
-                  </Link>
+                  </ExternalLink>
 
-                  {/* Products Service Status */}
-                  <Link 
-                    href={href(productsUrl)}
+                  <ExternalLink
+                    href={href(mongodbHealthUrl)}
                     className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center space-x-2">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(serviceStatuses['Products Service']?.status || 'loading')}`}></div>
-                        <h4 className="text-white font-medium text-sm">Products Service</h4>
-                      </div>
-                      <div className="flex items-center space-x-1">
-                        <span className={`text-xs ${getStatusTextColor(serviceStatuses['Products Service']?.status || 'loading')}`}>
-                          {serviceStatuses['Products Service']?.status === 'loading' ? 'Checking...' : 
-                           serviceStatuses['Products Service']?.status === 'online' ? 'Online' : 'Offline'}
-                        </span>
-                        <svg className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
-                        </svg>
-                      </div>
-                    </div>
-                    {serviceStatuses['Products Service']?.responseTime && (
-                      <div className="text-gray-500 text-xs">
-                        Response: {serviceStatuses['Products Service'].responseTime}ms
-                      </div>
-                    )}
-                    {serviceStatuses['Products Service']?.error && (
-                      <div className="text-red-400 text-xs mt-1">
-                        {serviceStatuses['Products Service'].error}
-                      </div>
-                    )}
-                  </Link>
-
-                  {/* MongoDB Status */}
-                  <Link 
-                    href={href(statusUrl)}
-                    className="group bg-gray-900/50 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-all duration-300 cursor-pointer"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(serviceStatuses['MongoDB']?.status || 'loading')}`}></div>
+                        <div className={`w-3 h-3 rounded-full ${getStatusColor(backendStatuses['MongoDB']?.status || 'loading')}`}></div>
                         <h4 className="text-white font-medium text-sm">MongoDB</h4>
                       </div>
                       <div className="flex items-center space-x-1">
-                        <span className={`text-xs ${getStatusTextColor(serviceStatuses['MongoDB']?.status || 'loading')}`}>
-                          {serviceStatuses['MongoDB']?.status === 'loading' ? 'Checking...' : 
-                           serviceStatuses['MongoDB']?.status === 'online' ? 'Connected' : 'Disconnected'}
+                        <span className={`text-xs ${getStatusTextColor(backendStatuses['MongoDB']?.status || 'loading')}`}>
+                          {getServiceStatusLabel('MongoDB', backendStatuses['MongoDB']?.status)}
                         </span>
                         <svg className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                         </svg>
                       </div>
                     </div>
-                    {serviceStatuses['MongoDB']?.responseTime && (
+                    <p className="text-gray-600 text-xs truncate mb-2">{mongodbHealthUrl}</p>
+                    {backendStatuses['MongoDB']?.responseTime && (
                       <div className="text-gray-500 text-xs">
-                        Response: {serviceStatuses['MongoDB'].responseTime}ms
+                        Response: {backendStatuses['MongoDB'].responseTime}ms
                       </div>
                     )}
-                    {serviceStatuses['MongoDB']?.error && (
+                    {backendStatuses['MongoDB']?.error && (
                       <div className="text-red-400 text-xs mt-1">
-                        {serviceStatuses['MongoDB'].error}
+                        {backendStatuses['MongoDB'].error}
                       </div>
                     )}
-                  </Link>
+                  </ExternalLink>
                 </div>
-                
-                {/* Overall Status */}
-                <Link 
+
+                <ExternalLink
                   href={href(statusUrl)}
                   className="group mt-4 pt-4 border-t border-gray-800 block cursor-pointer hover:bg-gray-900/20 -mx-2 px-2 py-1 rounded transition-all duration-300"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <div className={`w-3 h-3 rounded-full ${getStatusColor(
-                        Object.values(serviceStatuses).every(s => s.status === 'online') ? 'online' :
-                        Object.values(serviceStatuses).some(s => s.status === 'offline') ? 'offline' : 'loading'
+                        backendOffline ? 'offline' :
+                        backendDegraded ? 'degraded' :
+                        backendHealthy ? 'online' : 'loading'
                       )}`}></div>
                       <span className="text-gray-400 text-sm group-hover:text-white transition-colors">
-                        Overall Status: {
-                          Object.values(serviceStatuses).every(s => s.status === 'online') ? 'All Systems Operational' :
-                          Object.values(serviceStatuses).some(s => s.status === 'offline') ? 'Some Services Down' :
-                          'Checking Services...'
+                        Backend overall: {
+                          backendOffline ? 'Some APIs Down' :
+                          backendDegraded ? 'Degraded Performance' :
+                          backendHealthy ? 'All Backend APIs Operational' :
+                          'Checking backend...'
                         }
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <div className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">
-                        Auto-refresh every 30s
+                        Detailed status page · auto-refresh 30s
                       </div>
                       <svg className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 17L17 7M17 7H7M17 7V17"></path>
                       </svg>
                     </div>
                   </div>
-                </Link>
+                  <div className="mt-2 text-xs text-gray-600">
+                    Frontends: {frontendOffline ? 'some down' : frontendHealthy ? 'all online' : 'checking...'}
+                  </div>
+                </ExternalLink>
               </div>
             </section>
 
