@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -2580,6 +2581,89 @@ async def public_product_field_options(db=Depends(_get_db)):
   return {"options": await _get_product_field_options(db)}
 
 
+_PRODUCT_IMAGE_FIELD_RE = re.compile(r"^Image(\d+)?$", re.IGNORECASE)
+
+
+def _extract_http_urls_from_field_value(value: Any) -> list[str]:
+  urls: list[str] = []
+  if value is None:
+    return urls
+  if isinstance(value, str):
+    text = value.strip()
+    if not text:
+      return urls
+    if text.startswith("http://") or text.startswith("https://"):
+      urls.append(text)
+      return urls
+    for part in re.split(r"[\n,]+", text):
+      candidate = part.strip()
+      if candidate.startswith("http://") or candidate.startswith("https://"):
+        urls.append(candidate)
+    return urls
+  if isinstance(value, list):
+    for item in value:
+      urls.extend(_extract_http_urls_from_field_value(item))
+    return urls
+  if isinstance(value, dict):
+    for nested in value.values():
+      urls.extend(_extract_http_urls_from_field_value(nested))
+  return urls
+
+
+async def _count_product_image_urls(db: Any) -> int:
+  total = 0
+  cursor = db["products"].find({}, {"fields": 1})
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    for key, value in fields.items():
+      if key == "Image" or _PRODUCT_IMAGE_FIELD_RE.fullmatch(str(key)):
+        total += len(_extract_http_urls_from_field_value(value))
+  return total
+
+
+async def _count_distinct_product_categories(db: Any) -> int:
+  labels: set[str] = set()
+  cursor = db["products"].find({}, {"fields.Category": 1})
+  async for doc in cursor:
+    raw = (doc.get("fields") or {}).get("Category")
+    if not isinstance(raw, str):
+      continue
+    for part in raw.split(","):
+      label = part.strip()
+      if label:
+        labels.add(label)
+  return len(labels)
+
+
+@api.get("/public/platform/stats")
+async def public_platform_stats(db=Depends(_get_db)):
+  products_count, product_images_count, dam_count, users_count, calendar_count, yolo_classes_count, category_labels_count = await asyncio.gather(
+    db["products"].count_documents({}),
+    _count_product_image_urls(db),
+    db["dam_assets"].count_documents({}),
+    db["users"].count_documents({}),
+    db["content_calendar"].count_documents({}),
+    db[CLASSES_COLLECTION].count_documents({}),
+    _count_distinct_product_categories(db),
+  )
+
+  db_status = "connected"
+  try:
+    await db.client.admin.command("ping")
+  except Exception:
+    db_status = "disconnected"
+
+  return {
+    "products_count": products_count,
+    "product_images_count": product_images_count,
+    "dam_assets_count": dam_count,
+    "users_count": users_count,
+    "calendar_items_count": calendar_count,
+    "yolo_classes_count": yolo_classes_count,
+    "category_labels_count": category_labels_count,
+    "db_status": db_status,
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+  }
 
 
 

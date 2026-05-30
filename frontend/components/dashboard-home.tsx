@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { AppAccountMenu } from '@/components/scanner-account-menu';
+import { PlatformOverview } from '@/components/platform-overview';
 import type { AppUrls } from '@/lib/app-urls';
 import { safelyVoid } from '@/lib/client-log';
 import { HUB_LOCAL_GIT_PATH, HUB_TRAINER_API_PREFIX } from '@/lib/hub-paths';
@@ -439,8 +440,8 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                   </svg>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-white">AI Marketing</h1>
-                  <p className="text-gray-400 text-sm">Command Dashboard</p>
+                  <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+                  <p className="text-gray-400 text-sm">Services hub</p>
                 </div>
               </div>
               <div className="flex items-center space-x-6">
@@ -751,189 +752,190 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
               </div>
             </section>
 
-            {/* Technical Stack */}
-            <section className={`transition-all duration-1000 delay-600 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <h2 className="text-xl font-semibold text-gray-300 mb-6">Technical Stack</h2>
-              <div className="bg-gray-900/30 border border-gray-800 rounded-xl p-8">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-blue-600/20 border border-blue-800 rounded-lg flex items-center justify-center mx-auto mb-3">
-                      <span className="text-blue-400 font-bold text-sm">YOLO</span>
-                    </div>
-                    <h4 className="text-white text-sm font-medium mb-1">YOLOv8</h4>
-                    <p className="text-gray-500 text-xs">Computer Vision</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-green-600/20 border border-green-800 rounded-lg flex items-center justify-center mx-auto mb-3">
-                      <span className="text-green-400 font-bold text-sm">API</span>
-                    </div>
-                    <h4 className="text-white text-sm font-medium mb-1">FastAPI</h4>
-                    <p className="text-gray-500 text-xs">Backend Framework</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-purple-600/20 border border-purple-800 rounded-lg flex items-center justify-center mx-auto mb-3">
-                      <span className="text-purple-400 font-bold text-sm">NX</span>
-                    </div>
-                    <h4 className="text-white text-sm font-medium mb-1">Next.js</h4>
-                    <p className="text-gray-500 text-xs">Frontend Framework</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-cyan-600/20 border border-cyan-800 rounded-lg flex items-center justify-center mx-auto mb-3">
-                      <span className="text-cyan-400 font-bold text-sm">DK</span>
-                    </div>
-                    <h4 className="text-white text-sm font-medium mb-1">Docker</h4>
-                    <p className="text-gray-500 text-xs">Containerization</p>
-                  </div>
-                </div>
-              </div>
-            </section>
+            <PlatformOverview visible={isVisible} />
 
             {isLocal && (
               <section className={`mt-12 transition-all duration-1000 delay-700 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-                <h2 className="text-xl font-semibold text-gray-300 mb-6">Local Git Admin Box</h2>
-                <div className="bg-gray-900/30 border border-gray-800 rounded-xl p-6 space-y-4">
-                  <p className="text-xs text-amber-300/90">دسترسی فقط برای کاربر ادمین لاگین‌شده از سیستم احراز هویت یکپارچه Trainer.</p>
-                  <div className="rounded-lg border border-gray-800 bg-black/40 px-3 py-2 text-xs text-gray-300">
-                    {authLoading ? (
-                      <span>در حال بررسی وضعیت احراز هویت...</span>
-                    ) : authUser ? (
-                      <span>
-                        Login: <span className="text-white">{authUser.username || authUser.email || 'user'}</span> · Role:{' '}
-                        <span className="text-white">{authUser.role || (authUser.is_admin ? 'admin' : 'user')}</span>
-                      </span>
-                    ) : (
-                      <span>Login نشده‌ای. برای دسترسی ادمین ابتدا وارد شو.</span>
-                    )}
+                <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-white/35">Developer Tools</p>
+                    <h2 className="mt-2 text-xl font-semibold text-gray-200">Local Git</h2>
+                    <p className="mt-1 text-sm text-gray-500">Admin-only commit and push from this machine.</p>
                   </div>
-                  {authError ? (
-                    <div className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs text-red-300">{authError}</div>
+                  {gitStatus ? (
+                    <div className="flex items-center gap-3 text-xs text-white/45">
+                      <span className="font-mono text-white/70">{gitStatus.branch}</span>
+                      <span className={`rounded-full border px-2.5 py-1 ${isGitClean ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>
+                        {isGitClean ? 'Clean' : `${gitWorkingTreeMetrics.total} changes`}
+                      </span>
+                    </div>
                   ) : null}
-                  {!canManageLocalGit ? (
-                    <div className="flex flex-wrap gap-2">
+                </div>
+
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm">
+                  <div className="flex flex-col gap-4 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      {authLoading ? (
+                        <p className="text-sm text-white/45">Checking auth…</p>
+                      ) : authUser ? (
+                        <p className="text-sm text-white/70">
+                          <span className="text-white">{authUser.username || authUser.email || 'user'}</span>
+                          <span className="text-white/30"> · </span>
+                          <span className="uppercase tracking-wider text-[11px] text-white/45">
+                            {authUser.role || (authUser.is_admin ? 'admin' : 'user')}
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-sm text-white/45">Sign in as admin to use git controls.</p>
+                      )}
+                      {authError ? <p className="mt-1 text-xs text-red-400">{authError}</p> : null}
+                    </div>
+
+                    {!canManageLocalGit ? (
                       <Link
                         href={href(trainerLoginUrl)}
-                        className="rounded-lg border border-indigo-700 bg-indigo-600/20 px-4 py-2 text-sm font-semibold text-indigo-200 hover:bg-indigo-600/30"
+                        className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-white/75 transition-colors hover:border-white/20 hover:bg-white/[0.08]"
                       >
-                        ورود از Trainer
+                        Sign in via Trainer
                       </Link>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
-                      <div className="rounded-lg border border-gray-800 bg-black/40 px-3 py-2 text-xs text-gray-400">
-                        دسترسی تایید شد (Admin)
-                      </div>
+                    ) : (
                       <button
                         type="button"
                         onClick={() => void refreshGitStatus()}
                         disabled={gitBusy}
-                        className="rounded-lg border border-indigo-700 bg-indigo-600/20 px-4 py-2 text-sm font-semibold text-indigo-200 hover:bg-indigo-600/30 disabled:opacity-40"
+                        className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-white/75 transition-colors hover:border-white/20 hover:bg-white/[0.08] disabled:opacity-40"
                       >
-                        {gitBusy ? 'در حال بررسی...' : 'بررسی Git'}
+                        {gitBusy ? 'Refreshing…' : 'Refresh status'}
                       </button>
-                    </div>
-                  )}
-
-                  {gitStatus && (
-                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3 text-xs text-gray-300 space-y-3">
-                      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-2 items-start">
-                        <div>
-                          <div>Repo: <span className="text-white">{gitStatus.repoRoot}</span></div>
-                          <div>Branch: <span className="text-white">{gitStatus.branch}</span></div>
-                        </div>
-                        <div className={`rounded-md px-2 py-1 text-[11px] font-semibold border ${isGitClean ? 'border-emerald-700 bg-emerald-600/20 text-emerald-200' : 'border-amber-700 bg-amber-600/20 text-amber-200'}`}>
-                          {isGitClean ? 'Working Tree: Clean' : `Pending Changes: ${gitWorkingTreeMetrics.total}`}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-[11px]">
-                        <div className="rounded-md border border-gray-800 bg-black/40 px-2 py-1.5">Modified: <span className="text-white">{gitWorkingTreeMetrics.modified}</span></div>
-                        <div className="rounded-md border border-gray-800 bg-black/40 px-2 py-1.5">Added: <span className="text-white">{gitWorkingTreeMetrics.added}</span></div>
-                        <div className="rounded-md border border-gray-800 bg-black/40 px-2 py-1.5">Deleted: <span className="text-white">{gitWorkingTreeMetrics.deleted}</span></div>
-                        <div className="rounded-md border border-gray-800 bg-black/40 px-2 py-1.5">Untracked: <span className="text-white">{gitWorkingTreeMetrics.untracked}</span></div>
-                      </div>
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        <div>
-                          <p className="mb-1 text-gray-400">Working Tree</p>
-                          <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-[11px]">{gitStatus.status}</pre>
-                        </div>
-                        <div>
-                          <p className="mb-1 text-gray-400">Recent Commits</p>
-                          <pre className="max-h-36 overflow-auto whitespace-pre-wrap text-[11px]">{gitStatus.recentCommits}</pre>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="rounded-lg border border-gray-800 bg-black/30 p-3 space-y-3">
-                    <p className="text-[11px] text-gray-400">Quick commit templates</p>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setGitMessage('chore: update local changes')} className="rounded-md border border-gray-700 bg-black/40 px-2.5 py-1.5 text-[11px] text-gray-200 hover:bg-black/60">chore</button>
-                      <button type="button" onClick={() => setGitMessage('fix: resolve issue in local workflow')} className="rounded-md border border-gray-700 bg-black/40 px-2.5 py-1.5 text-[11px] text-gray-200 hover:bg-black/60">fix</button>
-                      <button type="button" onClick={() => setGitMessage('feat: implement requested improvement')} className="rounded-md border border-gray-700 bg-black/40 px-2.5 py-1.5 text-[11px] text-gray-200 hover:bg-black/60">feat</button>
-                    </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3">
-                    <input
-                      type="text"
-                      value={gitMessage}
-                      onChange={(e) => setGitMessage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                          e.preventDefault();
-                          void runCommit();
-                        }
-                      }}
-                      placeholder="پیام کامیت دستی..."
-                      className="w-full rounded-lg border border-gray-700 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void runCommit()}
-                      disabled={gitBusy || !canManageLocalGit || !gitMessage.trim()}
-                      className="rounded-lg border border-green-700 bg-green-600/20 px-4 py-2 text-sm font-semibold text-green-200 hover:bg-green-600/30 disabled:opacity-40"
-                    >
-                      Commit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void runPush()}
-                      disabled={gitBusy || !canManageLocalGit}
-                      className="rounded-lg border border-cyan-700 bg-cyan-600/20 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-600/30 disabled:opacity-40"
-                    >
-                      Push
-                    </button>
-                  </div>
-
-                  {gitError && (
-                    <div className="rounded-lg border border-red-800 bg-red-950/30 px-3 py-2 text-xs text-red-300">
-                      {gitError}
+                  {gitStatus ? (
+                    <div className="grid grid-cols-2 gap-px bg-white/10 md:grid-cols-4">
+                      {[
+                        { label: 'Modified', value: gitWorkingTreeMetrics.modified },
+                        { label: 'Added', value: gitWorkingTreeMetrics.added },
+                        { label: 'Deleted', value: gitWorkingTreeMetrics.deleted },
+                        { label: 'Untracked', value: gitWorkingTreeMetrics.untracked },
+                      ].map((item) => (
+                        <div key={item.label} className="bg-black/20 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">{item.label}</p>
+                          <p className="mt-1 text-lg font-light tabular-nums text-white">{item.value}</p>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  ) : null}
 
-                  {gitOutput && (
-                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs text-gray-400">آخرین خروجی Git</p>
-                        <div className="flex items-center gap-2">
+                  {canManageLocalGit ? (
+                    <div className="space-y-4 border-t border-white/10 px-5 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { label: 'chore', message: 'chore: update local changes' },
+                          { label: 'fix', message: 'fix: resolve issue in local workflow' },
+                          { label: 'feat', message: 'feat: implement requested improvement' },
+                        ].map((template) => (
+                          <button
+                            key={template.label}
+                            type="button"
+                            onClick={() => setGitMessage(template.message)}
+                            className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/55 transition-colors hover:border-white/20 hover:text-white/80"
+                          >
+                            {template.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex flex-col gap-3 lg:flex-row">
+                        <input
+                          type="text"
+                          value={gitMessage}
+                          onChange={(e) => setGitMessage(e.target.value)}
+                          onKeyDown={(e) => {
+                            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                              e.preventDefault();
+                              void runCommit();
+                            }
+                          }}
+                          placeholder="Commit message"
+                          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-white/20 focus:outline-none"
+                        />
+                        <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() => void copyGitOutput()}
-                            className="rounded-md border border-gray-700 bg-black/40 px-2 py-1 text-[11px] text-gray-200 hover:bg-black/60"
+                            onClick={() => void runCommit()}
+                            disabled={gitBusy || !gitMessage.trim()}
+                            className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/[0.1] disabled:opacity-40"
                           >
-                            Copy
+                            Commit
                           </button>
                           <button
                             type="button"
-                            onClick={() => setGitOutput('')}
-                            className="rounded-md border border-gray-700 bg-black/40 px-2 py-1 text-[11px] text-gray-200 hover:bg-black/60"
+                            onClick={() => void runPush()}
+                            disabled={gitBusy}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.08] disabled:opacity-40"
                           >
-                            Clear
+                            Push
                           </button>
                         </div>
                       </div>
-                      <pre className="max-h-44 overflow-auto whitespace-pre-wrap text-[11px] text-gray-200">{gitOutput}</pre>
+
+                      {gitError ? (
+                        <p className="text-xs text-red-400">{gitError}</p>
+                      ) : null}
+
+                      {(gitStatus || gitOutput) ? (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {gitStatus ? (
+                            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                              <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-white/35">Working tree</p>
+                              <pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/60">
+                                {gitStatus.status}
+                              </pre>
+                            </div>
+                          ) : null}
+                          {gitStatus ? (
+                            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                              <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-white/35">Recent commits</p>
+                              <pre className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/60">
+                                {gitStatus.recentCommits}
+                              </pre>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {gitOutput ? (
+                        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">Last command output</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void copyGitOutput()}
+                                className="text-[11px] text-white/45 transition-colors hover:text-white/75"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setGitOutput('')}
+                                className="text-[11px] text-white/45 transition-colors hover:text-white/75"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                          <pre className="max-h-36 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-white/70">
+                            {gitOutput}
+                          </pre>
+                        </div>
+                      ) : null}
+
+                      <p className="text-[11px] text-white/30">
+                        {gitStatus?.repoRoot}
+                      </p>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </section>
             )}
