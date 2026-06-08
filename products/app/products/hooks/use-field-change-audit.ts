@@ -16,8 +16,36 @@ export type FieldChangeEntry = {
 
 export type FieldChangesIndex = Record<string, Record<string, FieldChangeEntry[]>>;
 
+export type ChangeSourceFilter = 'all' | 'manual' | 'import';
+
+const MANUAL_EDIT_ACTIONS = new Set(['PRODUCT_EDIT', 'PRODUCT_INLINE_EDIT']);
+const IMPORT_EDIT_ACTION = 'PRODUCT_IMPORT_EDIT';
+
 function normalizeFieldKey(fieldName: string): string {
   return fieldName.trim().toLowerCase();
+}
+
+function isManualEditAction(action: string): boolean {
+  return MANUAL_EDIT_ACTIONS.has(action);
+}
+
+function isImportEditAction(action: string): boolean {
+  return action === IMPORT_EDIT_ACTION;
+}
+
+export function isImportFieldChangeEntry(entry: FieldChangeEntry): boolean {
+  return isImportEditAction(entry.action);
+}
+
+function passesAuditFilters(
+  entry: FieldChangeEntry,
+  editorUsername: string | null | undefined,
+  sourceFilter: ChangeSourceFilter,
+): boolean {
+  if (editorUsername && entry.username !== editorUsername) return false;
+  if (sourceFilter === 'manual' && !isManualEditAction(entry.action)) return false;
+  if (sourceFilter === 'import' && !isImportEditAction(entry.action)) return false;
+  return true;
 }
 
 function findFieldEntries(
@@ -36,12 +64,11 @@ function findFieldEntries(
   return [];
 }
 
-function filterEntriesByUsername(entries: FieldChangeEntry[], username: string | null | undefined) {
-  if (!username) return entries;
-  return entries.filter((entry) => entry.username === username);
-}
-
-export function useFieldChangeAudit(enabled: boolean, editorUsername: string | null = null) {
+export function useFieldChangeAudit(
+  enabled: boolean,
+  editorUsername: string | null = null,
+  sourceFilter: ChangeSourceFilter = 'all',
+) {
   const [index, setIndex] = React.useState<FieldChangesIndex>({});
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -79,50 +106,58 @@ export function useFieldChangeAudit(enabled: boolean, editorUsername: string | n
     for (const fields of Object.values(index)) {
       for (const entries of Object.values(fields)) {
         for (const entry of entries) {
+          if (!passesAuditFilters(entry, null, sourceFilter)) continue;
           const name = entry.username?.trim();
           if (name) names.add(name);
         }
       }
     }
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [index]);
+  }, [index, sourceFilter]);
 
-  const recordIdsForEditor = React.useMemo(() => {
-    if (!editorUsername) return null;
+  const recordIdsMatchingFilter = React.useMemo(() => {
+    if (!editorUsername && sourceFilter === 'all') return null;
     const ids = new Set<string>();
     for (const [recordId, fields] of Object.entries(index)) {
       for (const entries of Object.values(fields)) {
-        if (entries.some((entry) => entry.username === editorUsername)) {
+        if (entries.some((entry) => passesAuditFilters(entry, editorUsername, sourceFilter))) {
           ids.add(recordId);
           break;
         }
       }
     }
     return ids;
-  }, [index, editorUsername]);
+  }, [index, editorUsername, sourceFilter]);
 
   const hasChanges = React.useCallback(
     (recordId: string, fieldName: string) =>
-      filterEntriesByUsername(findFieldEntries(index, recordId, fieldName), editorUsername).length > 0,
-    [index, editorUsername],
+      findFieldEntries(index, recordId, fieldName).some((entry) =>
+        passesAuditFilters(entry, editorUsername, sourceFilter),
+      ),
+    [index, editorUsername, sourceFilter],
   );
 
   const getEntries = React.useCallback(
     (recordId: string, fieldName: string) =>
-      filterEntriesByUsername(findFieldEntries(index, recordId, fieldName), editorUsername),
-    [index, editorUsername],
+      findFieldEntries(index, recordId, fieldName).filter((entry) =>
+        passesAuditFilters(entry, editorUsername, sourceFilter),
+      ),
+    [index, editorUsername, sourceFilter],
   );
 
   const changedCellCount = React.useMemo(() => {
     let count = 0;
     for (const [recordId, fields] of Object.entries(index)) {
-      if (recordIdsForEditor && !recordIdsForEditor.has(recordId)) continue;
+      if (recordIdsMatchingFilter && !recordIdsMatchingFilter.has(recordId)) continue;
       for (const entries of Object.values(fields)) {
-        if (filterEntriesByUsername(entries, editorUsername).length > 0) count += 1;
+        const matching = entries.filter((entry) =>
+          passesAuditFilters(entry, editorUsername, sourceFilter),
+        );
+        if (matching.length > 0) count += 1;
       }
     }
     return count;
-  }, [index, editorUsername, recordIdsForEditor]);
+  }, [index, editorUsername, recordIdsMatchingFilter, sourceFilter]);
 
   return {
     index,
@@ -132,8 +167,11 @@ export function useFieldChangeAudit(enabled: boolean, editorUsername: string | n
     getEntries,
     changedCellCount,
     editorUsernames,
-    recordIdsForEditor,
+    recordIdsMatchingFilter,
+    /** @deprecated use recordIdsMatchingFilter */
+    recordIdsForEditor: recordIdsMatchingFilter,
     editorUsername,
+    sourceFilter,
     refresh: fetchChanges,
   };
 }

@@ -633,6 +633,96 @@ def _find_matching_product(row_fields: dict[str, Any], product_index: dict[str, 
   return None
 
 
+def _validate_import_match_column(column: str) -> str:
+  name = column.strip()
+  if not name or "." in name or name.startswith("$"):
+    raise HTTPException(status_code=400, detail="INVALID_MATCH_COLUMN")
+  return name
+
+
+def _import_row_field_value(fields: dict[str, Any], column: str) -> Any:
+  if column in fields:
+    return fields[column]
+  return _canonical_product_field_value(fields, column)
+
+
+async def _build_product_index_by_column(db: Any, product_column: str) -> dict[str, dict[str, Any]]:
+  index: dict[str, dict[str, Any]] = {}
+  cursor = db["products"].find({})
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    if not isinstance(fields, dict):
+      continue
+    raw_value = _canonical_product_field_value(fields, product_column)
+    key = _product_compare_value(raw_value)
+    if key and key not in index:
+      index[key] = doc
+  return index
+
+
+def _find_matching_product_by_column(
+  row_fields: dict[str, Any],
+  product_index: dict[str, dict[str, Any]],
+  import_column: str,
+) -> dict[str, Any] | None:
+  raw_value = _import_row_field_value(row_fields, import_column)
+  key = _product_compare_value(raw_value)
+  if not key:
+    return None
+  return product_index.get(key)
+
+
+def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[str, str] | None:
+  if not isinstance(payload, dict):
+    return None
+  match = payload.get("match")
+  if not isinstance(match, dict):
+    return None
+  import_column = match.get("import_column")
+  product_column = match.get("product_column")
+  if not isinstance(import_column, str) or not isinstance(product_column, str):
+    return None
+  return _validate_import_match_column(import_column), _validate_import_match_column(product_column)
+
+
+PRODUCT_IMPORT_ROW_MATCH_STATUSES = frozenset({"matched", "unmatched", "empty"})
+
+
+def _classify_import_row_match_status(
+  row_fields: dict[str, Any],
+  product_index: dict[str, dict[str, Any]],
+  import_column: str,
+) -> str:
+  if not isinstance(row_fields, dict):
+    return "empty"
+  import_value = _import_row_field_value(row_fields, import_column)
+  import_key = _product_compare_value(import_value)
+  if not import_key:
+    return "empty"
+  if product_index.get(import_key):
+    return "matched"
+  return "unmatched"
+
+
+def _parse_apply_row_groups(payload: dict[str, Any] | None) -> set[str]:
+  if not isinstance(payload, dict):
+    return set(PRODUCT_IMPORT_ROW_MATCH_STATUSES)
+  raw = payload.get("apply_row_groups")
+  if raw is None:
+    return set(PRODUCT_IMPORT_ROW_MATCH_STATUSES)
+  if not isinstance(raw, list) or not raw:
+    raise HTTPException(status_code=400, detail="INVALID_APPLY_ROW_GROUPS")
+  groups: set[str] = set()
+  for item in raw:
+    if isinstance(item, str):
+      normalized = item.strip()
+      if normalized in PRODUCT_IMPORT_ROW_MATCH_STATUSES:
+        groups.add(normalized)
+  if not groups:
+    raise HTTPException(status_code=400, detail="INVALID_APPLY_ROW_GROUPS")
+  return groups
+
+
 def _product_image_url_to_storage_path(url: Any) -> Path | None:
   value = _import_value_to_text(url)
   if not value:
@@ -1427,6 +1517,87 @@ def _infer_field_change_type(old_value: str, new_value: str) -> str:
   if old_value != new_value:
     return "update"
   return "unchanged"
+
+
+def _build_field_change_entries_from_patch(
+  existing_fields: dict[str, Any],
+  changed_fields: dict[str, Any],
+) -> list[dict[str, Any]]:
+  entries: list[dict[str, Any]] = []
+  for field_name, new_value in changed_fields.items():
+    old_v = _canonical_product_field_value(existing_fields, field_name)
+    old_s = _serialize_field_value(old_v)
+    new_s = _serialize_field_value(new_value)
+    if old_s == new_s:
+      continue
+    entries.append(
+      {
+        "field": field_name,
+        "old_value": old_s,
+        "new_value": new_s,
+        "change_type": _infer_field_change_type(old_s, new_s),
+      }
+    )
+  return entries
+
+
+def _build_field_change_entries_from_create(new_fields: dict[str, Any]) -> list[dict[str, Any]]:
+  entries: list[dict[str, Any]] = []
+  for field_name, value in new_fields.items():
+    new_s = _serialize_field_value(value)
+    if not new_s:
+      continue
+    entries.append(
+      {
+        "field": field_name,
+        "old_value": "",
+        "new_value": new_s,
+        "change_type": "add",
+      }
+    )
+  return entries
+
+
+async def _insert_import_apply_field_audit_logs(
+  req: FastAPIRequest,
+  *,
+  user: dict[str, Any],
+  db: Any,
+  import_label: str,
+  pending: list[tuple[str, list[dict[str, Any]], str]],
+) -> None:
+  if not pending:
+    return
+
+  now = _utc_now_iso()
+  ip = req.client.host if req.client else "Unknown"
+  ua = req.headers.get("user-agent", "")
+  device = _parse_user_agent(ua)
+  user_id = user.get("_id") if user else "anonymous"
+  username = user.get("username") if user else "anonymous"
+
+  docs: list[dict[str, Any]] = []
+  for product_id, field_changes, kind in pending:
+    if not field_changes:
+      continue
+    docs.append(
+      {
+        "timestamp": now,
+        "user_id": user_id,
+        "username": username,
+        "action": "PRODUCT_IMPORT_EDIT",
+        "resource_id": product_id,
+        "details": f"Excel import «{import_label}» ({kind})",
+        "ip_address": ip,
+        "user_agent": ua,
+        "device": device,
+        "field_changes": field_changes,
+      }
+    )
+
+  chunk_size = 500
+  for offset in range(0, len(docs), chunk_size):
+    await db["activity_logs"].insert_many(docs[offset : offset + chunk_size])
 
 
 _PRODUCT_EDIT_FIELDS_RE = re.compile(r"Fields:\s*([^.]+)", re.IGNORECASE)
@@ -2368,7 +2539,9 @@ async def admin_product_field_changes(
 ):
   """Return per-product, per-field edit history for admin moderation UI."""
   limit = max(1, min(limit, 10000))
-  query: dict[str, Any] = {"action": {"$in": ["PRODUCT_EDIT", "PRODUCT_INLINE_EDIT"]}}
+  query: dict[str, Any] = {
+    "action": {"$in": ["PRODUCT_EDIT", "PRODUCT_INLINE_EDIT", "PRODUCT_IMPORT_EDIT"]},
+  }
   if record_ids:
     ids = [part.strip() for part in record_ids.split(",") if part.strip()]
     if ids:
@@ -3178,6 +3351,103 @@ async def admin_update_product_import_row(
   }
 
 
+@api.post("/admin/products/imports/{import_id}/preview-match")
+async def admin_preview_product_import_match(
+  import_id: str,
+  payload: dict[str, Any],
+  _: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  batch = await db[PRODUCT_IMPORT_BATCHES_COLLECTION].find_one({"_id": import_id})
+  if not batch:
+    raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
+
+  match_config = _parse_import_match_payload(payload)
+  if not match_config:
+    raise HTTPException(status_code=400, detail="INVALID_MATCH_PAYLOAD")
+  import_column, product_column = match_config
+
+  batch_columns = batch.get("columns") or []
+  if import_column != "Row" and import_column not in batch_columns:
+    raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
+
+  product_index = await _build_product_index_by_column(db, product_column)
+  matched_count = 0
+  unmatched_count = 0
+  empty_import_value_count = 0
+  matched_samples: list[dict[str, Any]] = []
+  unmatched_samples: list[dict[str, Any]] = []
+  empty_samples: list[dict[str, Any]] = []
+  row_statuses: dict[str, str] = {}
+  sample_limit = 25
+
+  cursor = db[PRODUCT_IMPORT_ROWS_COLLECTION].find({"import_id": import_id})
+  async for row in cursor:
+    row_id = str(row.get("_id"))
+    fields = row.get("fields") or {}
+    if not isinstance(fields, dict):
+      fields = {}
+
+    status = _classify_import_row_match_status(fields, product_index, import_column)
+    row_statuses[row_id] = status
+    import_value = _import_row_field_value(fields, import_column)
+
+    if status == "empty":
+      empty_import_value_count += 1
+      if len(empty_samples) < sample_limit:
+        empty_samples.append({
+          "row_id": row_id,
+          "import_value": _import_value_to_text(import_value) or None,
+          "reason": "empty_import_value",
+          "source_sheet": row.get("source_sheet"),
+          "source_row_number": row.get("source_row_number"),
+        })
+      continue
+
+    if status == "matched":
+      matched_count += 1
+      product = product_index.get(_product_compare_value(import_value))
+      if len(matched_samples) < sample_limit and product:
+        product_fields = product.get("fields") or {}
+        product_value = _canonical_product_field_value(product_fields, product_column)
+        matched_samples.append({
+          "row_id": row_id,
+          "product_id": str(product.get("_id")),
+          "import_value": _import_value_to_text(import_value),
+          "product_value": _import_value_to_text(product_value),
+          "source_sheet": row.get("source_sheet"),
+          "source_row_number": row.get("source_row_number"),
+        })
+      continue
+
+    unmatched_count += 1
+    if len(unmatched_samples) < sample_limit:
+      unmatched_samples.append({
+        "row_id": row_id,
+        "import_value": _import_value_to_text(import_value),
+        "reason": "no_product_match",
+        "source_sheet": row.get("source_sheet"),
+        "source_row_number": row.get("source_row_number"),
+      })
+
+  total_rows = matched_count + unmatched_count + empty_import_value_count
+  return {
+    "ok": True,
+    "match": {
+      "import_column": import_column,
+      "product_column": product_column,
+    },
+    "total_rows": total_rows,
+    "matched_count": matched_count,
+    "unmatched_count": unmatched_count,
+    "empty_import_value_count": empty_import_value_count,
+    "row_statuses": row_statuses,
+    "matched_samples": matched_samples,
+    "unmatched_samples": unmatched_samples,
+    "empty_samples": empty_samples,
+  }
+
+
 @api.post("/admin/products/imports/{import_id}/apply")
 async def admin_apply_product_import(
   import_id: str,
@@ -3200,16 +3470,42 @@ async def admin_apply_product_import(
   }
   if not selected_columns:
     raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
-  product_index = await _build_product_match_index(db)
+
+  batch_columns = batch.get("columns") or []
+  allowed_transfer_columns = set(batch_columns) | {"Row", "Image1"}
+  unknown_transfer_columns = selected_columns - allowed_transfer_columns
+  if unknown_transfer_columns:
+    raise HTTPException(
+      status_code=400,
+      detail=f"SELECTED_COLUMNS_NOT_IN_IMPORT: {sorted(unknown_transfer_columns)}",
+    )
+
+  match_config = _parse_import_match_payload(payload)
+  if match_config:
+    import_match_column, product_match_column = match_config
+    if import_match_column != "Row" and import_match_column not in batch_columns:
+      raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
+    product_index = await _build_product_index_by_column(db, product_match_column)
+  else:
+    import_match_column = None
+    product_match_column = None
+    product_index = await _build_product_match_index(db)
+
+  apply_row_groups = _parse_apply_row_groups(payload) if match_config else set(PRODUCT_IMPORT_ROW_MATCH_STATUSES)
   now = _utc_now_iso()
   created_count = 0
   updated_count = 0
   unchanged_count = 0
+  skipped_count = 0
+  rows_processed_by_group: dict[str, int] = {status: 0 for status in PRODUCT_IMPORT_ROW_MATCH_STATUSES}
+  rows_skipped_by_group: dict[str, int] = {status: 0 for status in PRODUCT_IMPORT_ROW_MATCH_STATUSES}
   changed_cells_count = 0
   created_product_ids: list[str] = []
   updated_product_ids: list[str] = []
   product_write_ops: list[Any] = []
   row_write_ops: list[Any] = []
+  pending_import_audit_logs: list[tuple[str, list[dict[str, Any]], str]] = []
+  import_label = str(batch.get("filename") or import_id)
 
   cursor = (
     db[PRODUCT_IMPORT_ROWS_COLLECTION]
@@ -3228,7 +3524,16 @@ async def admin_apply_product_import(
     if source_row_number is not None:
       product_staged_fields["Row"] = source_row_number
 
-    existing_product = _find_matching_product(staged_fields, product_index)
+    if match_config:
+      row_match_status = _classify_import_row_match_status(staged_fields, product_index, import_match_column)
+      if row_match_status not in apply_row_groups:
+        skipped_count += 1
+        rows_skipped_by_group[row_match_status] = rows_skipped_by_group.get(row_match_status, 0) + 1
+        continue
+      rows_processed_by_group[row_match_status] = rows_processed_by_group.get(row_match_status, 0) + 1
+      existing_product = _find_matching_product_by_column(staged_fields, product_index, import_match_column)
+    else:
+      existing_product = _find_matching_product(staged_fields, product_index)
     if existing_product:
       product_id = str(existing_product.get("_id"))
       existing_fields = existing_product.get("fields") or {}
@@ -3243,6 +3548,9 @@ async def admin_apply_product_import(
         updated_count += 1
         changed_cells_count += len(changed_fields)
         updated_product_ids.append(product_id)
+        audit_entries = _build_field_change_entries_from_patch(existing_fields, changed_fields)
+        if audit_entries:
+          pending_import_audit_logs.append((product_id, audit_entries, "updated"))
 
         merged_fields = {**existing_fields, **changed_fields}
         existing_product["fields"] = merged_fields
@@ -3282,6 +3590,9 @@ async def admin_apply_product_import(
     created_count += 1
     changed_cells_count += len(new_fields)
     created_product_ids.append(product_id)
+    audit_entries = _build_field_change_entries_from_create(new_fields)
+    if audit_entries:
+      pending_import_audit_logs.append((product_id, audit_entries, "created"))
     for key in _product_match_keys(new_fields):
       if key:
         product_index[key] = product_doc
@@ -3303,6 +3614,14 @@ async def admin_apply_product_import(
   if row_write_ops:
     await db[PRODUCT_IMPORT_ROWS_COLLECTION].bulk_write(row_write_ops, ordered=False)
 
+  await _insert_import_apply_field_audit_logs(
+    req,
+    user=user,
+    db=db,
+    import_label=import_label,
+    pending=pending_import_audit_logs,
+  )
+
   await db[PRODUCT_IMPORT_BATCHES_COLLECTION].update_one(
     {"_id": import_id},
     {
@@ -3316,6 +3635,18 @@ async def admin_apply_product_import(
           "unchanged_count": unchanged_count,
           "changed_cells_count": changed_cells_count,
           "selected_columns": sorted(selected_columns),
+          "match": (
+            {
+              "import_column": import_match_column,
+              "product_column": product_match_column,
+            }
+            if match_config
+            else None
+          ),
+          "apply_row_groups": sorted(apply_row_groups) if match_config else None,
+          "skipped_count": skipped_count,
+          "rows_processed_by_group": rows_processed_by_group,
+          "rows_skipped_by_group": rows_skipped_by_group,
         },
       }
     },
@@ -3335,9 +3666,13 @@ async def admin_apply_product_import(
     "created_count": created_count,
     "updated_count": updated_count,
     "unchanged_count": unchanged_count,
+    "skipped_count": skipped_count,
     "changed_cells_count": changed_cells_count,
     "created_product_ids": created_product_ids[:50],
     "updated_product_ids": updated_product_ids[:50],
+    "apply_row_groups": sorted(apply_row_groups) if match_config else None,
+    "rows_processed_by_group": rows_processed_by_group,
+    "rows_skipped_by_group": rows_skipped_by_group,
   }
 
 

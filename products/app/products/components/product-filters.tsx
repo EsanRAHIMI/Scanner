@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { ChangeSourceFilter } from '../hooks/use-field-change-audit';
 import { FilterDropdown } from './filter-dropdown';
 
 interface ProductFiltersProps {
@@ -32,6 +33,8 @@ interface ProductFiltersProps {
     onChange: (value: string) => void;
     disabled?: boolean;
     matchingRowCount?: number;
+    sourceFilter: ChangeSourceFilter;
+    onSourceFilterChange: (value: ChangeSourceFilter) => void;
   };
 }
 
@@ -177,28 +180,46 @@ export function ProductFilters({
           </div>
 
           {moderationEditorFilter ? (
-            <label className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-amber-400/35 bg-amber-500/10 px-2.5 py-2 text-[10px] font-semibold text-amber-900 sm:inline-flex sm:w-auto sm:rounded-full sm:border-amber-400/35 sm:py-1 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-100">
-              <span className="shrink-0 uppercase tracking-wide opacity-80">Editor</span>
-              <select
-                value={moderationEditorFilter.value}
-                disabled={moderationEditorFilter.disabled}
-                onChange={(event) => moderationEditorFilter.onChange(event.target.value)}
-                className="min-w-0 flex-1 cursor-pointer bg-transparent text-[10px] font-bold outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[9rem] sm:flex-none"
-                aria-label="Filter rows by editor"
-              >
-                <option value="">All editors</option>
-                {moderationEditorFilter.usernames.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              {moderationEditorFilter.value ? (
-                <span className="shrink-0 tabular-nums text-amber-800/80 dark:text-amber-200/80">
-                  ({moderationEditorFilter.matchingRowCount ?? 0})
-                </span>
-              ) : null}
-            </label>
+            <>
+              <label className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-amber-400/35 bg-amber-500/10 px-2.5 py-2 text-[10px] font-semibold text-amber-900 sm:inline-flex sm:w-auto sm:rounded-full sm:border-amber-400/35 sm:py-1 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-100">
+                <span className="shrink-0 uppercase tracking-wide opacity-80">Source</span>
+                <select
+                  value={moderationEditorFilter.sourceFilter}
+                  disabled={moderationEditorFilter.disabled}
+                  onChange={(event) =>
+                    moderationEditorFilter.onSourceFilterChange(event.target.value as ChangeSourceFilter)
+                  }
+                  className="min-w-0 flex-1 cursor-pointer bg-transparent text-[10px] font-bold outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[8rem] sm:flex-none"
+                  aria-label="Filter by edit source"
+                >
+                  <option value="all">All edits</option>
+                  <option value="manual">Manual only</option>
+                  <option value="import">Import only</option>
+                </select>
+              </label>
+              <label className="flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-amber-400/35 bg-amber-500/10 px-2.5 py-2 text-[10px] font-semibold text-amber-900 sm:inline-flex sm:w-auto sm:rounded-full sm:border-amber-400/35 sm:py-1 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-100">
+                <span className="shrink-0 uppercase tracking-wide opacity-80">Editor</span>
+                <select
+                  value={moderationEditorFilter.value}
+                  disabled={moderationEditorFilter.disabled}
+                  onChange={(event) => moderationEditorFilter.onChange(event.target.value)}
+                  className="min-w-0 flex-1 cursor-pointer bg-transparent text-[10px] font-bold outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[9rem] sm:flex-none"
+                  aria-label="Filter rows by editor"
+                >
+                  <option value="">All editors</option>
+                  {moderationEditorFilter.usernames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {moderationEditorFilter.value || moderationEditorFilter.sourceFilter !== 'all' ? (
+                  <span className="shrink-0 tabular-nums text-amber-800/80 dark:text-amber-200/80">
+                    ({moderationEditorFilter.matchingRowCount ?? 0})
+                  </span>
+                ) : null}
+              </label>
+            </>
           ) : null}
 
           {hasActiveFilters ? (

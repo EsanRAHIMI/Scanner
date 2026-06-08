@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import type { FieldChangeAuditApi, FieldChangeEntry } from '../hooks/use-field-change-audit';
+import { isImportFieldChangeEntry } from '../hooks/use-field-change-audit';
 
 const CHANGE_TYPE_LABELS: Record<string, string> = {
   update: 'Edited',
@@ -11,6 +12,10 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
   unchanged: 'Unchanged',
   unknown: 'Changed',
 };
+
+function entrySourceLabel(entry: FieldChangeEntry): string {
+  return isImportFieldChangeEntry(entry) ? 'Excel import' : 'Manual edit';
+}
 
 function formatTimestamp(ts: string): string {
   try {
@@ -67,17 +72,36 @@ function FieldChangePopover({
   const width = 320;
   const left = Math.min(Math.max(12, anchorRect.right + 8), viewportW - width - 12);
   const top = Math.min(Math.max(12, anchorRect.top), viewportH - 360);
+  const hasImport = entries.some(isImportFieldChangeEntry);
+  const hasManual = entries.some((entry) => !isImportFieldChangeEntry(entry));
 
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-[200] w-[320px] overflow-hidden rounded-2xl border border-amber-200/80 bg-white shadow-2xl shadow-amber-500/10 ring-1 ring-amber-400/20 dark:border-amber-500/30 dark:bg-zinc-950 dark:shadow-black/40 dark:ring-amber-400/15"
+      className={
+        'fixed z-[200] w-[320px] overflow-hidden rounded-2xl border bg-white shadow-2xl ring-1 dark:bg-zinc-950 dark:shadow-black/40 ' +
+        (hasImport && !hasManual
+          ? 'border-violet-200/80 shadow-violet-500/10 ring-violet-400/20 dark:border-violet-500/30 dark:ring-violet-400/15'
+          : 'border-amber-200/80 shadow-amber-500/10 ring-amber-400/20 dark:border-amber-500/30 dark:ring-amber-400/15')
+      }
       style={{ left, top }}
       role="dialog"
       aria-label="Cell change history"
     >
-      <div className="border-b border-amber-100 bg-gradient-to-l from-amber-50 to-white px-3.5 py-2.5 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-zinc-950">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+      <div
+        className={
+          'border-b bg-gradient-to-l px-3.5 py-2.5 to-white dark:to-zinc-950 ' +
+          (hasImport && !hasManual
+            ? 'border-violet-100 from-violet-50 dark:border-violet-500/20 dark:from-violet-500/10'
+            : 'border-amber-100 from-amber-50 dark:border-amber-500/20 dark:from-amber-500/10')
+        }
+      >
+        <p
+          className={
+            'text-[11px] font-bold uppercase tracking-wide ' +
+            (hasImport && !hasManual ? 'text-violet-800 dark:text-violet-200' : 'text-amber-800 dark:text-amber-200')
+          }
+        >
           Change history
         </p>
         <p className="mt-0.5 text-[10px] text-black/50 dark:text-white/45">
@@ -88,17 +112,33 @@ function FieldChangePopover({
         {entries.map((entry, index) => {
           const typeLabel = CHANGE_TYPE_LABELS[entry.change_type] ?? CHANGE_TYPE_LABELS.unknown;
           const showValues = Boolean(entry.old_value || entry.new_value);
+          const importEntry = isImportFieldChangeEntry(entry);
           return (
             <div
               key={`${entry.id}-${index}`}
-              className="mb-2 last:mb-0 rounded-xl border border-black/[0.06] bg-amber-50/40 p-3 dark:border-white/[0.06] dark:bg-amber-500/[0.06]"
+              className={
+                'mb-2 last:mb-0 rounded-xl border p-3 ' +
+                (importEntry
+                  ? 'border-violet-200/50 bg-violet-50/50 dark:border-violet-500/20 dark:bg-violet-500/[0.08]'
+                  : 'border-black/[0.06] bg-amber-50/40 dark:border-white/[0.06] dark:bg-amber-500/[0.06]')
+              }
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-bold text-black dark:text-white">{entry.username}</p>
-                <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                <span
+                  className={
+                    'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ' +
+                    (importEntry
+                      ? 'bg-violet-500/15 text-violet-800 dark:text-violet-200'
+                      : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')
+                  }
+                >
                   {typeLabel}
                 </span>
               </div>
+              <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wide text-black/40 dark:text-white/40">
+                {entrySourceLabel(entry)}
+              </p>
               <p className="mt-1 text-[10px] text-black/45 dark:text-white/40">
                 {formatTimestamp(entry.timestamp)}
               </p>
@@ -137,6 +177,7 @@ export function FieldChangeIndicator({
   const [open, setOpen] = React.useState(false);
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null);
   const badgeRef = React.useRef<HTMLButtonElement | null>(null);
+  const importOnly = entries.length > 0 && entries.every(isImportFieldChangeEntry);
 
   const openPopover = React.useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
@@ -156,8 +197,13 @@ export function FieldChangeIndicator({
         type="button"
         onClick={openPopover}
         onPointerDown={(event) => event.stopPropagation()}
-        className="absolute right-1 top-1 z-20 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-amber-400 text-[11px] font-black leading-none text-amber-950 shadow-md shadow-amber-500/30 ring-2 ring-white transition hover:scale-110 hover:bg-amber-300 dark:ring-zinc-900"
-        title="View change history for this cell"
+        className={
+          'absolute right-1 top-1 z-20 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[11px] font-black leading-none shadow-md ring-2 ring-white transition hover:scale-110 dark:ring-zinc-900 ' +
+          (importOnly
+            ? 'bg-violet-500 text-white shadow-violet-500/30 hover:bg-violet-400'
+            : 'bg-amber-400 text-amber-950 shadow-amber-500/30 hover:bg-amber-300')
+        }
+        title={importOnly ? 'View Excel import change history' : 'View manual edit history'}
         aria-label="Change history"
         aria-expanded={open}
       >

@@ -68,7 +68,7 @@ import {
   LoadMoreFloatingIndicator,
   LoadMoreScrollSentinel,
 } from './components/load-more-floating-indicator';
-import { useFieldChangeAudit } from './hooks/use-field-change-audit';
+import { useFieldChangeAudit, type ChangeSourceFilter } from './hooks/use-field-change-audit';
 import type { AuthMe } from './types';
 
 
@@ -402,20 +402,26 @@ export function ProductsView({
   const isAdminModerator = user?.is_admin === true;
   const [moderationMode, setModerationMode] = React.useState(false);
   const [moderationEditorFilter, setModerationEditorFilter] = React.useState('');
+  const [moderationSourceFilter, setModerationSourceFilter] = React.useState<ChangeSourceFilter>('all');
   const changeAudit = useFieldChangeAudit(
     isAdminModerator && moderationMode,
     moderationEditorFilter || null,
+    moderationSourceFilter,
   );
 
   React.useEffect(() => {
     if (!isAdminModerator) {
       setModerationMode(false);
       setModerationEditorFilter('');
+      setModerationSourceFilter('all');
     }
   }, [isAdminModerator]);
 
   React.useEffect(() => {
-    if (!moderationMode) setModerationEditorFilter('');
+    if (!moderationMode) {
+      setModerationEditorFilter('');
+      setModerationSourceFilter('all');
+    }
   }, [moderationMode]);
 
   const handleBulkDeleteNumOnlyStubs = React.useCallback(() => {
@@ -585,25 +591,28 @@ export function ProductsView({
   const displayedColumns = filters.displayedColumns;
   const visibleRecords = filters.visibleRecords;
 
+  const moderationFilterActive =
+    Boolean(moderationEditorFilter) || moderationSourceFilter !== 'all';
+
   const moderationListRecords = React.useMemo(() => {
-    if (!isAdminModerator || !moderationMode || !moderationEditorFilter) {
+    if (!isAdminModerator || !moderationMode || !moderationFilterActive) {
       return visibleRecords;
     }
-    const ids = changeAudit.recordIdsForEditor;
+    const ids = changeAudit.recordIdsMatchingFilter;
     if (!ids) return visibleRecords;
     return visibleRecords.filter((record) => ids.has(record.id));
   }, [
     visibleRecords,
     isAdminModerator,
     moderationMode,
-    moderationEditorFilter,
-    changeAudit.recordIdsForEditor,
+    moderationFilterActive,
+    changeAudit.recordIdsMatchingFilter,
   ]);
 
   const listVisibleRecords =
-    isAdminModerator && moderationMode && moderationEditorFilter ?
-      moderationListRecords
-    : visibleRecords;
+    isAdminModerator && moderationMode && moderationFilterActive
+      ? moderationListRecords
+      : visibleRecords;
 
   const baseGalleryItems = filters.baseGalleryItems;
   const allGalleryItems = filters.allGalleryItems;
@@ -634,6 +643,7 @@ export function ProductsView({
     selectedMaterials,
     showSelectedOnly,
     moderationEditorFilter,
+    moderationSourceFilter,
     sortKey,
     sortDir,
     scrollTargetRecordId,
@@ -1344,6 +1354,8 @@ export function ProductsView({
                 onChange: setModerationEditorFilter,
                 disabled: changeAudit.loading,
                 matchingRowCount: moderationListRecords.length,
+                sourceFilter: moderationSourceFilter,
+                onSourceFilterChange: setModerationSourceFilter,
               }
             : undefined
         }
@@ -1385,10 +1397,15 @@ export function ProductsView({
           role="status"
         >
           <span className="font-semibold">
-            Change control mode is on — click the yellow ! badge to see who edited each cell.
+            Change control mode is on — amber ! = manual edits, violet ! = Excel import edits.
             {moderationEditorFilter ?
-              ` Showing rows edited by ${moderationEditorFilter}.`
-            : ' Use the Editor filter to narrow rows by user.'}
+              ` Editor: ${moderationEditorFilter}.`
+            : ''}
+            {moderationSourceFilter === 'import' ?
+              ' Showing import edits only.'
+            : moderationSourceFilter === 'manual' ?
+              ' Showing manual edits only.'
+            : moderationEditorFilter ? '' : ' Use Editor or Source filters to narrow rows.'}
             {viewMode !== 'list' ? ' (Switch to list view to see indicators.)' : ''}
           </span>
           <span className="text-[11px] text-amber-900/70 dark:text-amber-100/70">
@@ -1396,7 +1413,7 @@ export function ProductsView({
               ? 'Loading change history…'
               : changeAudit.error
                 ? changeAudit.error
-                : moderationEditorFilter
+                : moderationFilterActive
                   ? `${changeAudit.changedCellCount.toLocaleString('en-US')} cells · ${moderationListRecords.length.toLocaleString('en-US')} rows`
                   : `${changeAudit.changedCellCount.toLocaleString('en-US')} cells with edit history`}
           </span>

@@ -45,14 +45,74 @@ type ApplyImportResponse = {
   created_count: number;
   updated_count: number;
   unchanged_count: number;
+  skipped_count?: number;
   changed_cells_count: number;
+  apply_row_groups?: ImportRowMatchStatus[];
+  rows_processed_by_group?: Partial<Record<ImportRowMatchStatus, number>>;
+  rows_skipped_by_group?: Partial<Record<ImportRowMatchStatus, number>>;
 };
+
+type ImportRowMatchStatus = 'matched' | 'unmatched' | 'empty';
 
 type ReprocessImportResponse = {
   ok: boolean;
   processed_count: number;
   changed_count: number;
 };
+
+type MatchPreviewSample = {
+  row_id: string;
+  product_id?: string;
+  import_value?: string | null;
+  product_value?: string;
+  reason?: string;
+  source_sheet?: string;
+  source_row_number?: number;
+};
+
+type MatchPreviewResponse = {
+  ok: boolean;
+  match: { import_column: string; product_column: string };
+  total_rows: number;
+  matched_count: number;
+  unmatched_count: number;
+  empty_import_value_count: number;
+  row_statuses?: Record<string, ImportRowMatchStatus>;
+  matched_samples: MatchPreviewSample[];
+  unmatched_samples: MatchPreviewSample[];
+  empty_samples?: MatchPreviewSample[];
+};
+
+const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'unmatched', 'empty'];
+
+const DEFAULT_SELECTED_ROW_GROUPS: ImportRowMatchStatus[] = ALL_ROW_GROUPS;
+
+const COMPACT_SELECT_CLASS =
+  'h-8 min-w-0 flex-1 rounded-lg border border-black/10 bg-black/[0.02] px-2 text-xs font-semibold text-black outline-none dark:border-white/10 dark:bg-white/[0.03] dark:text-white sm:max-w-[180px]';
+
+const ROW_MATCH_STATUS_LABELS: Record<ImportRowMatchStatus, string> = {
+  matched: 'Matched',
+  unmatched: 'Unmatched',
+  empty: 'Empty',
+};
+
+const ROW_MATCH_ROW_CLASS: Record<ImportRowMatchStatus, string> = {
+  matched:
+    'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-500/15 dark:text-emerald-200',
+  unmatched:
+    'border-amber-500/25 bg-amber-500/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/15 dark:text-amber-200',
+  empty:
+    'border-red-500/25 bg-red-500/10 text-red-800 dark:border-red-400/20 dark:bg-red-500/15 dark:text-red-200',
+};
+
+const ROW_MATCH_BADGE_CLASS: Record<ImportRowMatchStatus, string> = {
+  matched: 'bg-emerald-600 text-white',
+  unmatched: 'bg-amber-500 text-white',
+  empty: 'bg-red-600 text-white',
+};
+
+const NEUTRAL_ROW_CLASS =
+  'border-black/5 text-black/70 dark:border-white/5 dark:text-white/70';
 
 type EditingCell = {
   rowId: string;
@@ -128,20 +188,6 @@ function getFirstField(fields: Record<string, unknown>, names: string[]) {
   return '';
 }
 
-function buildProductMatchKeys(fields: Record<string, unknown>) {
-  const collectionName = normalizeComparable(getFirstField(fields, ['Collection Name', 'Colecction Name', 'Name']));
-  const collectionCode = normalizeComparable(getFirstField(fields, ['Collection Code', 'Colecction Code', 'Code']));
-  const variant = normalizeComparable(getFirstField(fields, ['Variant Number', 'Variant', 'Num']));
-  const codeNumber = normalizeComparable(getFirstField(fields, ['CODE NUMBER', 'Code Number', 'Code No']));
-
-  return [
-    codeNumber ? `code-number:${codeNumber}` : '',
-    collectionCode && variant ? `collection-code-variant:${collectionCode}:${variant}` : '',
-    collectionName && variant ? `collection-name-variant:${collectionName}:${variant}` : '',
-    collectionCode ? `collection-code:${collectionCode}` : '',
-  ].filter(Boolean);
-}
-
 function getEquivalentFieldValue(fields: Record<string, unknown>, column: string) {
   const lower = column.trim().toLowerCase();
   const aliases: Record<string, string[]> = {
@@ -160,22 +206,23 @@ function getEquivalentFieldValue(fields: Record<string, unknown>, column: string
   return getFirstField(fields, aliases[lower] ?? [column]);
 }
 
-function buildExistingProductIndex(records: ProductsRecord[]) {
+function buildProductIndexByColumn(records: ProductsRecord[], productColumn: string) {
   const index = new Map<string, ProductsRecord>();
   for (const record of records) {
-    for (const key of buildProductMatchKeys(record.fields ?? {})) {
-      if (!index.has(key)) index.set(key, record);
-    }
+    const value = normalizeComparable(getEquivalentFieldValue(record.fields ?? {}, productColumn));
+    if (value && !index.has(value)) index.set(value, record);
   }
   return index;
 }
 
-function findExistingProduct(row: ProductImportRow, index: Map<string, ProductsRecord>) {
-  for (const key of buildProductMatchKeys(row.fields ?? {})) {
-    const product = index.get(key);
-    if (product) return product;
-  }
-  return null;
+function findExistingProductByColumn(
+  row: ProductImportRow,
+  index: Map<string, ProductsRecord>,
+  importColumn: string,
+) {
+  const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+  if (!value) return null;
+  return index.get(value) ?? null;
 }
 
 function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, unknown>, column: string) {
@@ -183,6 +230,34 @@ function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, 
   if (!left) return false;
   const right = normalizeComparable(getEquivalentFieldValue(existingFields, column));
   return Boolean(right) && left === right;
+}
+
+function classifyImportRowMatchStatus(
+  row: ProductImportRow,
+  productIndex: Map<string, ProductsRecord>,
+  importColumn: string,
+): ImportRowMatchStatus {
+  const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+  if (!value) return 'empty';
+  if (productIndex.has(value)) return 'matched';
+  return 'unmatched';
+}
+
+function buildRowStatusMap(
+  rows: ProductImportRow[],
+  productIndex: Map<string, ProductsRecord>,
+  importColumn: string,
+  previewStatuses?: Record<string, ImportRowMatchStatus>,
+) {
+  const map = new Map<string, ImportRowMatchStatus>();
+  for (const row of rows) {
+    const fromPreview = previewStatuses?.[row.id];
+    map.set(
+      row.id,
+      fromPreview ?? classifyImportRowMatchStatus(row, productIndex, importColumn),
+    );
+  }
+  return map;
 }
 
 export default function ProductImportsPage() {
@@ -196,7 +271,16 @@ export default function ProductImportsPage() {
   const [isApplying, setIsApplying] = React.useState(false);
   const [isReprocessing, setIsReprocessing] = React.useState(false);
   const [selectedTransferColumns, setSelectedTransferColumns] = React.useState<Set<string>>(new Set());
+  const [matchImportColumn, setMatchImportColumn] = React.useState('');
+  const [matchProductColumn, setMatchProductColumn] = React.useState('');
+  const [matchPreview, setMatchPreview] = React.useState<MatchPreviewResponse | null>(null);
+  const [matchPreviewError, setMatchPreviewError] = React.useState<string | null>(null);
+  const [isPreviewingMatch, setIsPreviewingMatch] = React.useState(false);
+  const [selectedRowGroups, setSelectedRowGroups] = React.useState<Set<ImportRowMatchStatus>>(
+    () => new Set(DEFAULT_SELECTED_ROW_GROUPS),
+  );
   const initializedTransferColumnsForImportRef = React.useRef<string | null>(null);
+  const initializedMatchColumnsForImportRef = React.useRef<string | null>(null);
   const saveInFlightRef = React.useRef(false);
   const { data: productsData, mutate: mutateProducts } = useProductsCache();
 
@@ -290,6 +374,32 @@ export default function ProductImportsPage() {
     setEditingCell(null);
   }, []);
 
+  const previewMatch = React.useCallback(async () => {
+    if (!activeImportId || !matchImportColumn || !matchProductColumn) return;
+    setIsPreviewingMatch(true);
+    setMatchPreviewError(null);
+    try {
+      const res = await apiFetch(`/admin/products/imports/${activeImportId}/preview-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          match: {
+            import_column: matchImportColumn,
+            product_column: matchProductColumn,
+          },
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || 'Match preview failed');
+      setMatchPreview(JSON.parse(text) as MatchPreviewResponse);
+    } catch (err) {
+      setMatchPreview(null);
+      setMatchPreviewError(err instanceof Error ? err.message : 'Match preview failed');
+    } finally {
+      setIsPreviewingMatch(false);
+    }
+  }, [activeImportId, matchImportColumn, matchProductColumn]);
+
   const saveEditingCell = React.useCallback(async () => {
     if (!editingCell || !activeImportId || saveInFlightRef.current) return;
 
@@ -330,6 +440,9 @@ export default function ProductImportsPage() {
           records: current.records.map(row => row.id === rowId ? updatedRow : row),
         };
       }, { revalidate: false });
+      if (matchImportColumn && matchProductColumn) {
+        void previewMatch();
+      }
     } catch (err) {
       await mutateRows(previousData, { revalidate: false });
       setMessage(err instanceof Error ? err.message : 'Cell update failed');
@@ -337,17 +450,45 @@ export default function ProductImportsPage() {
       setSavingCellKey(null);
       saveInFlightRef.current = false;
     }
-  }, [activeImportId, editingCell, mutateRows, rowsData]);
+  }, [activeImportId, editingCell, matchImportColumn, matchProductColumn, mutateRows, previewMatch, rowsData]);
 
   const applyImportToProducts = React.useCallback(async () => {
     if (!activeImportId || isApplying) return;
+    if (!matchImportColumn || !matchProductColumn) {
+      setMessage('Choose import and product columns to match rows before applying.');
+      return;
+    }
     const selectedColumns = Array.from(selectedTransferColumns);
     if (selectedColumns.length === 0) {
       setMessage('Select at least one column to transfer to Products.');
       return;
     }
+    if (selectedRowGroups.size === 0) {
+      setMessage('Select at least one row group (Matched, Unmatched, or Empty).');
+      return;
+    }
+    const groupLabels = Array.from(selectedRowGroups).map(group => ROW_MATCH_STATUS_LABELS[group]).join(', ');
+    const rowsToApply = matchPreview
+      ? Array.from(selectedRowGroups).reduce((sum, group) => {
+          if (group === 'matched') return sum + matchPreview.matched_count;
+          if (group === 'unmatched') return sum + matchPreview.unmatched_count;
+          return sum + matchPreview.empty_import_value_count;
+        }, 0)
+      : null;
+    const rowsSkipped = matchPreview
+      ? (matchPreview.matched_count + matchPreview.unmatched_count + matchPreview.empty_import_value_count) -
+        (rowsToApply ?? 0)
+      : null;
     const ok = window.confirm(
-      `Apply this import to the main Products table? Only ${selectedColumns.length} selected column(s) will be transferred.`
+      `Apply this import to the main Products table?\n\n` +
+        `Match: "${matchImportColumn}" → "${matchProductColumn}"\n` +
+        `Apply only: ${groupLabels}\n` +
+        (rowsToApply !== null
+          ? `Rows to process: ${rowsToApply.toLocaleString('en-US')}` +
+            (rowsSkipped ? ` · ${rowsSkipped.toLocaleString('en-US')} skipped (not ticked)\n` : '\n')
+          : '') +
+        `Transfer columns (${selectedColumns.length}): ${selectedColumns.join(', ')}\n\n` +
+        'Only ticked row groups and Transfer columns are written. Matched rows update existing products; unmatched/empty rows create new products when included. Continue?'
     );
     if (!ok) return;
 
@@ -357,7 +498,14 @@ export default function ProductImportsPage() {
       const res = await apiFetch(`/admin/products/imports/${activeImportId}/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ columns: selectedColumns }),
+        body: JSON.stringify({
+          columns: selectedColumns,
+          match: {
+            import_column: matchImportColumn,
+            product_column: matchProductColumn,
+          },
+          apply_row_groups: Array.from(selectedRowGroups),
+        }),
       });
       const text = await res.text();
       if (!res.ok) throw new Error(text || 'Apply import failed');
@@ -365,15 +513,36 @@ export default function ProductImportsPage() {
       await mutateRows();
       await mutateImports();
       await mutateProducts();
+      const processedSummary = result.rows_processed_by_group
+        ? Object.entries(result.rows_processed_by_group)
+            .filter(([, count]) => (count ?? 0) > 0)
+            .map(([group, count]) => `${ROW_MATCH_STATUS_LABELS[group as ImportRowMatchStatus]} ${count}`)
+            .join(', ')
+        : '';
       setMessage(
-        `Transfer complete: ${result.created_count} new product(s), ${result.updated_count} updated, ${result.changed_cells_count} cell(s) changed, ${result.unchanged_count} row(s) unchanged.`
+        `Transfer complete: ${result.created_count} new, ${result.updated_count} updated, ` +
+          `${result.changed_cells_count} cell(s) changed, ${result.unchanged_count} unchanged` +
+          (result.skipped_count ? `, ${result.skipped_count} row(s) skipped (not in selected groups)` : '') +
+          (processedSummary ? ` · processed: ${processedSummary}` : '') +
+          '.'
       );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Apply import failed');
     } finally {
       setIsApplying(false);
     }
-  }, [activeImportId, isApplying, mutateImports, mutateProducts, mutateRows, selectedTransferColumns]);
+  }, [
+    activeImportId,
+    isApplying,
+    matchImportColumn,
+    selectedRowGroups,
+    matchPreview,
+    matchProductColumn,
+    mutateImports,
+    mutateProducts,
+    mutateRows,
+    selectedTransferColumns,
+  ]);
 
   const reprocessImportRows = React.useCallback(async () => {
     if (!activeImportId || isReprocessing) return;
@@ -387,23 +556,77 @@ export default function ProductImportsPage() {
       if (!res.ok) throw new Error(text || 'Refresh formulas failed');
       const result = JSON.parse(text) as ReprocessImportResponse;
       await mutateRows();
+      if (matchImportColumn && matchProductColumn) {
+        void previewMatch();
+      }
       setMessage(`Formulas rechecked: ${result.changed_count} of ${result.processed_count} row(s) updated.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Refresh formulas failed');
     } finally {
       setIsReprocessing(false);
     }
-  }, [activeImportId, isReprocessing, mutateRows]);
+  }, [activeImportId, isReprocessing, matchImportColumn, matchProductColumn, mutateRows, previewMatch]);
 
   const columns = rowsData?.columns ?? [];
-  const existingProductIndex = React.useMemo(
-    () => buildExistingProductIndex(productsData?.records ?? []),
-    [productsData?.records]
-  );
-  const matchedRowsCount = React.useMemo(() => {
-    if (!rowsData) return 0;
-    return rowsData.records.filter(row => findExistingProduct(row, existingProductIndex)).length;
-  }, [existingProductIndex, rowsData]);
+  const productColumns = React.useMemo(() => {
+    const fromCache = productsData?.columns ?? [];
+    if (fromCache.length > 0) return fromCache;
+    return [
+      'Image',
+      'CODE NUMBER',
+      'Collection Name',
+      'Colecction Name',
+      'Collection Code',
+      'Colecction Code',
+      'Variant Number',
+      'Num',
+      'Price',
+      'Category',
+      'Space',
+      'Color',
+      'Material',
+      'DIMENSION (mm)',
+      'Factory Code',
+      'Note',
+      'Details',
+      'URL',
+      'Main',
+    ];
+  }, [productsData?.columns]);
+  const existingProductIndex = React.useMemo(() => {
+    if (!matchProductColumn) return new Map<string, ProductsRecord>();
+    return buildProductIndexByColumn(productsData?.records ?? [], matchProductColumn);
+  }, [matchProductColumn, productsData?.records]);
+  const rowStatusById = React.useMemo(() => {
+    if (!rowsData || !matchImportColumn || !matchProductColumn) {
+      return new Map<string, ImportRowMatchStatus>();
+    }
+    return buildRowStatusMap(
+      rowsData.records,
+      existingProductIndex,
+      matchImportColumn,
+      matchPreview?.row_statuses,
+    );
+  }, [existingProductIndex, matchImportColumn, matchPreview?.row_statuses, matchProductColumn, rowsData]);
+
+  const rowStatusCounts = React.useMemo(() => {
+    const counts = { matched: 0, unmatched: 0, empty: 0 };
+    for (const status of rowStatusById.values()) {
+      counts[status] += 1;
+    }
+    return counts;
+  }, [rowStatusById]);
+
+  const isMatchConfigured = Boolean(matchImportColumn && matchProductColumn);
+
+  const filteredImportRows = React.useMemo(() => {
+    if (!rowsData || selectedRowGroups.size === 0) return [];
+    if (!isMatchConfigured) return rowsData.records;
+    return rowsData.records.filter(row => {
+      const status = rowStatusById.get(row.id);
+      return status ? selectedRowGroups.has(status) : false;
+    });
+  }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups]);
   const visibleColumns = React.useMemo(() => {
     const preferred = [
       'Row',
@@ -444,6 +667,37 @@ export default function ProductImportsPage() {
     setSelectedTransferColumns(new Set());
   }, [activeImportId, visibleColumns]);
 
+  React.useEffect(() => {
+    if (!activeImportId || visibleColumns.length === 0 || productColumns.length === 0) return;
+    if (initializedMatchColumnsForImportRef.current === activeImportId) return;
+    initializedMatchColumnsForImportRef.current = activeImportId;
+    setMatchImportColumn('');
+    setMatchProductColumn('');
+    setMatchPreview(null);
+    setMatchPreviewError(null);
+    setSelectedRowGroups(new Set(ALL_ROW_GROUPS));
+  }, [activeImportId, productColumns, visibleColumns]);
+
+  const toggleRowGroup = React.useCallback((group: ImportRowMatchStatus) => {
+    setSelectedRowGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (!matchImportColumn || !matchProductColumn || !activeImportId) {
+      setMatchPreview(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void previewMatch();
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [activeImportId, matchImportColumn, matchProductColumn, previewMatch, rowsData?.count]);
+
   const toggleTransferColumn = React.useCallback((column: string) => {
     setSelectedTransferColumns(prev => {
       const next = new Set(prev);
@@ -454,40 +708,26 @@ export default function ProductImportsPage() {
   }, []);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden animate-fade-in">
-      <div className="flex flex-col gap-3 border-b border-black/10 pb-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="text-xs font-black uppercase tracking-widest text-emerald-600 hover:text-emerald-700 dark:text-emerald-400">
-              Dashboard
-            </Link>
-            <span className="text-black/20 dark:text-white/20">/</span>
-            <Link href="/products" className="text-xs font-black uppercase tracking-widest text-black/40 hover:text-black dark:text-white/40 dark:hover:text-white">
-              Products
-            </Link>
-          </div>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-black dark:text-white">
-            Excel Product Imports
-          </h1>
-          <p className="mt-1 max-w-3xl text-sm font-medium text-black/45 dark:text-white/45">
-            Excel files are cleaned and shown in a separate staging table. The main products table is not changed on this page.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs font-bold text-amber-700 dark:text-amber-300">
-          Safe staging only
-        </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden animate-fade-in">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-black/10 pb-2 dark:border-white/10">
+        <Link href="/dashboard" className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:text-emerald-700 dark:text-emerald-400">
+          Dashboard
+        </Link>
+        <span className="text-black/20 dark:text-white/20">/</span>
+        <Link href="/products" className="text-[10px] font-black uppercase tracking-widest text-black/40 hover:text-black dark:text-white/40 dark:hover:text-white">
+          Products
+        </Link>
+        <span className="text-black/20 dark:text-white/20">/</span>
+        <h1 className="text-sm font-black tracking-tight text-black dark:text-white">
+          Excel Imports
+        </h1>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col gap-4 rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-black/25">
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-widest text-black/60 dark:text-white/60">
-              Upload Spreadsheet
-            </h2>
-            <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-              xlsx, xlsm, and Numbers files are supported.
-            </p>
-          </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="flex min-h-0 flex-col gap-3 rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-black/25">
+          <h2 className="text-[10px] font-black uppercase tracking-widest text-black/50 dark:text-white/50">
+            Upload
+          </h2>
 
           <input
             ref={fileInputRef}
@@ -501,9 +741,9 @@ export default function ProductImportsPage() {
             type="button"
             onClick={() => void uploadFile()}
             disabled={!selectedFile || isUploading}
-            className="rounded-full bg-emerald-600 px-5 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {isUploading ? 'Uploading...' : 'Upload and Convert'}
+            {isUploading ? 'Uploading...' : 'Upload'}
           </button>
 
           {message ? (
@@ -564,42 +804,100 @@ export default function ProductImportsPage() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/25">
-          <div className="flex flex-col gap-3 border-b border-black/10 p-4 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-sm font-black uppercase tracking-widest text-black/60 dark:text-white/60">
-                Staged Product List
-              </h2>
-              <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-                {rowsData ? `${rowsData.records.length} of ${rowsData.count} row(s) shown from ${rowsData.import.filename} • ${matchedRowsCount} matched old product(s) • ${selectedTransferColumns.size} column(s) selected for transfer` : 'Select an import.'}
-              </p>
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/25">
+          <div className="space-y-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
+                Match
+              </span>
+              <select
+                value={matchImportColumn}
+                onChange={(event) => setMatchImportColumn(event.target.value)}
+                className={COMPACT_SELECT_CLASS}
+                aria-label="Import match column"
+              >
+                <option value="">Import column…</option>
+                {visibleColumns.map(column => (
+                  <option key={column} value={column}>{column}</option>
+                ))}
+              </select>
+              <span className="text-[10px] font-black text-black/30 dark:text-white/30">→</span>
+              <select
+                value={matchProductColumn}
+                onChange={(event) => setMatchProductColumn(event.target.value)}
+                className={COMPACT_SELECT_CLASS}
+                aria-label="Products match column"
+              >
+                <option value="">Products column…</option>
+                {productColumns.map(column => (
+                  <option key={column} value={column}>{column}</option>
+                ))}
+              </select>
+              {isPreviewingMatch ? (
+                <span className="text-[10px] font-bold text-black/35 dark:text-white/35">Checking…</span>
+              ) : null}
+
+              <span className="hidden h-4 w-px bg-black/10 dark:bg-white/10 sm:block" />
+              {ALL_ROW_GROUPS.map(status => (
+                <label
+                  key={status}
+                  className={
+                    'inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-black transition ' +
+                    (selectedRowGroups.has(status)
+                      ? isMatchConfigured
+                        ? ROW_MATCH_ROW_CLASS[status]
+                        : 'border-black/15 bg-black/[0.04] text-black/70 dark:border-white/15 dark:bg-white/[0.05] dark:text-white/70'
+                      : 'border-black/10 bg-black/[0.02] text-black/40 opacity-60 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/40')
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedRowGroups.has(status)}
+                    onChange={() => toggleRowGroup(status)}
+                    className="h-3 w-3 accent-emerald-600"
+                  />
+                  {ROW_MATCH_STATUS_LABELS[status]} {isMatchConfigured ? rowStatusCounts[status] : 0}
+                </label>
+              ))}
+
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!activeImportId || isReprocessing}
+                  onClick={() => void reprocessImportRows()}
+                  className="rounded-full border border-black/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
+                >
+                  {isReprocessing ? '…' : 'Refresh'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!activeImportId || isApplying || !matchImportColumn || !matchProductColumn || selectedRowGroups.size === 0}
+                  onClick={() => void applyImportToProducts()}
+                  className="rounded-full bg-emerald-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  {isApplying ? '…' : 'Apply'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!activeImportId}
+                  onClick={() => void deleteImport()}
+                  className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-600 transition hover:bg-red-500 hover:text-white disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={!activeImportId || isReprocessing}
-                onClick={() => void reprocessImportRows()}
-                className="rounded-full border border-black/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-black/60 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/60 dark:hover:bg-white/10"
-              >
-                {isReprocessing ? 'Refreshing...' : 'Refresh'}
-              </button>
-              <button
-                type="button"
-                disabled={!activeImportId || isApplying}
-                onClick={() => void applyImportToProducts()}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
-              >
-                {isApplying ? 'Applying...' : 'Apply to Products'}
-              </button>
-              <button
-                type="button"
-                disabled={!activeImportId}
-                onClick={() => void deleteImport()}
-                className="rounded-full border border-red-500/20 bg-red-500/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-red-600 transition hover:bg-red-500 hover:text-white disabled:opacity-40"
-              >
-                Delete Import
-              </button>
-            </div>
+
+            {matchPreviewError ? (
+              <p className="text-[10px] font-bold text-red-600 dark:text-red-300">{matchPreviewError}</p>
+            ) : null}
+
+            <p className="text-[10px] font-medium text-black/40 dark:text-white/40">
+              {rowsData
+                ? `${rowsData.import.filename} · ${filteredImportRows.length}/${rowsData.count} rows shown · ${selectedTransferColumns.size} columns to transfer` +
+                  (selectedRowGroups.size === 0 ? ' · tick a group to view & apply' : '')
+                : 'Select an import from the left.'}
+            </p>
           </div>
 
           {rowsError ? (
@@ -619,6 +917,9 @@ export default function ProductImportsPage() {
               <table className="min-w-full border-separate border-spacing-0 text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
                   <tr>
+                    <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
+                      Match
+                    </th>
                     <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
                       Sheet
                     </th>
@@ -650,31 +951,40 @@ export default function ProductImportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rowsData.records.map(row => {
-                    const existingProduct = findExistingProduct(row, existingProductIndex);
-                    const isMatchedOldProduct = Boolean(existingProduct);
+                  {filteredImportRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={visibleColumns.length + 4}
+                        className="border-b border-black/5 px-3 py-10 text-center text-xs font-bold text-black/40 dark:border-white/5 dark:text-white/40"
+                      >
+                        {selectedRowGroups.size === 0
+                          ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
+                          : 'No rows in the selected groups.'}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {filteredImportRows.map(row => {
+                    const rowStatus = rowStatusById.get(row.id);
+                    const rowTone = rowStatus ? ROW_MATCH_ROW_CLASS[rowStatus] : NEUTRAL_ROW_CLASS;
+                    const existingProduct = rowStatus === 'matched' && matchImportColumn
+                      ? findExistingProductByColumn(row, existingProductIndex, matchImportColumn)
+                      : null;
 
                     return (
-                      <tr key={row.id} className="odd:bg-black/[0.015] dark:odd:bg-white/[0.02]">
-                        <td className={
-                          'whitespace-nowrap border-b px-3 py-2 font-bold ' +
-                          (isMatchedOldProduct
-                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-                            : 'border-black/5 text-black/45 dark:border-white/5 dark:text-white/45')
-                        }>
-                          <div>{row.source_sheet || '—'}</div>
-                          {isMatchedOldProduct ? (
-                            <div className="mt-1 text-[9px] font-black uppercase tracking-widest">
-                              Old product
-                            </div>
-                          ) : null}
+                      <tr key={row.id}>
+                        <td className={'whitespace-nowrap border-b px-3 py-2 font-bold ' + rowTone}>
+                          {rowStatus ? (
+                            <span className={'inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ' + ROW_MATCH_BADGE_CLASS[rowStatus]}>
+                              {ROW_MATCH_STATUS_LABELS[rowStatus]}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold text-black/30 dark:text-white/30">—</span>
+                          )}
                         </td>
-                        <td className={
-                          'whitespace-nowrap border-b px-3 py-2 font-bold ' +
-                          (isMatchedOldProduct
-                            ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-                            : 'border-black/5 text-black/45 dark:border-white/5 dark:text-white/45')
-                        }>
+                        <td className={'whitespace-nowrap border-b px-3 py-2 font-bold ' + rowTone}>
+                          <div>{row.source_sheet || '—'}</div>
+                        </td>
+                        <td className={'whitespace-nowrap border-b px-3 py-2 font-bold ' + rowTone}>
                           {row.source_row_number ?? '—'}
                         </td>
                         {visibleColumns.map(column => {
@@ -694,9 +1004,8 @@ export default function ProductImportsPage() {
                               className={
                                 'relative border-b p-0 align-top ' +
                                 (isImageLikeColumn ? 'w-[96px] min-w-[96px] max-w-[96px] ' : 'max-w-[220px] ') +
-                                (isMatchingCell
-                                  ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200'
-                                  : 'border-black/5 text-black/70 dark:border-white/5 dark:text-white/70') +
+                                rowTone +
+                                (isMatchingCell ? ' ring-1 ring-inset ring-emerald-500/40' : '') +
                                 (isPriceColumn ? ' font-bold' : '')
                               }
                               title={renderCell(row.fields[column], column)}
@@ -764,7 +1073,7 @@ export default function ProductImportsPage() {
                             </td>
                           );
                         })}
-                        <td className="max-w-[260px] border-b border-black/5 px-3 py-2 align-top dark:border-white/5">
+                        <td className={'max-w-[260px] border-b px-3 py-2 align-top ' + rowTone}>
                           {row.warnings.length > 0 ? (
                             <div className="rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-700 dark:text-amber-300">
                               {row.warnings.join(' / ')}

@@ -78,6 +78,29 @@ function formatNetworkFetchMessage(cause: unknown): string {
   return 'Network request failed while loading products.';
 }
 
+const DEFAULT_PRODUCT_COLUMNS = ['DAM', 'Space', 'Color', 'Material', 'Content Status'] as const;
+
+/** Union column names from API pages and record fields so import-added columns appear in the grid. */
+function mergeProductsColumnNames(
+  current: string[],
+  pageColumns: string[],
+  records: ProductsAssetsResponse['records'],
+): string[] {
+  const names = new Set(current);
+  for (const column of pageColumns) {
+    if (column.trim()) names.add(column);
+  }
+  for (const record of records) {
+    const fields = record.fields;
+    if (!fields || typeof fields !== 'object') continue;
+    for (const key of Object.keys(fields)) {
+      if (key.trim()) names.add(key);
+    }
+  }
+  for (const column of DEFAULT_PRODUCT_COLUMNS) names.add(column);
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
 /** Shared GET for SWR and background revalidation — never leaves raw TypeError uncaught. */
 async function fetchProductsAssets(
   url: string,
@@ -133,9 +156,7 @@ async function fetchProductsAssets(
       throw new ProductsAssetsFetchError('Invalid products payload from server.', 'parse');
     }
 
-    if (parsed.columns.length > 0 && mergedColumns.length === 0) {
-      mergedColumns = parsed.columns;
-    }
+    mergedColumns = mergeProductsColumnNames(mergedColumns, parsed.columns, parsed.records);
     allRecords.push(...parsed.records);
 
     const nextCursor = typeof parsed.next_cursor === 'string' && parsed.next_cursor.trim()
