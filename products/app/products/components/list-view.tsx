@@ -810,7 +810,7 @@ export function ListView({
   );
 
   return (
-    <div className="relative flex-1 min-h-0 w-full animate-fade-in border border-x-0 border-black/10 bg-white shadow-none dark:border-white/10 dark:bg-black/25 max-sm:-ml-5 max-sm:w-[calc(100%+2.5rem)] max-sm:max-w-none max-sm:rounded-none sm:ml-0 sm:w-full sm:rounded-xl sm:border-x sm:shadow-sm">
+    <div className="relative flex-1 min-h-0 w-full animate-fade-in border border-x-0 border-brand-medium-gray/30 bg-brand-white shadow-none dark:border-white/10 dark:bg-black/25 max-sm:-ml-5 max-sm:w-[calc(100%+2.5rem)] max-sm:max-w-none max-sm:rounded-none sm:ml-0 sm:w-full sm:rounded-2xl sm:border-x sm:shadow-brand-card">
       <ListScrollRootContext.Provider value={listScrollRoot}>
       <div
         ref={assignScrollContainerRef}

@@ -36,7 +36,7 @@ export function DashboardView() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 rounded-full border border-black/5 bg-white/50 px-3 py-1.5 shadow-sm backdrop-blur-md dark:border-white/5 dark:bg-black/40">
-            <div className={`h-2 w-2 rounded-full ${stats?.db_status === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 animate-pulse'}`} />
+            <div className={`h-2 w-2 rounded-full ${stats?.db_status === 'connected' ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500 animate-pulse'}`} />
             <span className="text-[11px] font-black uppercase tracking-widest text-black/60 dark:text-white/60">
               Database: {stats?.db_status || 'Checking...'}
             </span>

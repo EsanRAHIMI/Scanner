@@ -3,6 +3,7 @@
 import * as React from 'react';
 
 import { apiFetch } from '@/lib/api';
+import { ErrorBanner, PageHeader } from '@/lib/trainer-ui';
 
 type UserRow = {
   id: string;
@@ -93,23 +94,22 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-lg font-semibold">Users</div>
-          <div className="mt-1 text-sm text-black/60">Approve users and manage permissions.</div>
-        </div>
-      </div>
+    <main className="flex min-h-0 flex-1 flex-col overflow-hidden animate-fade-in">
+      <PageHeader
+        eyebrow="Administration"
+        title="Users"
+        description="Approve users and manage permissions."
+      />
 
-      {error ? <div className="mt-4 text-sm text-red-700">{error}</div> : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       {loading ? (
-        <div className="mt-6 text-sm text-black/60">Loading...</div>
+        <div className="mt-2 text-sm text-brand-dark-gray">Loading...</div>
       ) : (
-        <div className="mt-6 min-h-0 flex-1 overflow-auto rounded-xl border border-black/10 bg-white">
+        <div className="mt-4 min-h-0 flex-1 overflow-auto table-shell scrollbar-minimal">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-black/10 text-xs text-black/60">
+            <thead className="table-head sticky top-0 z-10">
+              <tr>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Username</th>
                 <th className="px-4 py-3">Status</th>
@@ -121,15 +121,15 @@ export default function AdminUsersPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-b border-black/5 last:border-b-0">
+                <tr key={u.id} className="border-t border-brand-light-gray">
                   <td className="px-4 py-3 align-top">
-                    <div className="font-medium">{u.email}</div>
-                    <div className="mt-1 text-xs text-black/50">{u.id}</div>
+                    <div className="font-medium text-brand-black">{u.email}</div>
+                    <div className="mt-1 text-xs text-brand-dark-gray">{u.id}</div>
                   </td>
-                  <td className="px-4 py-3 align-top">{u.username}</td>
+                  <td className="px-4 py-3 align-top text-brand-black">{u.username}</td>
                   <td className="px-4 py-3 align-top">
                     <select
-                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1"
+                      className="field-input py-1.5"
                       value={u.status}
                       onChange={(e) => setUserPatch(u.id, { status: e.target.value as UserRow['status'] })}
                     >
@@ -142,15 +142,16 @@ export default function AdminUsersPage() {
                     <label className="inline-flex items-center gap-2">
                       <input
                         type="checkbox"
+                        className="accent-brand-burgundy"
                         checked={u.is_admin}
                         onChange={(e) => setUserPatch(u.id, { is_admin: e.target.checked })}
                       />
-                      <span className="text-xs text-black/70">is_admin</span>
+                      <span className="text-xs text-brand-dark-gray">is_admin</span>
                     </label>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <select
-                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1"
+                      className="field-input py-1.5"
                       value={u.role ?? 'user'}
                       onChange={(e) => setUserPatch(u.id, { role: e.target.value as UserRow['role'] })}
                     >
@@ -161,7 +162,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <input
-                      className="w-full rounded-md border border-black/15 bg-white px-2 py-1"
+                      className="field-input py-1.5"
                       value={u.permissions.join(', ')}
                       onChange={(e) => {
                         const perms = e.target.value
@@ -175,7 +176,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <button
-                      className="rounded-md bg-black px-3 py-2 text-xs text-white hover:bg-black/90 disabled:opacity-60"
+                      className="btn-primary px-3 py-2 text-xs"
                       disabled={savingId === u.id}
                       onClick={() => saveUser(u)}
                     >

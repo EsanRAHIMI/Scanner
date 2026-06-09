@@ -57,8 +57,8 @@ function CalendarContent() {
 
   if (logic.loading && logic.contentItems.length === 0) {
     return (
-      <div className="min-h-dvh flex flex-col bg-background">
-        <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/50 px-6 backdrop-blur-md">
+      <div className="flex min-h-dvh flex-col bg-brand-light-gray">
+        <div className="sticky top-0 z-30 flex h-16 items-center justify-between border-b-2 border-brand-burgundy bg-brand-white/90 px-6 backdrop-blur-md">
           <div className="h-8 w-36 rounded-lg bg-muted animate-pulse" />
           <div className="flex items-center gap-3">
             <div className="h-9 w-28 rounded-xl bg-muted animate-pulse" />

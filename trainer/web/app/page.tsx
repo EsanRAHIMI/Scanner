@@ -2,17 +2,8 @@ import Link from 'next/link';
 
 import { apiJson } from '@/lib/api';
 import { getTrainerApiBase } from '@/lib/env';
+import { MetricCard, PageHeader } from '@/lib/trainer-ui';
 import type { QueueItem, TrainStatusResponse } from '@/types/trainer';
-
-function Card({ title, value, hint }: { title: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
-      <div className="text-xs tracking-wide text-black/50">{title}</div>
-      <div className="mt-2 text-2xl font-semibold">{value}</div>
-      {hint ? <div className="mt-1 text-xs text-black/50">{hint}</div> : null}
-    </div>
-  );
-}
 
 async function getQueue() {
   try {
@@ -44,53 +35,57 @@ export default async function DashboardPage() {
   const lastJob = await getLastJob();
 
   return (
-    <main className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-black/60">
-          Upload images, label one box per image, export YOLO dataset, train, and publish
-          `best.pt` into the inference backend.
+    <main className="min-h-0 flex-1 space-y-8 overflow-y-auto scrollbar-minimal pr-1 pb-8 animate-fade-in">
+      <section className="dash-hero">
+        <p className="dash-eyebrow relative z-10">Training pipeline</p>
+        <h1 className="relative z-10 mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-brand-white md:text-4xl">
+          Label datasets. Train models. Publish to production.
+        </h1>
+        <p className="relative z-10 mt-4 max-w-2xl text-base leading-relaxed text-brand-light-gray">
+          Upload images, label one box per image, export YOLO dataset, train, and publish{' '}
+          <code className="rounded bg-brand-white/10 px-1.5 py-0.5 text-sm">best.pt</code> into the inference backend.
         </p>
-      </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card title="Pending" value={String(pending)} hint="Items waiting for labeling" />
-        <Card title="Labeled" value={String(labeled)} hint="Ready for dataset export" />
-        <Card
-          title="Trainer API"
+        <MetricCard label="Pending" value={String(pending)} hint="Items waiting for labeling" />
+        <MetricCard label="Labeled" value={String(labeled)} hint="Ready for dataset export" />
+        <MetricCard
+          label="Trainer API"
           value={queue ? 'Online' : 'Offline'}
           hint={queue ? apiBase : queueRes.error ?? `API base: ${apiBase}`}
         />
       </div>
 
-      <div className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
+      <div className="dash-panel p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-sm font-medium">Quick actions</div>
-            <div className="text-xs text-black/50">Common workflow shortcuts</div>
+            <p className="dash-eyebrow">Workflow</p>
+            <h2 className="mt-2 text-lg font-semibold text-brand-black">Quick actions</h2>
+            <p className="mt-1 text-sm text-brand-dark-gray">Common workflow shortcuts</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90" href="/upload">
+            <Link className="btn-primary" href="/upload">
               Upload
             </Link>
-            <Link className="rounded-md border border-black/15 px-4 py-2 text-sm hover:bg-black/5" href="/queue">
+            <Link className="btn-outline" href="/queue">
               Label queue
             </Link>
-            <Link className="rounded-md border border-black/15 px-4 py-2 text-sm hover:bg-black/5" href="/train">
+            <Link className="btn-outline" href="/train">
               Train
             </Link>
           </div>
         </div>
 
-        <div className="mt-5 border-t border-black/10 pt-4">
-          <div className="text-sm font-medium">Last job</div>
-          <div className="mt-1 text-sm text-black/60">
+        <div className="mt-6 border-t border-brand-light-gray pt-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-medium-gray">Last job</p>
+          <div className="mt-2 text-sm text-brand-dark-gray">
             {lastJob ? (
               <span>
-                Status: <span className="font-medium text-black">{lastJob.status}</span>
+                Status: <span className="font-semibold text-brand-black">{lastJob.status}</span>
               </span>
             ) : (
-              <span className="text-black/50">No job tracked on dashboard.</span>
+              <span className="text-brand-medium-gray">No job tracked on dashboard.</span>
             )}
           </div>
         </div>

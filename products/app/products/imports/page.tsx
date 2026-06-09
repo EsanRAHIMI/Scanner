@@ -98,7 +98,7 @@ const ROW_MATCH_STATUS_LABELS: Record<ImportRowMatchStatus, string> = {
 
 const ROW_MATCH_ROW_CLASS: Record<ImportRowMatchStatus, string> = {
   matched:
-    'border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:border-emerald-400/20 dark:bg-emerald-500/15 dark:text-emerald-200',
+    'border-green-500/25 bg-green-500/10 text-green-800 dark:border-green-400/20 dark:bg-green-500/15 dark:text-green-200',
   unmatched:
     'border-amber-500/25 bg-amber-500/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/15 dark:text-amber-200',
   empty:
@@ -106,7 +106,7 @@ const ROW_MATCH_ROW_CLASS: Record<ImportRowMatchStatus, string> = {
 };
 
 const ROW_MATCH_BADGE_CLASS: Record<ImportRowMatchStatus, string> = {
-  matched: 'bg-emerald-600 text-white',
+  matched: 'bg-green-600 text-white',
   unmatched: 'bg-amber-500 text-white',
   empty: 'bg-red-600 text-white',
 };
@@ -709,7 +709,7 @@ export default function ProductImportsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden animate-fade-in">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-black/10 pb-2 dark:border-white/10">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-brand-medium-gray/30 pb-2 dark:border-white/10">
         <Link href="/dashboard" className="text-[10px] font-black uppercase tracking-widest text-emerald-600 hover:text-emerald-700 dark:text-emerald-400">
           Dashboard
         </Link>
@@ -724,7 +724,7 @@ export default function ProductImportsPage() {
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col gap-3 rounded-xl border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-black/25">
+        <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-brand-medium-gray/30 bg-brand-white p-3 shadow-brand-card dark:border-white/10 dark:bg-black/25">
           <h2 className="text-[10px] font-black uppercase tracking-widest text-black/50 dark:text-white/50">
             Upload
           </h2>
@@ -804,7 +804,7 @@ export default function ProductImportsPage() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/25">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card dark:border-white/10 dark:bg-black/25">
           <div className="space-y-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
@@ -1005,7 +1005,7 @@ export default function ProductImportsPage() {
                                 'relative border-b p-0 align-top ' +
                                 (isImageLikeColumn ? 'w-[96px] min-w-[96px] max-w-[96px] ' : 'max-w-[220px] ') +
                                 rowTone +
-                                (isMatchingCell ? ' ring-1 ring-inset ring-emerald-500/40' : '') +
+                                (isMatchingCell ? ' ring-1 ring-inset ring-green-500/40' : '') +
                                 (isPriceColumn ? ' font-bold' : '')
                               }
                               title={renderCell(row.fields[column], column)}

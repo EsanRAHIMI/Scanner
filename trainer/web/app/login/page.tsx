@@ -3,6 +3,8 @@
 import * as React from 'react';
 
 import { apiFetch } from '@/lib/api';
+import { BrandHeaderAuth } from '@/lib/brand-header';
+import { ErrorBanner } from '@/lib/trainer-ui';
 
 export default function LoginPage() {
   const [email, setEmail] = React.useState('');
@@ -42,16 +44,15 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
-      <div className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
-        <div className="text-xl font-semibold">Login</div>
-        <div className="mt-1 text-sm text-black/60">Use your approved account.</div>
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center animate-fade-in">
+      <div className="dash-card p-8 pt-9">
+        <BrandHeaderAuth title="Login" description="Use your approved account." />
 
-        <form className="mt-5 space-y-3" onSubmit={onSubmit}>
-          <div className="space-y-1">
-            <label className="text-xs text-black/60">Email</label>
+        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+          <div className="space-y-1.5">
+            <label className="field-label">Email</label>
             <input
-              className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+              className="field-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
@@ -60,10 +61,10 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs text-black/60">Password</label>
+          <div className="space-y-1.5">
+            <label className="field-label">Password</label>
             <input
-              className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+              className="field-input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
@@ -72,17 +73,13 @@ export default function LoginPage() {
             />
           </div>
 
-          {error ? <div className="text-sm text-red-700">{error}</div> : null}
+          {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
-          <button
-            className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
-            disabled={loading}
-            type="submit"
-          >
+          <button className="btn-primary w-full" disabled={loading} type="submit">
             {loading ? 'Logging in...' : 'Login'}
           </button>
 
-          <a className="block text-center text-sm text-black/70 underline" href="/register">
+          <a className="block text-center text-sm font-medium text-brand-burgundy hover:text-brand-black" href="/register">
             Create an account
           </a>
         </form>

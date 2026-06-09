@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { apiJson } from '@/lib/api';
 import { getTrainerApiBase } from '@/lib/env';
+import { ErrorBanner, StatusPill } from '@/lib/trainer-ui';
 import type { Annotation, ClassItem, NormalizedBBox, QueueItem } from '@/types/trainer';
 
 function clamp01(v: number) {
@@ -14,20 +15,6 @@ function clamp01(v: number) {
 type Props = {
   params: { item_id: string };
 };
-
-function StatusPill({ status }: { status: string }) {
-  const isPending = status === 'pending';
-  return (
-    <span
-      className={
-        'inline-flex items-center rounded-full px-2 py-1 text-xs ' +
-        (isPending ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800')
-      }
-    >
-      {status}
-    </span>
-  );
-}
 
 export default function LabelItemPage({ params }: Props) {
   const itemId = params.item_id;
@@ -298,24 +285,25 @@ export default function LabelItemPage({ params }: Props) {
   const imageUrl = item?.image_url ? `${getTrainerApiBase()}${item.image_url}` : null;
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col gap-6">
+    <main className="flex min-h-0 flex-1 flex-col gap-6 animate-fade-in">
       <div className="flex-none">
-        <h1 className="text-2xl font-semibold">Label item</h1>
-        <p className="mt-1 text-sm text-black/60">Draw one bounding box and choose a class.</p>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-          <div className="text-black/60">
-            Item: <span className="font-mono text-black">{itemId}</span>
+        <p className="dash-eyebrow">Labeling</p>
+        <h1 className="dash-title">Label item</h1>
+        <p className="dash-desc mt-2 text-sm">Draw one bounding box and choose a class.</p>
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          <div className="text-brand-dark-gray">
+            Item: <span className="font-mono font-semibold text-brand-black">{itemId}</span>
           </div>
           {item?.status ? <StatusPill status={item.status} /> : null}
           {nav.idx >= 0 ? (
-            <div className="text-black/50">
+            <div className="text-brand-medium-gray">
               {nav.idx + 1}/{nav.total}
             </div>
           ) : null}
 
           <div className="ml-auto flex items-center gap-2">
             <button
-              className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 disabled:opacity-50"
+              className="btn-outline px-3 py-1.5 text-sm"
               type="button"
               onClick={() => nav.prevId && router.push(`/queue/${encodeURIComponent(nav.prevId)}`)}
               disabled={!nav.prevId}
@@ -324,7 +312,7 @@ export default function LabelItemPage({ params }: Props) {
               Prev
             </button>
             <button
-              className="rounded-md border border-black/15 px-3 py-1.5 text-sm hover:bg-black/5 disabled:opacity-50"
+              className="btn-outline px-3 py-1.5 text-sm"
               type="button"
               onClick={() => nav.nextId && router.push(`/queue/${encodeURIComponent(nav.nextId)}`)}
               disabled={!nav.nextId}
@@ -333,7 +321,7 @@ export default function LabelItemPage({ params }: Props) {
               Next
             </button>
             <button
-              className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100 disabled:opacity-50"
+              className="btn-danger px-3 py-1.5 text-sm"
               type="button"
               onClick={() => void hardDelete()}
               disabled={deleting}
@@ -345,15 +333,11 @@ export default function LabelItemPage({ params }: Props) {
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-4">
         <div className="min-h-0 lg:col-span-3">
-          <div className="relative h-full min-h-0 overflow-hidden rounded-xl border border-black/10 bg-black">
+          <div className="relative h-full min-h-0 overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-black shadow-brand-panel">
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -382,14 +366,14 @@ export default function LabelItemPage({ params }: Props) {
         </div>
 
         <div className="min-h-0 lg:col-span-1">
-          <div className="h-full overflow-auto rounded-xl border border-black/10 bg-white p-5 shadow-sm">
-            <div className="text-sm font-medium">Controls</div>
+          <div className="h-full overflow-auto rounded-2xl border border-brand-medium-gray/30 bg-brand-white p-5 shadow-brand-card scrollbar-minimal">
+            <div className="text-sm font-semibold text-brand-black">Controls</div>
 
             <div className="mt-4 space-y-2">
-              <div className="text-xs text-black/50">Class</div>
+              <div className="field-label">Class</div>
               <div ref={classBoxRef} className="relative">
                 <input
-                  className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+                  className="field-input"
                   value={classQuery}
                   onChange={(e) => {
                     if (!classOpen) setClassOpen(true);
@@ -411,16 +395,16 @@ export default function LabelItemPage({ params }: Props) {
                 />
 
                 {classOpen ? (
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-black/15 bg-white shadow-lg">
-                    <div className="max-h-60 overflow-auto py-1">
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card">
+                    <div className="max-h-60 overflow-auto py-1 scrollbar-minimal">
                       {filteredClasses.length ? (
                         filteredClasses.map((c) => (
                           <button
                             key={c.id}
                             type="button"
                             className={
-                              'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-black/5 ' +
-                              (c.id === classId ? 'bg-black/5' : '')
+                              'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-brand-burgundy/5 ' +
+                              (c.id === classId ? 'bg-brand-burgundy/10 text-brand-burgundy' : 'text-brand-black')
                             }
                             onClick={() => {
                               setClassId(c.id);
@@ -446,31 +430,22 @@ export default function LabelItemPage({ params }: Props) {
             </div>
 
             <div className="mt-4 space-y-2">
-              <div className="text-xs text-black/50">BBox (normalized)</div>
-              <pre className="rounded-md bg-black/5 p-3 text-xs text-black/70">
+              <div className="field-label">BBox (normalized)</div>
+              <pre className="rounded-xl border border-brand-light-gray bg-brand-light-gray/50 p-3 text-xs text-brand-dark-gray">
                 {bbox ? JSON.stringify(bbox, null, 2) : '—'}
               </pre>
             </div>
 
             <div className="mt-4 flex flex-col gap-2">
               {classRequired ? (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900">
                   Class رو انتخاب کنید
                 </div>
               ) : null}
-              <button
-                className="rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-50"
-                onClick={() => void save()}
-                disabled={saving}
-                type="button"
-              >
+              <button className="btn-primary w-full" onClick={() => void save()} disabled={saving} type="button">
                 {saving ? 'Saving…' : 'Save annotation'}
               </button>
-              <button
-                className="rounded-md border border-black/15 px-4 py-2 text-sm hover:bg-black/5"
-                onClick={() => setBbox(null)}
-                type="button"
-              >
+              <button className="btn-outline w-full" onClick={() => setBbox(null)} type="button">
                 Clear
               </button>
             </div>

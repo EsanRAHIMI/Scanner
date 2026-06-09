@@ -30,7 +30,7 @@ export function AuthGuard({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onCloseAuth} />
-      <div className="relative w-full max-w-md rounded-2xl border border-border bg-popover p-8 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl border border-brand-medium-gray/30 bg-brand-white p-8 shadow-brand-panel">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-foreground">Sign in required</h2>

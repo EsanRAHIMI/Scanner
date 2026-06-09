@@ -114,7 +114,7 @@ export function FeedCaption({ variant, canEdit, canEditField, onUpdateVariant }:
                       handleEdit('Price', variant.price || '', 'Price');
                     }
                   }}
-                  className={`mt-0.5 flex shrink-0 items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-0.5 text-[10px] font-black text-white shadow-[0_0_15px_rgba(16,185,129,0.3)] uppercase ${canEditThisField('Price') ? 'cursor-edit hover:bg-emerald-400' : ''}`}
+                  className={`mt-0.5 flex shrink-0 items-center gap-1 rounded-md bg-emerald-500/90 px-1.5 py-0.5 text-[10px] font-black text-white shadow-[0_0_15px_rgba(80,15,40,0.35)] uppercase ${canEditThisField('Price') ? 'cursor-edit hover:bg-emerald-400' : ''}`}
                 >
                   <span>{variant.price}</span>
                   <img

@@ -73,7 +73,7 @@ export function HeaderToolbar({
   );
 
   return (
-    <header className="sticky top-0 z-40 -mx-5 border-b border-black/10 bg-white/95 px-5 py-2 backdrop-blur-md dark:border-white/10 dark:bg-black/80 sm:py-2.5">
+    <header className="sticky top-0 z-40 -mx-5 border-b-2 border-brand-burgundy bg-brand-white/95 px-5 py-2 shadow-[0_4px_24px_-12px_rgba(30,30,30,0.18)] backdrop-blur-md dark:border-emerald-500/70 dark:bg-black/80 sm:py-2.5">
       {/* Mobile: one row — logo | search | icons | menu */}
       <div className="flex min-h-9 w-full min-w-0 items-center gap-1.5 sm:hidden">
         {mobileTitleNode ?? <span className="shrink-0 text-sm font-semibold">{title}</span>}

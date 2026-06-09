@@ -2,6 +2,80 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Lorenzo brand design layer (mirrors the frontend dashboard) ──────── */
+
+@layer components {
+  .dash-eyebrow {
+    @apply flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.28em] text-brand-burgundy dark:text-emerald-300;
+  }
+
+  .dash-eyebrow::before {
+    content: '';
+    @apply h-2 w-2 shrink-0 rounded-full bg-brand-burgundy dark:bg-emerald-300;
+  }
+
+  .dash-title {
+    @apply mt-2 text-2xl font-semibold tracking-tight text-brand-black dark:text-white md:text-3xl;
+  }
+
+  .dash-title::after {
+    content: '';
+    @apply mt-3 block h-1 w-14 rounded-full bg-brand-burgundy dark:bg-emerald-400;
+  }
+
+  .dash-desc {
+    @apply text-base leading-relaxed text-brand-dark-gray dark:text-white/60;
+  }
+
+  .dash-card {
+    @apply relative overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card transition-all duration-300 dark:border-white/10 dark:bg-white/[0.04];
+  }
+
+  .dash-card::before {
+    content: '';
+    @apply pointer-events-none absolute inset-x-0 top-0 h-1 bg-brand-burgundy dark:bg-emerald-500;
+  }
+
+  .dash-card:hover {
+    @apply -translate-y-1 border-brand-burgundy/40 shadow-brand-card-hover dark:border-emerald-400/40;
+  }
+
+  .dash-panel {
+    @apply overflow-hidden rounded-3xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-panel dark:border-white/10 dark:bg-white/[0.04];
+  }
+
+  .dash-hero {
+    @apply relative overflow-hidden rounded-3xl bg-brand-burgundy p-8 text-brand-white shadow-[0_24px_60px_-20px_rgba(80,15,40,0.55)] md:p-10;
+  }
+
+  .dash-hero::before {
+    content: '';
+    @apply pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-brand-white/10 blur-3xl;
+  }
+
+  .dash-hero::after {
+    content: '';
+    @apply pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-brand-black/20 blur-3xl;
+  }
+
+  .dash-hero .dash-eyebrow,
+  .dash-hero .dash-eyebrow::before {
+    @apply text-brand-light-gray;
+  }
+
+  .dash-hero .dash-eyebrow::before {
+    @apply bg-brand-white;
+  }
+
+  .dash-metric {
+    @apply relative overflow-hidden rounded-2xl border border-brand-medium-gray/30 border-l-4 border-l-brand-burgundy bg-brand-white p-6 shadow-[0_8px_24px_-12px_rgba(30,30,30,0.1)] dark:border-white/10 dark:border-l-emerald-500 dark:bg-white/[0.04];
+  }
+
+  .dash-metric-featured {
+    @apply border-l-8 bg-gradient-to-br from-brand-white to-brand-light-gray shadow-[0_16px_48px_-20px_rgba(80,15,40,0.18)] dark:from-white/[0.05] dark:to-white/[0.02];
+  }
+}
+
 html,
 body {
   height: 100%;
@@ -46,20 +120,20 @@ html {
   background: transparent;
 }
 .scrollbar-minimal::-webkit-scrollbar-thumb {
-  background: rgba(16, 185, 129, 0.2);
+  background: rgba(80, 15, 40, 0.25);
   border-radius: 20px;
   border: 1.5px solid transparent;
   background-clip: content-box;
 }
 .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-  background: rgba(16, 185, 129, 0.45);
+  background: rgba(80, 15, 40, 0.5);
   background-clip: content-box;
 }
 .dark .scrollbar-minimal::-webkit-scrollbar-thumb {
-  background: rgba(52, 211, 153, 0.2);
+  background: rgba(206, 107, 147, 0.25);
 }
 .dark .scrollbar-minimal:hover::-webkit-scrollbar-thumb {
-  background: rgba(52, 211, 153, 0.45);
+  background: rgba(206, 107, 147, 0.5);
 }
 
 /* Hide scrollbar completely (used by social feed) */
@@ -104,9 +178,14 @@ html {
 /* ─── Drag and Drop Active State ─────────────────────────────────────── */
 
 .dnd-active {
-  background-color: rgb(16 185 129 / 0.2) !important;
-  box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.1) !important;
-  outline: 2px solid rgb(16 185 129) !important;
+  background-color: rgb(80 15 40 / 0.14) !important;
+  box-shadow: inset 0 0 15px rgba(80, 15, 40, 0.12) !important;
+  outline: 2px solid rgb(80 15 40) !important;
   outline-offset: -2px;
   z-index: 50 !important;
+}
+.dark .dnd-active {
+  background-color: rgb(206 107 147 / 0.16) !important;
+  box-shadow: inset 0 0 15px rgba(206, 107, 147, 0.12) !important;
+  outline: 2px solid rgb(206 107 147) !important;
 }

@@ -28,7 +28,7 @@ export function StatCard({
   };
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition-all hover:shadow-md dark:border-white/10 dark:bg-black/25">
+    <div className="group relative overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white p-5 shadow-brand-card transition-all hover:-translate-y-0.5 hover:shadow-brand-card-hover dark:border-white/10 dark:bg-black/25">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-wider text-black/40 dark:text-white/35">

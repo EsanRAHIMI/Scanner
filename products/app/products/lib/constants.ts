@@ -56,7 +56,7 @@ export function getContentStatusStyles(status: string) {
   const s = status.trim().toLowerCase();
   switch (s) {
     case 'complete':
-      return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-300';
+      return 'border-green-500/25 bg-green-500/10 text-green-700 dark:border-green-400/20 dark:bg-green-400/10 dark:text-green-300';
     case 'image':
       return 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-300';
     case 'product info':

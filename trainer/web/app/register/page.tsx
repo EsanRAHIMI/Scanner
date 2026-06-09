@@ -3,6 +3,8 @@
 import * as React from 'react';
 
 import { apiFetch } from '@/lib/api';
+import { BrandHeaderAuth } from '@/lib/brand-header';
+import { ErrorBanner } from '@/lib/trainer-ui';
 
 export default function RegisterPage() {
   const [email, setEmail] = React.useState('');
@@ -36,69 +38,46 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center">
-      <div className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
-        <div className="text-xl font-semibold">Register</div>
-        <div className="mt-1 text-sm text-black/60">Your account needs admin approval unless you are the admin.</div>
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center animate-fade-in">
+      <div className="dash-card p-8 pt-9">
+        <BrandHeaderAuth
+          title="Register"
+          description="Your account needs admin approval unless you are the admin."
+        />
 
         {done ? (
-          <div className="mt-5 space-y-2">
-            <div className="rounded-md border border-black/10 bg-black/5 p-3 text-sm">
-              Status: <span className="font-medium">{done.status}</span>
+          <div className="mt-6 space-y-3">
+            <div className="rounded-xl border border-brand-medium-gray/30 bg-brand-light-gray/50 p-4 text-sm text-brand-black">
+              Status: <span className="font-semibold">{done.status}</span>
             </div>
-            <a className="block text-center text-sm text-black/70 underline" href="/login">
+            <a className="block text-center text-sm font-medium text-brand-burgundy hover:text-brand-black" href="/login">
               Go to login
             </a>
           </div>
         ) : (
-          <form className="mt-5 space-y-3" onSubmit={onSubmit}>
-            <div className="space-y-1">
-              <label className="text-xs text-black/60">Email</label>
-              <input
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                autoComplete="email"
-                required
-              />
+          <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+            <div className="space-y-1.5">
+              <label className="field-label">Email</label>
+              <input className="field-input" value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoComplete="email" required />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-black/60">Username</label>
-              <input
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                type="text"
-                autoComplete="username"
-                required
-              />
+            <div className="space-y-1.5">
+              <label className="field-label">Username</label>
+              <input className="field-input" value={username} onChange={(e) => setUsername(e.target.value)} type="text" autoComplete="username" required />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs text-black/60">Password</label>
-              <input
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                autoComplete="new-password"
-                required
-              />
+            <div className="space-y-1.5">
+              <label className="field-label">Password</label>
+              <input className="field-input" value={password} onChange={(e) => setPassword(e.target.value)} type="password" autoComplete="new-password" required />
             </div>
 
-            {error ? <div className="text-sm text-red-700">{error}</div> : null}
+            {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
-            <button
-              className="w-full rounded-md bg-black px-4 py-2 text-sm text-white hover:bg-black/90 disabled:opacity-60"
-              disabled={loading}
-              type="submit"
-            >
+            <button className="btn-primary w-full" disabled={loading} type="submit">
               {loading ? 'Creating...' : 'Create account'}
             </button>
 
-            <a className="block text-center text-sm text-black/70 underline" href="/login">
+            <a className="block text-center text-sm font-medium text-brand-burgundy hover:text-brand-black" href="/login">
               Back to login
             </a>
           </form>

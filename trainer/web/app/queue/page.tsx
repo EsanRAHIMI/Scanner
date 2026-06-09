@@ -2,24 +2,11 @@ import Link from 'next/link';
 
 import { apiJson } from '@/lib/api';
 import { getTrainerApiBase } from '@/lib/env';
+import { PageHeader, StatusPill } from '@/lib/trainer-ui';
 import type { QueueItem } from '@/types/trainer';
 
 async function getQueue() {
   return await apiJson<QueueItem[]>('/queue');
-}
-
-function StatusPill({ status }: { status: string }) {
-  const isPending = status === 'pending';
-  return (
-    <span
-      className={
-        'rounded-full px-2 py-1 text-xs ' +
-        (isPending ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800')
-      }
-    >
-      {status}
-    </span>
-  );
 }
 
 export default async function QueuePage() {
@@ -27,15 +14,16 @@ export default async function QueuePage() {
   const base = getTrainerApiBase();
 
   return (
-    <main className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Queue</h1>
-        <p className="mt-1 text-sm text-black/60">Click an item to label one bounding box.</p>
-      </div>
+    <main className="min-h-0 flex-1 space-y-6 overflow-y-auto scrollbar-minimal pr-1 pb-8 animate-fade-in">
+      <PageHeader
+        eyebrow="Labeling"
+        title="Queue"
+        description="Click an item to label one bounding box."
+      />
 
-      <div className="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+      <div className="table-shell">
         <table className="w-full text-left text-sm">
-          <thead className="bg-black/5 text-xs uppercase tracking-wide text-black/60">
+          <thead className="table-head">
             <tr>
               <th className="px-4 py-3">Preview</th>
               <th className="px-4 py-3">Item</th>
@@ -45,30 +33,30 @@ export default async function QueuePage() {
           </thead>
           <tbody>
             {items.map((q) => (
-              <tr key={q.item_id} className="border-t border-black/10">
+              <tr key={q.item_id} className="border-t border-brand-light-gray transition-colors hover:bg-brand-burgundy/[0.03]">
                 <td className="px-4 py-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={`${base}${q.image_url ?? ''}`}
                     alt={q.item_id}
-                    className="h-12 w-12 rounded-md border border-black/10 object-cover"
+                    className="h-12 w-12 rounded-xl border border-brand-medium-gray/30 object-cover"
                   />
                 </td>
                 <td className="px-4 py-3">
-                  <Link className="text-sm font-medium hover:underline" href={`/queue/${q.item_id}`}>
+                  <Link className="text-sm font-semibold text-brand-black hover:text-brand-burgundy" href={`/queue/${q.item_id}`}>
                     {q.item_id}
                   </Link>
-                  <div className="text-xs text-black/50">{q.filename}</div>
+                  <div className="text-xs text-brand-dark-gray">{q.filename}</div>
                 </td>
                 <td className="px-4 py-3">
                   <StatusPill status={q.status} />
                 </td>
-                <td className="px-4 py-3 text-xs text-black/60">{q.created_at}</td>
+                <td className="px-4 py-3 text-xs text-brand-dark-gray">{q.created_at}</td>
               </tr>
             ))}
             {items.length === 0 ? (
               <tr>
-                <td className="px-4 py-5 text-sm text-black/50" colSpan={4}>
+                <td className="px-4 py-10 text-center text-sm text-brand-medium-gray" colSpan={4}>
                   Queue is empty.
                 </td>
               </tr>

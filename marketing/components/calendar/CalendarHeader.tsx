@@ -2,6 +2,7 @@
 
 import React from 'react';
 
+import { BrandHeader } from '@/lib/brand-header';
 import { ScannerAccountMenu } from '@/lib/scanner-account-menu';
 
 import {
@@ -37,18 +38,12 @@ export function CalendarHeader({
   insightsContent,
 }: CalendarHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-md">
+    <header className="sticky top-0 z-30 border-b-2 border-brand-burgundy bg-brand-white/95 shadow-[0_4px_24px_-12px_rgba(30,30,30,0.18)] backdrop-blur-md">
       <div className="mx-auto w-full max-w-[1700px] px-3 sm:px-4 md:px-6">
         {/* Toolbar */}
         <div className="flex items-center gap-2 py-2 sm:gap-3 sm:py-2.5">
-          {/* Brand */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <h1 className="truncate text-sm font-bold tracking-tight text-foreground sm:text-base md:text-lg">
-                <span className="md:hidden">Content Calendar</span>
-                <span className="hidden md:inline">Professional Content Calendar</span>
-              </h1>
-            </div>
+            <BrandHeader appName="Content Calendar" tagline="Marketing · Publish matrix" compact />
             <LiveHeaderClock />
           </div>
 
@@ -63,7 +58,7 @@ export function CalendarHeader({
             <button
               type="button"
               onClick={onOpenCampaigns}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card p-2 text-foreground transition-colors hover:bg-accent sm:px-3 sm:py-2"
+              className="btn-outline gap-1.5 rounded-xl p-2 sm:px-3 sm:py-2"
               title="Manage campaigns"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -86,7 +81,7 @@ export function CalendarHeader({
               type="button"
               onClick={onNew}
               disabled={isSaving}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary p-2 text-primary-foreground shadow-md shadow-primary/15 transition-all hover:opacity-90 disabled:opacity-50 sm:px-3.5 sm:py-2"
+              className="btn-primary gap-1.5 rounded-xl p-2 shadow-md shadow-brand-burgundy/15 sm:px-3.5 sm:py-2"
               title="New content"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -98,7 +93,7 @@ export function CalendarHeader({
             <button
               type="button"
               onClick={onHome}
-              className="rounded-xl border border-border bg-card p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="btn-outline rounded-xl p-2 text-brand-dark-gray"
               title="Home"
             >
               <svg className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
@@ -110,6 +105,7 @@ export function CalendarHeader({
               app="marketing"
               authApiPrefix="/api/trainer"
               serviceUrlsPath="/api/service-urls"
+              surface="light"
               onAuthChange={onAuthChange}
             />
           </div>

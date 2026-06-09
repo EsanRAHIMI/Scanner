@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 
+import { ErrorBanner, PageHeader } from '@/lib/trainer-ui';
+
 import { useDamCache } from '../dam-cache-provider';
 import type { DamAirtableRecord, DamAssetsResponse } from '@/types/trainer';
 
@@ -375,35 +377,32 @@ export default function DamPage() {
   );
 
   return (
-    <main className="flex min-h-0 w-full flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">DAM</h1>
-          <p className="mt-1 text-sm text-black/60"></p>
-        </div>
+    <main className="flex min-h-0 w-full flex-1 flex-col gap-4 animate-fade-in">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <PageHeader eyebrow="Assets" title="DAM" description="Browse and search digital asset records from Airtable." />
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-          <div className="flex h-[64px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 pr-4 text-xs leading-tight text-black/60 sm:mr-auto sm:w-[360px]">
+          <div className="flex h-[64px] flex-none flex-col overflow-x-hidden overflow-y-auto rounded-xl border border-brand-medium-gray/30 bg-brand-white px-3 py-2 pr-4 text-xs leading-tight text-brand-dark-gray shadow-brand-card sm:mr-auto sm:w-[360px]">
             <div className="grid grid-cols-3 gap-2 text-[11px]">
               <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Records:</span>
-                <span className="font-semibold text-black"> {data ? data.count : '—'}</span>
+                <span className="text-brand-medium-gray">Records:</span>
+                <span className="font-semibold text-brand-black"> {data ? data.count : '—'}</span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Matched:</span>
-                <span className="font-semibold text-black"> {data ? filteredRecords.length : '—'}</span>
+                <span className="text-brand-medium-gray">Matched:</span>
+                <span className="font-semibold text-brand-black"> {data ? filteredRecords.length : '—'}</span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-black/50">Showing:</span>
-                <span className="font-semibold text-black"> {data ? visibleRecords.length : '—'}</span>
+                <span className="text-brand-medium-gray">Showing:</span>
+                <span className="font-semibold text-brand-black"> {data ? visibleRecords.length : '—'}</span>
               </div>
             </div>
-            <div className="mt-1 text-justify text-[11px] text-black/35">
+            <div className="mt-1 text-justify text-[11px] text-brand-medium-gray">
               Hidden: {hiddenPresent.length ? hiddenPresent.join(' • ') : '—'}
             </div>
           </div>
 
           <input
-            className="h-[64px] w-full rounded-md border border-black/15 bg-white px-3 text-sm sm:w-[260px]"
+            className="field-input w-full sm:h-[52px] sm:w-[260px]"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -411,16 +410,14 @@ export default function DamPage() {
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-      ) : null}
+      {error ? <ErrorBanner>{error}</ErrorBanner> : null}
 
-      <div className="flex min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
-        <div className="h-full w-full overflow-auto">
+      <div className="flex min-h-0 w-full flex-1 overflow-hidden dash-panel">
+        <div className="h-full w-full overflow-auto scrollbar-minimal">
           <table className="min-w-full table-auto text-left text-sm">
-            <thead className="sticky top-0 z-20 bg-white text-xs uppercase tracking-wide text-black/60 shadow-sm">
+            <thead className="table-head sticky top-0 z-20 shadow-sm">
               <tr>
-                <th className="sticky left-0 z-30 bg-white px-4 py-3">
+                <th className="sticky left-0 z-30 bg-brand-white px-4 py-3">
                   <span>Preview</span>
                 </th>
                 {displayedColumns.map((c) => (

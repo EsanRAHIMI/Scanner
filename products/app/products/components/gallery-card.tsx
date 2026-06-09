@@ -83,7 +83,7 @@ export function GalleryCard({
   const isSelected = selectedIds.has(r.id);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-black/10 bg-white dark:border-white/10 dark:bg-black/20">
+    <div className="group/card overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-burgundy/40 hover:shadow-brand-card-hover dark:border-white/10 dark:bg-black/20 dark:hover:border-emerald-400/40">
       <div className="block w-full">
         <div ref={inViewRef} className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
           {thumbSrc && !imageFailed ? (

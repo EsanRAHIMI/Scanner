@@ -392,7 +392,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
             onDrop={(e) => onRowDrop(e, i)}
           >
             {showDropLine ? (
-              <div className="pointer-events-none absolute inset-x-1 top-0 z-10 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.55)]" />
+              <div className="pointer-events-none absolute inset-x-1 top-0 z-10 h-0.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(123,31,68,0.55)]" />
             ) : null}
             <div className="flex min-w-0 items-center gap-0.5 pl-0.5 pr-0.5">
               {canEdit && localUrls.length > 1 ? (

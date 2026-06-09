@@ -46,7 +46,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (!allowed) {
-    return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-black/60">Loading...</div>;
+    return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-brand-dark-gray">Loading...</div>;
   }
 
   return <>{children}</>;
