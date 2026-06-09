@@ -59,6 +59,7 @@ import { ActivityLogModal } from './components/activity-log-modal';
 import { TopProgressBar } from './components/top-progress-bar';
 import { AccountMenu } from './components/account-menu';
 import { ProductFilters } from './components/product-filters';
+import { ProductsExcelExport } from './components/products-excel-export';
 import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
 import { GalleryCard } from './components/gallery-card';
@@ -613,6 +614,32 @@ export function ProductsView({
     isAdminModerator && moderationMode && moderationFilterActive
       ? moderationListRecords
       : visibleRecords;
+
+  const hasExportRowFilters = Boolean(
+    debouncedSearch.trim() ||
+    selectedCategories.size > 0 ||
+    selectedColors.size > 0 ||
+    selectedSpaces.size > 0 ||
+    selectedMaterials.size > 0 ||
+    showSelectedOnly ||
+    familyCollectionName ||
+    moderationFilterActive,
+  );
+
+  const exportRecords = React.useMemo(() => {
+    if (!hasExportRowFilters) return records;
+    let base = sortedRecords;
+    if (moderationFilterActive && changeAudit.recordIdsMatchingFilter) {
+      base = base.filter((record) => changeAudit.recordIdsMatchingFilter!.has(record.id));
+    }
+    return base;
+  }, [
+    hasExportRowFilters,
+    records,
+    sortedRecords,
+    moderationFilterActive,
+    changeAudit.recordIdsMatchingFilter,
+  ]);
 
   const baseGalleryItems = filters.baseGalleryItems;
   const allGalleryItems = filters.allGalleryItems;
@@ -1418,6 +1445,14 @@ export function ProductsView({
                   : `${changeAudit.changedCellCount.toLocaleString('en-US')} cells with edit history`}
           </span>
         </div>
+      ) : null}
+
+      {isAdminModerator && moderationMode ? (
+        <ProductsExcelExport
+          records={exportRecords}
+          allColumns={columns}
+          hasActiveRowFilters={hasExportRowFilters}
+        />
       ) : null}
 
       {showInitialListSkeleton ? (
