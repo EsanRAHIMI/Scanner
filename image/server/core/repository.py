@@ -28,12 +28,13 @@ def _batch_from_doc(doc: dict) -> BatchRecord:
 def _item_from_doc(doc: dict) -> ItemRecord:
     payload = {**doc}
     payload.pop("_id", None)
-    if payload.get("processed_key") and not payload.get("transparent_key"):
-        payload["transparent_key"] = payload.pop("processed_key")
-    if payload.get("processed_url") and not payload.get("transparent_url"):
-        payload["transparent_url"] = payload.pop("processed_url")
-    payload.pop("processed_key", None)
-    payload.pop("processed_url", None)
+    # MongoDB stores transparent_key/url; API model uses processed_key/url.
+    if "transparent_key" in payload and not payload.get("processed_key"):
+        payload["processed_key"] = payload.pop("transparent_key")
+    if "transparent_url" in payload and not payload.get("processed_url"):
+        payload["processed_url"] = payload.pop("transparent_url")
+    payload.pop("transparent_key", None)
+    payload.pop("transparent_url", None)
     payload["created_at"] = _dt(payload.get("created_at"))
     payload["updated_at"] = _dt(payload.get("updated_at"))
     return ItemRecord.model_validate(payload)

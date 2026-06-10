@@ -561,12 +561,20 @@ async def list_outputs(
     }
 
 
+def _resolve_cutout_key(item) -> str:
+    if item.processed_key:
+        return item.processed_key
+    candidate = storage.processed_key(item.batch_id, item.id)
+    if storage.exists(candidate):
+        return candidate
+    if not item.original_key:
+        raise HTTPException(status_code=400, detail="NO_PROCESSED_IMAGE")
+    return candidate
+
+
 @app.post("/api/v1/outputs/{item_id}/background")
 async def change_output_background(item_id: str, payload: ChangeOutputBackgroundRequest) -> dict:
     item = _item_or_404(item_id)
-    if not item.processed_key:
-        raise HTTPException(status_code=400, detail="NO_PROCESSED_IMAGE")
-
     batch = _batch_or_404(item.batch_id)
     bg_id = payload.background_id.strip()
     if not bg_id:
@@ -581,13 +589,17 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
     )
 
     try:
-        cutout_key = storage.processed_key(item.batch_id, item.id)
-        item.processed_url = await asyncio.to_thread(
-            processor.process_original,
-            item.original_key,
-            cutout_key,
-        )
-        item.processed_key = cutout_key
+        cutout_key = _resolve_cutout_key(item)
+        if storage.exists(cutout_key):
+            item.processed_key = cutout_key
+            item.processed_url = storage.public_url(cutout_key)
+        else:
+            item.processed_url = await asyncio.to_thread(
+                processor.process_original,
+                item.original_key,
+                cutout_key,
+            )
+            item.processed_key = cutout_key
 
         final_url = await asyncio.to_thread(
             processor.render_final,
