@@ -35,6 +35,7 @@ class ItemStatus(str, Enum):
     BACKGROUND_APPLIED = "background_applied"
     FINALIZED = "finalized"
     FAILED = "failed"
+    NEEDS_MANUAL_REVIEW = "needs_manual_review"
 
 
 class BatchRecord(BaseModel):
@@ -43,6 +44,7 @@ class BatchRecord(BaseModel):
     source: ImportSource
     status: BatchStatus = BatchStatus.DRAFT
     default_background_id: str = "lorenzo-default"
+    total_count: int = 0
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -54,11 +56,12 @@ class ItemRecord(BaseModel):
     file_name: str
     display_name: str
     source_ref: str
+    source: ImportSource | None = None
     original_key: str
-    processed_key: str | None = None
-    final_key: str | None = None
     original_url: str | None = None
+    processed_key: str | None = None
     processed_url: str | None = None
+    final_key: str | None = None
     final_url: str | None = None
     background_id: str | None = None
     status: ItemStatus = ItemStatus.IMPORTED
@@ -69,15 +72,18 @@ class ItemRecord(BaseModel):
 
 class OutputRecord(BaseModel):
     id: str
+    item_id: str
     batch_id: str
     file_name: str
     final_url: str
+    final_key: str | None = None
     source_ref: str
     original_ref: str
     source: ImportSource
     status: ItemStatus
     background_id: str | None = None
-    updated_at: datetime
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class ChangeOutputBackgroundRequest(BaseModel):

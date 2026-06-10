@@ -16,7 +16,8 @@ from core.backgrounds import (
     resolve_background_path,
     save_background_upload,
 )
-from core.config import get_settings
+from core.config import Settings, get_settings
+from core.db import connect_mongo, ensure_indexes, mongo_health
 from core.importers import ImportService
 from core.system_settings import (
     SystemSettingsStore,
@@ -43,30 +44,63 @@ from core.storage import StorageBackend, sanitize_storage_name
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("image-service")
 
-settings = get_settings()
+settings: Settings = get_settings()
 storage = StorageBackend(settings)
-repository = ImageRepository(settings.storage_root)
-system_settings_store = SystemSettingsStore(settings.storage_root)
-processor = ImageProcessor(
-    settings,
-    storage,
-    subject_fill_ratio=system_settings_store.get().subject_fill_ratio,
-)
-importer = ImportService(settings, storage, repository)
+mongo_db = None
+repository: ImageRepository | None = None
+system_settings_store: SystemSettingsStore | None = None
+processor: ImageProcessor | None = None
+importer: ImportService | None = None
+
+
+def _require_repo() -> ImageRepository:
+    if repository is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+    return repository
+
+
+def _require_settings_store() -> SystemSettingsStore:
+    if system_settings_store is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+    return system_settings_store
+
+
+def _runtime() -> dict:
+    return runtime_info(settings, storage.s3_enabled, mongo_health(mongo_db).get("ok", False))
 
 
 def _sync_processor_from_settings() -> None:
-    processor.set_subject_fill_ratio(system_settings_store.get().subject_fill_ratio)
+    if processor is not None:
+        processor.set_subject_fill_ratio(_require_settings_store().get().subject_fill_ratio)
 
 
 def _default_background_id() -> str:
-    return system_settings_store.get().default_background_id
+    return _require_settings_store().get().default_background_id
 
 
 def _auto_process_enabled(query_override: bool | None = None) -> bool:
     if query_override is not None:
         return query_override
-    return system_settings_store.get().auto_process_on_import
+    return _require_settings_store().get().auto_process_on_import
+
+
+def _register_background_metadata(background_id: str, display_name: str) -> None:
+    if mongo_db is None:
+        return
+    from core.db import COL_BACKGROUNDS
+    from core.models import utc_now
+
+    mongo_db[COL_BACKGROUNDS].update_one(
+        {"background_id": background_id},
+        {
+            "$set": {
+                "background_id": background_id,
+                "name": display_name,
+                "updated_at": utc_now().isoformat(),
+            }
+        },
+        upsert=True,
+    )
 
 app = FastAPI(
     title="Lorenzo Image Service",
@@ -84,14 +118,14 @@ app.add_middleware(
 
 
 def _batch_or_404(batch_id: str):
-    batch = repository.get_batch(batch_id)
+    batch = _require_repo().get_batch(batch_id)
     if not batch:
         raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
     return batch
 
 
 def _item_or_404(item_id: str):
-    item = repository.get_item(item_id)
+    item = _require_repo().get_item(item_id)
     if not item:
         raise HTTPException(status_code=404, detail="ITEM_NOT_FOUND")
     return item
@@ -126,15 +160,15 @@ async def _render_item_final(item, batch_id: str, background_id: str) -> None:
 async def _process_batch(batch_id: str) -> None:
     batch = _batch_or_404(batch_id)
     batch.status = BatchStatus.PROCESSING
-    repository.save_batch(batch)
+    _require_repo().save_batch(batch)
 
     bg_id = _batch_background_id(batch)
-    items = repository.list_items(batch_id)
+    items = _require_repo().list_items(batch_id)
     failed = 0
     for item in items:
         try:
             item.status = ItemStatus.PROCESSING
-            repository.save_item(item)
+            _require_repo().save_item(item)
             processed_key = storage.processed_key(batch_id, item.id)
             processed_url = await asyncio.to_thread(
                 processor.process_original,
@@ -146,16 +180,16 @@ async def _process_batch(batch_id: str) -> None:
             await _render_item_final(item, batch_id, bg_id)
             item.status = ItemStatus.PROCESSED
             item.error = None
-            repository.save_item(item)
+            _require_repo().save_item(item)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed processing item %s", item.id)
             item.status = ItemStatus.FAILED
             item.error = str(exc)
-            repository.save_item(item)
+            _require_repo().save_item(item)
             failed += 1
 
     batch.status = BatchStatus.REVIEW if failed < len(items) else BatchStatus.FAILED
-    repository.save_batch(batch)
+    _require_repo().save_batch(batch)
 
 
 async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> None:
@@ -163,10 +197,10 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
     default_bg = payload.default_background_id or batch.default_background_id or _default_background_id()
     batch.default_background_id = default_bg
     batch.status = BatchStatus.BACKGROUND
-    repository.save_batch(batch)
+    _require_repo().save_batch(batch)
 
     default_path = resolve_background_path(settings, default_bg)
-    items = repository.list_items(batch_id)
+    items = _require_repo().list_items(batch_id)
 
     for item in items:
         if item.status not in {ItemStatus.PROCESSED, ItemStatus.REVIEWED, ItemStatus.BACKGROUND_APPLIED}:
@@ -193,36 +227,64 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
             item.final_key = final_key
             item.final_url = final_url
             item.status = ItemStatus.BACKGROUND_APPLIED
-            repository.save_item(item)
+            _require_repo().save_item(item)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed background for item %s", item.id)
             item.status = ItemStatus.FAILED
             item.error = str(exc)
-            repository.save_item(item)
+            _require_repo().save_item(item)
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    settings.storage_root.mkdir(parents=True, exist_ok=True)
-    ensure_default_background(settings)
+    global mongo_db, repository, system_settings_store, processor, importer
+
+    if not settings.mongodb_uri:
+        logger.error("MONGODB_URI is not set — Image metadata API will return 503")
+        ensure_default_background(settings)
+        return
+
+    try:
+        mongo_db = connect_mongo(settings)
+        ensure_indexes(mongo_db)
+        repository = ImageRepository(mongo_db)
+        system_settings_store = SystemSettingsStore(mongo_db)
+        processor = ImageProcessor(
+            settings,
+            storage,
+            subject_fill_ratio=system_settings_store.get().subject_fill_ratio,
+        )
+        importer = ImportService(settings, storage, repository)
+        ensure_default_background(settings)
+        logger.info("Image service ready (MongoDB=%s)", settings.image_mongodb_db)
+    except Exception:
+        logger.exception("Failed to connect to MongoDB")
+        mongo_db = None
+        repository = None
+        system_settings_store = None
+        processor = None
+        importer = None
 
 
 @app.get("/health")
 async def health() -> dict:
+    mongo = mongo_health(mongo_db)
     return {
-        "ok": True,
+        "ok": mongo.get("ok", False) and repository is not None,
         "s3_enabled": storage.s3_enabled,
+        "mongodb": mongo,
+        "mongodb_db": settings.image_mongodb_db,
         "output_size": [settings.image_output_width, settings.image_output_height],
     }
 
 
 @app.get("/api/v1/settings")
 async def get_system_settings() -> dict:
-    sys_settings = system_settings_store.get()
+    sys_settings = _require_settings_store().get()
     return {
         "settings": sys_settings.model_dump(mode="json"),
         "backgrounds": list_backgrounds(settings, sys_settings.default_background_id),
-        "runtime": runtime_info(settings, storage.s3_enabled),
+        "runtime": _runtime(),
     }
 
 
@@ -230,12 +292,12 @@ async def get_system_settings() -> dict:
 async def update_system_settings(payload: UpdateSystemSettingsRequest) -> dict:
     if payload.default_background_id:
         resolve_background_path(settings, payload.default_background_id)
-    updated = system_settings_store.update(payload)
+    updated = _require_settings_store().update(payload)
     _sync_processor_from_settings()
     return {
         "settings": updated.model_dump(mode="json"),
         "backgrounds": list_backgrounds(settings, updated.default_background_id),
-        "runtime": runtime_info(settings, storage.s3_enabled),
+        "runtime": _runtime(),
     }
 
 
@@ -252,11 +314,13 @@ async def upload_background(
     suffix = Path(file.filename).suffix or ".jpg"
     data = await file.read()
     save_background_upload(settings, background_id=bg_id, data=data, suffix=suffix)
-    sys_settings = system_settings_store.get()
+    label = display_name or bg_id.replace("-", " ").title()
+    _register_background_metadata(bg_id, label)
+    sys_settings = _require_settings_store().get()
     return {
         "background": {
             "id": bg_id,
-            "name": (display_name or bg_id.replace("-", " ").title()),
+            "name": label,
             "preview_url": f"/api/v1/assets/backgrounds/{bg_id}",
             "is_default": bg_id == sys_settings.default_background_id,
         },
@@ -271,14 +335,14 @@ async def get_backgrounds() -> dict:
 
 @app.get("/api/v1/batches")
 async def list_batches() -> dict:
-    batches = repository.list_batches()
+    batches = _require_repo().list_batches()
     return {"batches": [b.model_dump(mode="json") for b in batches]}
 
 
 @app.get("/api/v1/batches/{batch_id}")
 async def get_batch(batch_id: str) -> dict:
     batch = _batch_or_404(batch_id)
-    items = repository.list_items(batch_id)
+    items = _require_repo().list_items(batch_id)
     return {
         "batch": batch.model_dump(mode="json"),
         "items": [i.model_dump(mode="json") for i in items],
@@ -294,6 +358,9 @@ async def import_local(
 ) -> LocalImportResponse:
     if not files:
         raise HTTPException(status_code=400, detail="NO_FILES")
+
+    if importer is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
 
     batch = importer.create_batch(
         name=batch_name or f"Local import {len(files)} file(s)",
@@ -323,6 +390,9 @@ async def import_s3(payload: S3ImportRequest, background_tasks: BackgroundTasks)
     if not storage.s3_enabled:
         raise HTTPException(status_code=400, detail="S3_NOT_CONFIGURED")
 
+    if importer is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+
     batch = importer.create_batch(
         name=payload.batch_name or "S3 import",
         source=ImportSource.S3,
@@ -349,6 +419,9 @@ async def import_google_drive(
 ) -> dict:
     if not payload.file_ids and not payload.folder_id:
         raise HTTPException(status_code=400, detail="DRIVE_FILE_OR_FOLDER_REQUIRED")
+
+    if importer is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
 
     batch = importer.create_batch(
         name=payload.batch_name or "Google Drive import",
@@ -389,7 +462,7 @@ async def rename_item(item_id: str, payload: RenameItemRequest) -> dict:
     item.display_name = name
     if item.status == ItemStatus.PROCESSED:
         item.status = ItemStatus.REVIEWED
-    repository.save_item(item)
+    _require_repo().save_item(item)
     return {"item": item.model_dump(mode="json")}
 
 
@@ -401,7 +474,7 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
         try:
             batch = _batch_or_404(item.batch_id)
             item.status = ItemStatus.PROCESSING
-            repository.save_item(item)
+            _require_repo().save_item(item)
             processed_key = storage.processed_key(item.batch_id, item.id)
             processed_url = await asyncio.to_thread(
                 processor.process_original,
@@ -413,11 +486,11 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
             await _render_item_final(item, item.batch_id, _batch_background_id(batch))
             item.status = ItemStatus.PROCESSED
             item.error = None
-            repository.save_item(item)
+            _require_repo().save_item(item)
         except Exception as exc:  # noqa: BLE001
             item.status = ItemStatus.FAILED
             item.error = str(exc)
-            repository.save_item(item)
+            _require_repo().save_item(item)
 
     background_tasks.add_task(_run)
     return {"ok": True, "item_id": item_id}
@@ -428,7 +501,7 @@ async def apply_background(batch_id: str, payload: ApplyBackgroundRequest) -> di
     _batch_or_404(batch_id)
     await _apply_backgrounds(batch_id, payload)
     batch = _batch_or_404(batch_id)
-    items = repository.list_items(batch_id)
+    items = _require_repo().list_items(batch_id)
     return {
         "batch": batch.model_dump(mode="json"),
         "items": [i.model_dump(mode="json") for i in items],
@@ -441,7 +514,7 @@ async def finalize_batch(batch_id: str, payload: FinalizeBatchRequest) -> dict:
         raise HTTPException(status_code=400, detail="CONFIRM_REQUIRED")
 
     batch = _batch_or_404(batch_id)
-    items = repository.list_items(batch_id)
+    items = _require_repo().list_items(batch_id)
     ready_statuses = {
         ItemStatus.PROCESSED,
         ItemStatus.REVIEWED,
@@ -452,18 +525,18 @@ async def finalize_batch(batch_id: str, payload: FinalizeBatchRequest) -> dict:
         if item.status not in ready_statuses or not item.final_url:
             continue
         item.status = ItemStatus.FINALIZED
-        repository.save_item(item)
-        outputs.append(repository.upsert_output(item, batch).model_dump(mode="json"))
+        _require_repo().save_item(item)
+        outputs.append(_require_repo().upsert_output(item, batch).model_dump(mode="json"))
 
     batch.status = BatchStatus.FINALIZED
-    repository.save_batch(batch)
+    _require_repo().save_batch(batch)
     return {"batch": batch.model_dump(mode="json"), "outputs": outputs}
 
 
 def _enrich_output_row(row):
     payload = row.model_dump(mode="json")
     if not payload.get("background_id"):
-        item = repository.get_item(row.id)
+        item = _require_repo().get_item(row.item_id)
         if item and item.background_id:
             payload["background_id"] = item.background_id
     return payload
@@ -477,7 +550,7 @@ async def list_outputs(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    rows = repository.list_outputs(batch_id=batch_id, status=status, file_name=file_name)
+    rows = _require_repo().list_outputs(batch_id=batch_id, status=status, file_name=file_name)
     page = rows[offset : offset + limit]
     return {
         "items": [_enrich_output_row(row) for row in page],
@@ -532,8 +605,8 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
     item.final_url = final_url
     item.status = ItemStatus.FINALIZED
     item.error = None
-    repository.save_item(item)
-    output = repository.upsert_output(item, batch)
+    _require_repo().save_item(item)
+    output = _require_repo().upsert_output(item, batch)
     return {
         "output": _enrich_output_row(output),
         "item": item.model_dump(mode="json"),
@@ -559,7 +632,7 @@ def _storage_keys_for_item(item) -> list[str]:
 @app.delete("/api/v1/outputs/{item_id}")
 async def delete_output(item_id: str) -> dict:
     item = _item_or_404(item_id)
-    if not repository.delete_output(item_id):
+    if not _require_repo().delete_output(item_id):
         raise HTTPException(status_code=404, detail="OUTPUT_NOT_FOUND")
 
     deleted_keys: list[str] = []
@@ -567,7 +640,7 @@ async def delete_output(item_id: str) -> dict:
         storage.delete_key(key)
         deleted_keys.append(key)
 
-    repository.delete_item(item_id)
+    _require_repo().delete_item(item_id)
     return {"ok": True, "id": item_id, "deleted_keys": deleted_keys}
 
 

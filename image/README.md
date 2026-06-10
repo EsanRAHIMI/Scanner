@@ -18,6 +18,29 @@ Image management and processing service with API and admin UI.
 - **Background step**: default Lorenzo template or per-image override
 - **Outputs API**: file name, final URL, source/original refs, status — for Products and other services
 
+## Data architecture
+
+| Layer | Stores |
+|-------|--------|
+| **S3** | Image bytes only (`uploads/`, `processed/`, `final/`) |
+| **MongoDB Atlas** | All metadata — batches, items, outputs, settings, background registry |
+
+Database name: `IMAGE_MONGODB_DB` (default `lorenzo_image`).
+
+Collections:
+
+| Collection | Contents |
+|------------|----------|
+| `image_batches` | Batch id, source, status, total_count, timestamps |
+| `image_items` | Per-image keys, URLs, status, errors (`transparent_key` / `transparent_url` in DB; API returns `processed_key` / `processed_url`) |
+| `image_outputs` | Published outputs for Products and other services |
+| `image_settings` | Singleton system settings |
+| `image_backgrounds` | Uploaded template metadata |
+
+Indexed fields: `file_name`, `batch_id`, `item_id`, `status`, `final_key`.
+
+Local JSON under `image/server/storage/` is **deprecated** — use migration scripts below.
+
 ## Local run
 
 **Python**: use 3.10–3.13 (3.11 recommended). Avoid 3.14 until all wheels support it.
@@ -59,7 +82,7 @@ Deploy **two separate applications** from this monorepo (Nixpacks). Set the **Ro
 | Image API | `image/server` | `uvicorn app:app --host 0.0.0.0 --port $PORT` |
 | Image Admin UI | `image/web` | `npm run start` |
 
-**Image API** — add env vars from `image/server/.env.example` (S3, optional Google Drive). Dokploy injects `PORT`; the `Procfile` and `nixpacks.toml` use it automatically.
+**Image API** — set `MONGODB_URI`, `IMAGE_MONGODB_DB`, S3 vars from `image/server/.env.example`. Dokploy injects `PORT`; the `Procfile` and `nixpacks.toml` use it automatically.
 
 **Image Admin UI** — typical Lorenzo host layout on one domain:
 
@@ -83,14 +106,33 @@ Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` (causes `/api/api/v1/�
 
 | Variable | Description |
 |----------|-------------|
-| `AWS_ACCESS_KEY_ID` | S3 credentials (optional) |
-| `AWS_SECRET_ACCESS_KEY` | S3 credentials (optional) |
+| `MONGODB_URI` | **Required.** MongoDB Atlas connection string |
+| `IMAGE_MONGODB_DB` | Database name (default: `lorenzo_image`) |
+| `AWS_ACCESS_KEY_ID` | S3 credentials (recommended in production) |
+| `AWS_SECRET_ACCESS_KEY` | S3 credentials |
 | `AWS_S3_BUCKET` | Target bucket |
 | `AWS_S3_PUBLIC_BASE_URL` | Public CDN/base URL for final links |
 | `AWS_S3_UPLOAD_PREFIX` | Default: `uploads` |
 | `GOOGLE_DRIVE_CREDENTIALS_JSON` | Service account JSON path for Drive import |
 
-When S3 is not configured, files are stored under `image/server/storage/files/`.
+When S3 is not configured, image bytes are cached under `image/server/storage/files/` (metadata still in MongoDB).
+
+### Migration helpers
+
+Import legacy JSON metadata (one-time, from an old deploy or local machine):
+
+```bash
+cd image/server
+source .venv/bin/activate
+python scripts/migrate_json_to_mongo.py --storage-root ./storage
+```
+
+Rebuild `image_outputs` from existing S3 `final/` keys (after metadata loss):
+
+```bash
+python scripts/rebuild_outputs_from_s3.py
+python scripts/rebuild_outputs_from_s3.py --dry-run   # preview only
+```
 
 ### `image/web/.env.local`
 

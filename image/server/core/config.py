@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     image_output_width: int = 1080
     image_output_height: int = 1440
 
+    mongodb_uri: str | None = None
+    image_mongodb_db: str = "lorenzo_image"
+
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-1"

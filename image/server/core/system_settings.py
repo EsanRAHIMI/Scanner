@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
-import threading
-from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
+from pymongo.database import Database
 
 from .config import Settings
+from .db import COL_SETTINGS
 from .models import utc_now
 
 
@@ -34,22 +35,23 @@ def slugify_background_id(value: str) -> str:
 
 
 class SystemSettingsStore:
-    def __init__(self, root: Path) -> None:
-        self.path = root / "system-settings.json"
-        self._lock = threading.RLock()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self.save(SystemSettings())
+    SETTINGS_ID = "system"
+
+    def __init__(self, db: Database) -> None:
+        self._collection = db[COL_SETTINGS]
 
     def get(self) -> SystemSettings:
-        with self._lock:
-            return SystemSettings.model_validate_json(self.path.read_text(encoding="utf-8"))
+        doc = self._collection.find_one({"_id": self.SETTINGS_ID})
+        if not doc:
+            return self.save(SystemSettings())
+        payload = {k: v for k, v in doc.items() if k != "_id"}
+        return SystemSettings.model_validate(payload)
 
     def save(self, settings: SystemSettings) -> SystemSettings:
-        with self._lock:
-            settings.updated_at = utc_now().isoformat()
-            self.path.write_text(settings.model_dump_json(indent=2), encoding="utf-8")
-            return settings
+        settings.updated_at = utc_now().isoformat()
+        doc: dict[str, Any] = {"_id": self.SETTINGS_ID, **settings.model_dump()}
+        self._collection.replace_one({"_id": self.SETTINGS_ID}, doc, upsert=True)
+        return settings
 
     def update(self, patch: UpdateSystemSettingsRequest) -> SystemSettings:
         current = self.get()
@@ -60,7 +62,7 @@ class SystemSettingsStore:
         return self.save(SystemSettings.model_validate(data))
 
 
-def runtime_info(settings: Settings, storage_s3_enabled: bool) -> dict:
+def runtime_info(settings: Settings, storage_s3_enabled: bool, mongo_ok: bool) -> dict:
     return {
         "output_width": settings.image_output_width,
         "output_height": settings.image_output_height,
@@ -71,4 +73,7 @@ def runtime_info(settings: Settings, storage_s3_enabled: bool) -> dict:
         "processed_prefix": settings.aws_s3_processed_prefix,
         "final_prefix": settings.aws_s3_final_prefix,
         "google_drive_configured": bool(settings.google_drive_credentials_json),
+        "mongodb_enabled": bool(settings.mongodb_uri),
+        "mongodb_ok": mongo_ok,
+        "mongodb_db": settings.image_mongodb_db,
     }

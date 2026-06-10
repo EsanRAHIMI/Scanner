@@ -68,6 +68,7 @@ class ImportService:
             batch_id=batch.id,
             file_name=safe_name,
             display_name=Path(safe_name).stem,
+            source=batch.source,
             source_ref=source_ref,
             original_key=key,
             original_url=original_url,
