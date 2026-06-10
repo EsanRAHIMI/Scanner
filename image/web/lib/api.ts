@@ -1,4 +1,4 @@
-import { getImageApiBase } from '@/lib/env';
+import { getImageApiBase, IMAGE_CLIENT_API_PREFIX } from '@/lib/env';
 
 export type BatchStatus =
   | 'draft'
@@ -89,9 +89,20 @@ export type OutputRow = {
   updated_at: string;
 };
 
+function stripApiV1Path(path: string): string {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  const [pathname, query = ''] = normalized.split('?');
+  const relative = pathname.replace(/^\/api\/v1\/?/, '');
+  return query ? `${relative}?${query}` : relative;
+}
+
 function apiUrl(path: string): string {
+  const relative = stripApiV1Path(path);
+  if (typeof window !== 'undefined') {
+    return `${IMAGE_CLIENT_API_PREFIX}/${relative}`;
+  }
   const base = getImageApiBase();
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${base}/api/v1/${relative}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -113,7 +124,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function resolveMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  return apiUrl(url);
+  if (url.startsWith('/api/v1/')) return apiUrl(url);
+  return apiUrl(`/api/v1/${url.replace(/^\/+/, '')}`);
 }
 
 export async function listBatches() {

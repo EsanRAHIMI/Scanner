@@ -61,14 +61,19 @@ Deploy **two separate applications** from this monorepo (Nixpacks). Set the **Ro
 
 **Image API** — add env vars from `image/server/.env.example` (S3, optional Google Drive). Dokploy injects `PORT`; the `Procfile` and `nixpacks.toml` use it automatically.
 
-**Image Admin UI** — set at build/runtime:
+**Image Admin UI** — use a **separate subdomain** for the Next.js app (e.g. `image.lorenzohome.ae`). Do not route all `/api/*` on that host to FastAPI, or Next.js routes (`/api/image`, `/api/trainer`, `/api/service-urls`) will 404.
 
 ```
-NEXT_PUBLIC_IMAGE_API_BASE=https://your-image-api-domain
-NEXT_PUBLIC_TRAINER_API_BASE=https://your-trainer-api-domain
+# Proxy target (server-side only). Use internal Docker hostname or API origin — without /api suffix.
+IMAGE_API_BASE=http://lorenzo-image-api:8020
+# or: IMAGE_API_BASE=https://image-api.lorenzohome.ae
+
+NEXT_PUBLIC_TRAINER_API_BASE=https://trainer.lorenzohome.ae/api
 ```
 
-Redeploy after pushing `Procfile` / `nixpacks.toml` if the build failed with `No start command could be found`.
+The browser calls Image API via `/api/image/*` (Next.js proxy). Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` — that produced `/api/api/v1/…` 404s.
+
+Redeploy the web app after changing env vars (rebuild if you only had `NEXT_PUBLIC_*` before).
 
 ## Environment
 
@@ -88,7 +93,8 @@ When S3 is not configured, files are stored under `image/server/storage/files/`.
 ### `image/web/.env.local`
 
 ```
-NEXT_PUBLIC_IMAGE_API_BASE=http://localhost:8020
+IMAGE_API_BASE=http://localhost:8020
+NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010
 ```
 
 ## Storage layout (S3)
