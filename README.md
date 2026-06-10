@@ -8,6 +8,8 @@ This repository is a multi-service monorepo:
 - `backend/` — Detection API (FastAPI + YOLOv8)
 - `trainer/server/` — Training API and dataset management (FastAPI)
 - `trainer/web/` — Training dashboard (Next.js)
+- `image/server/` — Image import, processing, and outputs API (FastAPI)
+- `image/web/` — Image admin UI (Next.js)
 
 ---
 
@@ -94,6 +96,8 @@ Routing is handled by Nginx in Docker and by the reverse proxy in production.
 | Inference API | `backend/` | 8000 |
 | Trainer Server API | `trainer/server/` | 8010 |
 | Trainer Web (Dashboard) | `trainer/web/` | 3010 |
+| Image API | `image/server/` | 8020 |
+| Image Admin UI | `image/web/` | 3006 |
 
 ---
 
@@ -240,8 +244,36 @@ npm run dev -- -p 3005
 Open:
 
 ```
-http://localhost:3004
+http://localhost:3005
 ```
+
+---
+
+## Terminal 7 — Image
+
+```bash
+cd image/server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8020 --reload
+```
+
+In a second terminal:
+
+```bash
+cd image/web
+npm install
+npm run dev
+```
+
+Open:
+
+```
+http://localhost:3006
+```
+
+See `image/README.md` for API details and S3/Google Drive configuration.
 
 ---
 

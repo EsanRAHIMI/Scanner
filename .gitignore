@@ -37,6 +37,11 @@ next-env.d.ts
 
 !trainer/web/next-env.d.ts
 !products/next-env.d.ts
+!image/web/next-env.d.ts
+
+# Image service runtime storage
+image/server/storage/
+image/server/.venv/
 
 # logs
 *.log
