@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
 
 from .config import Settings
 from .storage import StorageBackend
+
+
+@dataclass
+class WatermarkConfig:
+    enabled: bool = True
+    scale: float = 0.185
+    opacity: float = 1.0
+    bottom_margin_px: int = 28
 
 _rembg_remove = None
 
@@ -96,7 +105,38 @@ class ImageProcessor:
         subject.save(buf, format="PNG")
         return buf.getvalue()
 
-    def compose_on_background(self, tight_cutout_png: bytes, background: bytes | Path) -> bytes:
+    def _apply_watermark(
+        self,
+        image: Image.Image,
+        watermark_bytes: bytes,
+        config: WatermarkConfig,
+    ) -> Image.Image:
+        watermark = Image.open(io.BytesIO(watermark_bytes)).convert("RGBA")
+        canvas_w, canvas_h = image.size
+        target_w = max(1, int(canvas_w * config.scale))
+        ratio = target_w / watermark.width
+        target_h = max(1, int(watermark.height * ratio))
+        watermark = watermark.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+        if config.opacity < 1.0:
+            alpha = watermark.split()[3]
+            alpha = alpha.point(lambda value: int(value * config.opacity))
+            watermark.putalpha(alpha)
+
+        x = (canvas_w - target_w) // 2
+        y = max(0, canvas_h - target_h - config.bottom_margin_px)
+        base = image.convert("RGBA")
+        base.paste(watermark, (x, y), watermark)
+        return base.convert("RGB")
+
+    def compose_on_background(
+        self,
+        tight_cutout_png: bytes,
+        background: bytes | Path,
+        *,
+        watermark_bytes: bytes | None = None,
+        watermark_config: WatermarkConfig | None = None,
+    ) -> bytes:
         subject = self.to_tight_cutout(tight_cutout_png)
         canvas_w, canvas_h = self.output_size
         max_w = int(canvas_w * self.subject_fill_ratio)
@@ -116,6 +156,13 @@ class ImageProcessor:
         y = (canvas_h - new_size[1]) // 2
         composed.paste(resized, (x, y), resized)
 
+        if (
+            watermark_bytes
+            and watermark_config
+            and watermark_config.enabled
+        ):
+            composed = self._apply_watermark(composed, watermark_bytes, watermark_config)
+
         buf = io.BytesIO()
         composed.save(buf, format="JPEG", quality=92, optimize=True)
         return buf.getvalue()
@@ -131,9 +178,17 @@ class ImageProcessor:
         final_key: str,
         background: bytes | Path,
         filename: str,
+        *,
+        watermark_bytes: bytes | None = None,
+        watermark_config: WatermarkConfig | None = None,
     ) -> str:
         cutout = self.storage.get_bytes(processed_key)
-        final_bytes = self.compose_on_background(cutout, background)
+        final_bytes = self.compose_on_background(
+            cutout,
+            background,
+            watermark_bytes=watermark_bytes,
+            watermark_config=watermark_config,
+        )
         return self.storage.put_bytes(
             final_key,
             final_bytes,

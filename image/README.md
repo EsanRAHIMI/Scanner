@@ -22,7 +22,7 @@ Image management and processing service with API and admin UI.
 
 | Layer | Stores |
 |-------|--------|
-| **S3** | Image bytes (`uploads/`, `processed/`, `final/`, `backgrounds/`) |
+| **S3** | Image bytes (`uploads/`, `processed/`, `final/`, `backgrounds/`, `watermarks/`) |
 | **MongoDB Atlas** | All metadata — batches, items, outputs, settings, background registry |
 
 Database name: `IMAGE_MONGODB_DB` (default `lorenzo_image`).
@@ -155,6 +155,7 @@ uploads/{batch_id}/{item_id}_{filename}     # originals
 processed/{batch_id}/{item_id}.png          # cutout + centered (review)
 final/{batch_id}/{name}.jpg                 # background applied
 backgrounds/{id}-bg.jpg                     # Settings templates (shared across hosts)
+watermarks/default.png                      # Product watermark (shared across hosts)
 ```
 
 ## API (v1)
@@ -217,6 +218,7 @@ curl "http://localhost:8020/api/v1/outputs?file_name=product-001&limit=50"
 - Auto-process on import toggle
 - Subject fill ratio on canvas (50–95%)
 - Upload new background templates (auto-resized to output size)
+- Watermark: enable/disable, logo upload, size, opacity, bottom margin (default: Lorenzo white logo, bottom-center)
 - Runtime info: S3, prefixes, output dimensions
 
 ## Custom backgrounds

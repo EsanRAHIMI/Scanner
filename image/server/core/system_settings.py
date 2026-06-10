@@ -15,6 +15,10 @@ class SystemSettings(BaseModel):
     default_background_id: str = "lorenzo-default"
     auto_process_on_import: bool = True
     subject_fill_ratio: float = Field(default=0.82, ge=0.5, le=0.95)
+    watermark_enabled: bool = True
+    watermark_scale: float = Field(default=0.185, ge=0.05, le=0.5)
+    watermark_opacity: float = Field(default=1.0, ge=0.1, le=1.0)
+    watermark_bottom_margin_px: int = Field(default=28, ge=0, le=200)
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
 
@@ -22,6 +26,10 @@ class UpdateSystemSettingsRequest(BaseModel):
     default_background_id: str | None = None
     auto_process_on_import: bool | None = None
     subject_fill_ratio: float | None = Field(default=None, ge=0.5, le=0.95)
+    watermark_enabled: bool | None = None
+    watermark_scale: float | None = Field(default=None, ge=0.05, le=0.5)
+    watermark_opacity: float | None = Field(default=None, ge=0.1, le=1.0)
+    watermark_bottom_margin_px: int | None = Field(default=None, ge=0, le=200)
 
 
 class UploadBackgroundRequest(BaseModel):

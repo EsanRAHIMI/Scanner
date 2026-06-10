@@ -19,6 +19,7 @@ COL_ITEMS = "image_items"
 COL_OUTPUTS = "image_outputs"
 COL_SETTINGS = "image_settings"
 COL_BACKGROUNDS = "image_backgrounds"
+COL_WATERMARK = "image_watermark"
 
 
 def connect_mongo(settings: Settings) -> Database:

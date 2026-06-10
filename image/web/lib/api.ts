@@ -55,7 +55,18 @@ export type SystemSettings = {
   default_background_id: string;
   auto_process_on_import: boolean;
   subject_fill_ratio: number;
+  watermark_enabled: boolean;
+  watermark_scale: number;
+  watermark_opacity: number;
+  watermark_bottom_margin_px: number;
   updated_at: string;
+};
+
+export type WatermarkInfo = {
+  preview_url: string;
+  configured: boolean;
+  name: string;
+  updated_at?: string | null;
 };
 
 export type RuntimeInfo = {
@@ -73,6 +84,7 @@ export type RuntimeInfo = {
 export type SettingsResponse = {
   settings: SystemSettings;
   backgrounds: Background[];
+  watermark: WatermarkInfo;
   runtime: RuntimeInfo;
 };
 
@@ -144,6 +156,21 @@ export async function updateSettings(payload: Partial<SystemSettings>) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
+}
+
+export async function uploadWatermark(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(apiUrl('/api/v1/settings/watermark'), {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<SettingsResponse>;
+}
+
+export async function resetWatermark() {
+  return request<SettingsResponse>('/api/v1/settings/watermark/reset', { method: 'POST' });
 }
 
 export async function uploadBackground(file: File, options?: { backgroundId?: string; displayName?: string }) {

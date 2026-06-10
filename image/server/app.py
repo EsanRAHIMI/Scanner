@@ -32,9 +32,10 @@ from core.models import (
     RenameItemRequest,
     S3ImportRequest,
 )
-from core.processor import ImageProcessor
+from core.processor import ImageProcessor, WatermarkConfig
 from core.repository import ImageRepository
 from core.storage import StorageBackend, sanitize_storage_name
+from core.watermarks import WatermarkStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("image-service")
@@ -47,6 +48,7 @@ system_settings_store: SystemSettingsStore | None = None
 processor: ImageProcessor | None = None
 importer: ImportService | None = None
 background_store: BackgroundStore | None = None
+watermark_store: WatermarkStore | None = None
 
 
 def _require_repo() -> ImageRepository:
@@ -65,6 +67,44 @@ def _require_background_store() -> BackgroundStore:
     if background_store is None:
         raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
     return background_store
+
+
+def _require_watermark_store() -> WatermarkStore:
+    if watermark_store is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+    return watermark_store
+
+
+def _watermark_config() -> WatermarkConfig:
+    sys_settings = _require_settings_store().get()
+    return WatermarkConfig(
+        enabled=sys_settings.watermark_enabled,
+        scale=sys_settings.watermark_scale,
+        opacity=sys_settings.watermark_opacity,
+        bottom_margin_px=sys_settings.watermark_bottom_margin_px,
+    )
+
+
+def _watermark_render_kwargs() -> dict:
+    config = _watermark_config()
+    if not config.enabled:
+        return {"watermark_bytes": None, "watermark_config": config}
+    try:
+        return {
+            "watermark_bytes": _require_watermark_store().get_bytes(),
+            "watermark_config": config,
+        }
+    except FileNotFoundError:
+        return {"watermark_bytes": None, "watermark_config": config}
+
+
+def _settings_response(sys_settings) -> dict:
+    return {
+        "settings": sys_settings.model_dump(mode="json"),
+        "backgrounds": _require_background_store().list_all(sys_settings.default_background_id),
+        "watermark": _require_watermark_store().info(),
+        "runtime": _runtime(),
+    }
 
 
 def _runtime() -> dict:
@@ -135,6 +175,7 @@ async def _render_item_final(item, batch_id: str, background_id: str) -> None:
         final_key,
         bg_bytes,
         f"{item.display_name}.jpg",
+        **_watermark_render_kwargs(),
     )
     item.background_id = background_id
     item.final_key = final_key
@@ -206,6 +247,7 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
                 final_key,
                 bg_bytes,
                 f"{item.display_name}.jpg",
+                **_watermark_render_kwargs(),
             )
             item.background_id = bg_id
             item.final_key = final_key
@@ -221,7 +263,7 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global mongo_db, repository, system_settings_store, processor, importer, background_store
+    global mongo_db, repository, system_settings_store, processor, importer, background_store, watermark_store
 
     if not settings.mongodb_uri:
         logger.error("MONGODB_URI is not set — Image metadata API will return 503")
@@ -233,6 +275,7 @@ async def startup() -> None:
         repository = ImageRepository(mongo_db)
         system_settings_store = SystemSettingsStore(mongo_db)
         background_store = BackgroundStore(settings, storage, mongo_db)
+        watermark_store = WatermarkStore(settings, storage, mongo_db)
         processor = ImageProcessor(
             settings,
             storage,
@@ -242,6 +285,8 @@ async def startup() -> None:
         seeded = background_store.seed_bundled_defaults()
         if seeded:
             logger.info("Seeded %s background template(s) to shared storage", seeded)
+        if watermark_store.seed_default():
+            logger.info("Seeded default watermark to shared storage")
         logger.info("Image service ready (MongoDB=%s)", settings.image_mongodb_db)
     except Exception:
         logger.exception("Failed to connect to MongoDB")
@@ -249,6 +294,7 @@ async def startup() -> None:
         repository = None
         system_settings_store = None
         background_store = None
+        watermark_store = None
         processor = None
         importer = None
 
@@ -267,12 +313,7 @@ async def health() -> dict:
 
 @app.get("/api/v1/settings")
 async def get_system_settings() -> dict:
-    sys_settings = _require_settings_store().get()
-    return {
-        "settings": sys_settings.model_dump(mode="json"),
-        "backgrounds": _require_background_store().list_all(sys_settings.default_background_id),
-        "runtime": _runtime(),
-    }
+    return _settings_response(_require_settings_store().get())
 
 
 @app.patch("/api/v1/settings")
@@ -284,11 +325,7 @@ async def update_system_settings(payload: UpdateSystemSettingsRequest) -> dict:
             raise HTTPException(status_code=400, detail="INVALID_BACKGROUND") from exc
     updated = _require_settings_store().update(payload)
     _sync_processor_from_settings()
-    return {
-        "settings": updated.model_dump(mode="json"),
-        "backgrounds": _require_background_store().list_all(updated.default_background_id),
-        "runtime": _runtime(),
-    }
+    return _settings_response(updated)
 
 
 @app.post("/api/v1/settings/backgrounds")
@@ -315,6 +352,25 @@ async def upload_background(
         },
         "backgrounds": _require_background_store().list_all(sys_settings.default_background_id),
     }
+
+
+@app.post("/api/v1/settings/watermark")
+async def upload_watermark(file: Annotated[UploadFile, File(...)]) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="NO_FILE")
+    suffix = Path(file.filename).suffix or ".png"
+    data = await file.read()
+    _require_watermark_store().save_upload(data, suffix)
+    return _settings_response(_require_settings_store().get())
+
+
+@app.post("/api/v1/settings/watermark/reset")
+async def reset_watermark() -> dict:
+    try:
+        _require_watermark_store().reset_to_default()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="WATERMARK_NOT_FOUND") from exc
+    return _settings_response(_require_settings_store().get())
 
 
 @app.get("/api/v1/backgrounds")
@@ -596,6 +652,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             final_key,
             bg_bytes,
             f"{item.display_name}.jpg",
+            **_watermark_render_kwargs(),
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to change background for output %s", item_id)
@@ -665,3 +722,13 @@ async def get_background_asset(background_id: str) -> Response:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="BACKGROUND_NOT_FOUND") from exc
     return Response(content=data, media_type=store.get_content_type(background_id))
+
+
+@app.get("/api/v1/assets/watermark")
+async def get_watermark_asset() -> Response:
+    store = _require_watermark_store()
+    try:
+        data = store.get_bytes()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="WATERMARK_NOT_FOUND") from exc
+    return Response(content=data, media_type=store.get_content_type())
