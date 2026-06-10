@@ -50,6 +50,26 @@ npm run dev
 
 Open: `http://localhost:3006`
 
+## Dokploy deployment
+
+Deploy **two separate applications** from this monorepo (Nixpacks). Set the **Root Directory** (build path) for each:
+
+| Dokploy app | Root directory | Start command (auto via `nixpacks.toml`) |
+|-------------|----------------|------------------------------------------|
+| Image API | `image/server` | `uvicorn app:app --host 0.0.0.0 --port $PORT` |
+| Image Admin UI | `image/web` | `npm run start` |
+
+**Image API** — add env vars from `image/server/.env.example` (S3, optional Google Drive). Dokploy injects `PORT`; the `Procfile` and `nixpacks.toml` use it automatically.
+
+**Image Admin UI** — set at build/runtime:
+
+```
+NEXT_PUBLIC_IMAGE_API_BASE=https://your-image-api-domain
+NEXT_PUBLIC_TRAINER_API_BASE=https://your-trainer-api-domain
+```
+
+Redeploy after pushing `Procfile` / `nixpacks.toml` if the build failed with `No start command could be found`.
+
 ## Environment
 
 ### `image/server/.env`
