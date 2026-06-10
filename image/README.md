@@ -61,19 +61,21 @@ Deploy **two separate applications** from this monorepo (Nixpacks). Set the **Ro
 
 **Image API** — add env vars from `image/server/.env.example` (S3, optional Google Drive). Dokploy injects `PORT`; the `Procfile` and `nixpacks.toml` use it automatically.
 
-**Image Admin UI** — use a **separate subdomain** for the Next.js app (e.g. `image.lorenzohome.ae`). Do not route all `/api/*` on that host to FastAPI, or Next.js routes (`/api/image`, `/api/trainer`, `/api/service-urls`) will 404.
+**Image Admin UI** — typical Lorenzo host layout on one domain:
+
+| URL | Service |
+|-----|---------|
+| `https://image.lorenzohome.ae` | Next.js Web UI |
+| `https://image.lorenzohome.ae/api` | FastAPI (`/api/v1/…`) |
+
+Nginx sends `/api/*` to FastAPI and everything else to Next.js. The UI calls Image API at `/api/v1/…` on the same host. Next.js-only routes live under `/web-api/*` (trainer auth, service URLs).
 
 ```
-# Proxy target (server-side only). Use internal Docker hostname or API origin — without /api suffix.
-IMAGE_API_BASE=http://lorenzo-image-api:8020
-# or: IMAGE_API_BASE=https://image-api.lorenzohome.ae
-
+IMAGE_API_BASE=https://image.lorenzohome.ae
 NEXT_PUBLIC_TRAINER_API_BASE=https://trainer.lorenzohome.ae/api
 ```
 
-The browser calls Image API via `/api/image/*` (Next.js proxy). Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` — that produced `/api/api/v1/…` 404s.
-
-Redeploy the web app after changing env vars (rebuild if you only had `NEXT_PUBLIC_*` before).
+Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` (causes `/api/api/v1/…` 404s). Rebuild and redeploy the web app after env changes.
 
 ## Environment
 

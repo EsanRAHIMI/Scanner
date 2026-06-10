@@ -20,8 +20,16 @@ export function getImageApiBase(): string {
   return 'http://localhost:8020';
 }
 
-/** Browser calls go through the Next.js proxy to avoid CORS and double /api prefixes. */
-export const IMAGE_CLIENT_API_PREFIX = '/api/image';
+/** Next.js-only routes (trainer proxy, service URLs) — not under /api (reserved for FastAPI). */
+export const IMAGE_WEB_API_PREFIX = '/web-api';
+
+export function getTrainerAuthApiPrefix(): string {
+  return `${IMAGE_WEB_API_PREFIX}/trainer`;
+}
+
+export function getServiceUrlsPath(): string {
+  return `${IMAGE_WEB_API_PREFIX}/service-urls`;
+}
 
 export function getTrainerApiBase(): string {
   const v = process.env.NEXT_PUBLIC_TRAINER_API_BASE?.trim();

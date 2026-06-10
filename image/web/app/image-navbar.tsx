@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { BrandHeader } from '@/lib/brand-header';
+import { getServiceUrlsPath, getTrainerAuthApiPrefix } from '@/lib/env';
 import { ScannerAccountMenu } from '@/lib/scanner-account-menu';
 
 type NavItem = {
@@ -39,8 +40,8 @@ export function ImageNavbar() {
   const accountMenu = (
     <ScannerAccountMenu
       app="image"
-      authApiPrefix="/api/trainer"
-      serviceUrlsPath="/api/service-urls"
+      authApiPrefix={getTrainerAuthApiPrefix()}
+      serviceUrlsPath={getServiceUrlsPath()}
       surface="light"
       className="shrink-0"
     />

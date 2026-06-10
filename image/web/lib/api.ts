@@ -1,4 +1,4 @@
-import { getImageApiBase, IMAGE_CLIENT_API_PREFIX } from '@/lib/env';
+import { getImageApiBase } from '@/lib/env';
 
 export type BatchStatus =
   | 'draft'
@@ -89,20 +89,14 @@ export type OutputRow = {
   updated_at: string;
 };
 
-function stripApiV1Path(path: string): string {
-  const normalized = path.startsWith('/') ? path : `/${path}`;
-  const [pathname, query = ''] = normalized.split('?');
-  const relative = pathname.replace(/^\/api\/v1\/?/, '');
-  return query ? `${relative}?${query}` : relative;
-}
-
 function apiUrl(path: string): string {
-  const relative = stripApiV1Path(path);
-  if (typeof window !== 'undefined') {
-    return `${IMAGE_CLIENT_API_PREFIX}/${relative}`;
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  // Production: Web at / and Image API at /api/v1 on the same host (image.lorenzohome.ae).
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'production') {
+    return normalized;
   }
   const base = getImageApiBase();
-  return `${base}/api/v1/${relative}`;
+  return `${base}${normalized}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
