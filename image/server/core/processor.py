@@ -96,7 +96,7 @@ class ImageProcessor:
         subject.save(buf, format="PNG")
         return buf.getvalue()
 
-    def compose_on_background(self, tight_cutout_png: bytes, background_path: Path) -> bytes:
+    def compose_on_background(self, tight_cutout_png: bytes, background: bytes | Path) -> bytes:
         subject = self.to_tight_cutout(tight_cutout_png)
         canvas_w, canvas_h = self.output_size
         max_w = int(canvas_w * self.subject_fill_ratio)
@@ -106,7 +106,10 @@ class ImageProcessor:
         new_size = (max(1, int(sw * scale)), max(1, int(sh * scale)))
         resized = subject.resize(new_size, Image.Resampling.LANCZOS)
 
-        background = Image.open(background_path).convert("RGB")
+        if isinstance(background, bytes):
+            background = Image.open(io.BytesIO(background)).convert("RGB")
+        else:
+            background = Image.open(background).convert("RGB")
         background = background.resize(self.output_size, Image.Resampling.LANCZOS)
         composed = background.copy()
         x = (canvas_w - new_size[0]) // 2
@@ -126,11 +129,11 @@ class ImageProcessor:
         self,
         processed_key: str,
         final_key: str,
-        background_path: Path,
+        background: bytes | Path,
         filename: str,
     ) -> str:
         cutout = self.storage.get_bytes(processed_key)
-        final_bytes = self.compose_on_background(cutout, background_path)
+        final_bytes = self.compose_on_background(cutout, background)
         return self.storage.put_bytes(
             final_key,
             final_bytes,

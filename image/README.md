@@ -22,7 +22,7 @@ Image management and processing service with API and admin UI.
 
 | Layer | Stores |
 |-------|--------|
-| **S3** | Image bytes only (`uploads/`, `processed/`, `final/`) |
+| **S3** | Image bytes (`uploads/`, `processed/`, `final/`, `backgrounds/`) |
 | **MongoDB Atlas** | All metadata — batches, items, outputs, settings, background registry |
 
 Database name: `IMAGE_MONGODB_DB` (default `lorenzo_image`).
@@ -35,7 +35,7 @@ Collections:
 | `image_items` | Per-image keys, URLs, status, errors (`transparent_key` / `transparent_url` in DB; API returns `processed_key` / `processed_url`) |
 | `image_outputs` | Published outputs for Products and other services |
 | `image_settings` | Singleton system settings |
-| `image_backgrounds` | Uploaded template metadata |
+| `image_backgrounds` | Background template metadata + `storage_key` pointing at S3 |
 
 Indexed fields: `file_name`, `batch_id`, `item_id`, `status`, `final_key`.
 
@@ -113,6 +113,7 @@ Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` (causes `/api/api/v1/�
 | `AWS_S3_BUCKET` | Target bucket |
 | `AWS_S3_PUBLIC_BASE_URL` | Public CDN/base URL for final links |
 | `AWS_S3_UPLOAD_PREFIX` | Default: `uploads` |
+| `AWS_S3_BACKGROUNDS_PREFIX` | Default: `backgrounds` |
 | `GOOGLE_DRIVE_CREDENTIALS_JSON` | Service account JSON path for Drive import |
 
 When S3 is not configured, image bytes are cached under `image/server/storage/files/` (metadata still in MongoDB).
@@ -125,6 +126,12 @@ Import legacy JSON metadata (one-time, from an old deploy or local machine):
 cd image/server
 source .venv/bin/activate
 python scripts/migrate_json_to_mongo.py --storage-root ./storage
+```
+
+Upload local `assets/` backgrounds to S3 (one-time after upgrading Settings storage):
+
+```bash
+python scripts/migrate_backgrounds_to_s3.py
 ```
 
 Rebuild `image_outputs` from existing S3 `final/` keys (after metadata loss):
@@ -147,6 +154,7 @@ NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010
 uploads/{batch_id}/{item_id}_{filename}     # originals
 processed/{batch_id}/{item_id}.png          # cutout + centered (review)
 final/{batch_id}/{name}.jpg                 # background applied
+backgrounds/{id}-bg.jpg                     # Settings templates (shared across hosts)
 ```
 
 ## API (v1)
@@ -213,6 +221,14 @@ curl "http://localhost:8020/api/v1/outputs?file_name=product-001&limit=50"
 
 ## Custom backgrounds
 
-Place JPEG/PNG files in `image/server/assets/` named `{id}-bg.jpg` (e.g. `studio-white-bg.jpg`).
+Upload templates from **Settings** (`POST /api/v1/settings/backgrounds`). Files are normalized to output size, stored in S3 under `backgrounds/`, and registered in `image_backgrounds` — the same list appears on every host (local and production).
 
-Default template: `lorenzo-default-bg.jpg` (auto-generated on first start).
+Bundled defaults in `image/server/assets/` (`{id}-bg.jpg`) are seeded to S3 on first API start. To backfill backgrounds that were only on local disk before this change:
+
+```bash
+cd image/server
+python scripts/migrate_backgrounds_to_s3.py
+python scripts/migrate_backgrounds_to_s3.py --force   # re-upload all assets/
+```
+
+Default template: `lorenzo-default` (auto-generated if missing).

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     aws_s3_upload_prefix: str = "uploads"
     aws_s3_processed_prefix: str = "processed"
     aws_s3_final_prefix: str = "final"
+    aws_s3_backgrounds_prefix: str = "backgrounds"
 
     google_drive_credentials_json: str | None = None
     google_drive_scopes: str = "https://www.googleapis.com/auth/drive.readonly"

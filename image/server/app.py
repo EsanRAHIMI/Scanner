@@ -8,14 +8,9 @@ from urllib.parse import unquote
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
-from core.backgrounds import (
-    ensure_default_background,
-    list_backgrounds,
-    resolve_background_path,
-    save_background_upload,
-)
+from core.backgrounds import BackgroundStore, background_asset_url
 from core.config import Settings, get_settings
 from core.db import connect_mongo, ensure_indexes, mongo_health
 from core.importers import ImportService
@@ -51,6 +46,7 @@ repository: ImageRepository | None = None
 system_settings_store: SystemSettingsStore | None = None
 processor: ImageProcessor | None = None
 importer: ImportService | None = None
+background_store: BackgroundStore | None = None
 
 
 def _require_repo() -> ImageRepository:
@@ -63,6 +59,12 @@ def _require_settings_store() -> SystemSettingsStore:
     if system_settings_store is None:
         raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
     return system_settings_store
+
+
+def _require_background_store() -> BackgroundStore:
+    if background_store is None:
+        raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
+    return background_store
 
 
 def _runtime() -> dict:
@@ -83,24 +85,6 @@ def _auto_process_enabled(query_override: bool | None = None) -> bool:
         return query_override
     return _require_settings_store().get().auto_process_on_import
 
-
-def _register_background_metadata(background_id: str, display_name: str) -> None:
-    if mongo_db is None:
-        return
-    from core.db import COL_BACKGROUNDS
-    from core.models import utc_now
-
-    mongo_db[COL_BACKGROUNDS].update_one(
-        {"background_id": background_id},
-        {
-            "$set": {
-                "background_id": background_id,
-                "name": display_name,
-                "updated_at": utc_now().isoformat(),
-            }
-        },
-        upsert=True,
-    )
 
 app = FastAPI(
     title="Lorenzo Image Service",
@@ -138,7 +122,7 @@ def _batch_background_id(batch) -> str:
 async def _render_item_final(item, batch_id: str, background_id: str) -> None:
     if not item.processed_key:
         raise ValueError("Item has no processed cutout")
-    bg_path = resolve_background_path(settings, background_id)
+    bg_bytes = _require_background_store().get_bytes(background_id)
     final_key = storage.final_key(
         batch_id,
         item.id,
@@ -149,7 +133,7 @@ async def _render_item_final(item, batch_id: str, background_id: str) -> None:
         processor.render_final,
         item.processed_key,
         final_key,
-        bg_path,
+        bg_bytes,
         f"{item.display_name}.jpg",
     )
     item.background_id = background_id
@@ -199,7 +183,7 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
     batch.status = BatchStatus.BACKGROUND
     _require_repo().save_batch(batch)
 
-    default_path = resolve_background_path(settings, default_bg)
+    bg_store = _require_background_store()
     items = _require_repo().list_items(batch_id)
 
     for item in items:
@@ -209,7 +193,7 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
             continue
         try:
             bg_id = payload.overrides.get(item.id, default_bg)
-            bg_path = resolve_background_path(settings, bg_id)
+            bg_bytes = bg_store.get_bytes(bg_id)
             final_key = storage.final_key(
                 batch_id,
                 item.id,
@@ -220,7 +204,7 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
                 processor.render_final,
                 item.processed_key,
                 final_key,
-                bg_path,
+                bg_bytes,
                 f"{item.display_name}.jpg",
             )
             item.background_id = bg_id
@@ -237,11 +221,10 @@ async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global mongo_db, repository, system_settings_store, processor, importer
+    global mongo_db, repository, system_settings_store, processor, importer, background_store
 
     if not settings.mongodb_uri:
         logger.error("MONGODB_URI is not set — Image metadata API will return 503")
-        ensure_default_background(settings)
         return
 
     try:
@@ -249,19 +232,23 @@ async def startup() -> None:
         ensure_indexes(mongo_db)
         repository = ImageRepository(mongo_db)
         system_settings_store = SystemSettingsStore(mongo_db)
+        background_store = BackgroundStore(settings, storage, mongo_db)
         processor = ImageProcessor(
             settings,
             storage,
             subject_fill_ratio=system_settings_store.get().subject_fill_ratio,
         )
         importer = ImportService(settings, storage, repository)
-        ensure_default_background(settings)
+        seeded = background_store.seed_bundled_defaults()
+        if seeded:
+            logger.info("Seeded %s background template(s) to shared storage", seeded)
         logger.info("Image service ready (MongoDB=%s)", settings.image_mongodb_db)
     except Exception:
         logger.exception("Failed to connect to MongoDB")
         mongo_db = None
         repository = None
         system_settings_store = None
+        background_store = None
         processor = None
         importer = None
 
@@ -283,7 +270,7 @@ async def get_system_settings() -> dict:
     sys_settings = _require_settings_store().get()
     return {
         "settings": sys_settings.model_dump(mode="json"),
-        "backgrounds": list_backgrounds(settings, sys_settings.default_background_id),
+        "backgrounds": _require_background_store().list_all(sys_settings.default_background_id),
         "runtime": _runtime(),
     }
 
@@ -291,12 +278,15 @@ async def get_system_settings() -> dict:
 @app.patch("/api/v1/settings")
 async def update_system_settings(payload: UpdateSystemSettingsRequest) -> dict:
     if payload.default_background_id:
-        resolve_background_path(settings, payload.default_background_id)
+        try:
+            _require_background_store().ensure_exists(payload.default_background_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=400, detail="INVALID_BACKGROUND") from exc
     updated = _require_settings_store().update(payload)
     _sync_processor_from_settings()
     return {
         "settings": updated.model_dump(mode="json"),
-        "backgrounds": list_backgrounds(settings, updated.default_background_id),
+        "backgrounds": _require_background_store().list_all(updated.default_background_id),
         "runtime": _runtime(),
     }
 
@@ -313,24 +303,23 @@ async def upload_background(
     bg_id = slugify_background_id(raw_id)
     suffix = Path(file.filename).suffix or ".jpg"
     data = await file.read()
-    save_background_upload(settings, background_id=bg_id, data=data, suffix=suffix)
     label = display_name or bg_id.replace("-", " ").title()
-    _register_background_metadata(bg_id, label)
+    _require_background_store().save_upload(bg_id, label, data, suffix)
     sys_settings = _require_settings_store().get()
     return {
         "background": {
             "id": bg_id,
             "name": label,
-            "preview_url": f"/api/v1/assets/backgrounds/{bg_id}",
+            "preview_url": background_asset_url(bg_id),
             "is_default": bg_id == sys_settings.default_background_id,
         },
-        "backgrounds": list_backgrounds(settings, sys_settings.default_background_id),
+        "backgrounds": _require_background_store().list_all(sys_settings.default_background_id),
     }
 
 
 @app.get("/api/v1/backgrounds")
 async def get_backgrounds() -> dict:
-    return {"backgrounds": list_backgrounds(settings, _default_background_id())}
+    return {"backgrounds": _require_background_store().list_all(_default_background_id())}
 
 
 @app.get("/api/v1/batches")
@@ -580,7 +569,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
     if not bg_id:
         raise HTTPException(status_code=400, detail="INVALID_BACKGROUND")
 
-    bg_path = resolve_background_path(settings, bg_id)
+    bg_bytes = _require_background_store().get_bytes(bg_id)
     final_key = storage.final_key(
         item.batch_id,
         item.id,
@@ -605,7 +594,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             processor.render_final,
             cutout_key,
             final_key,
-            bg_path,
+            bg_bytes,
             f"{item.display_name}.jpg",
         )
     except Exception as exc:  # noqa: BLE001
@@ -669,6 +658,10 @@ async def get_file(file_path: str) -> Response:
 
 
 @app.get("/api/v1/assets/backgrounds/{background_id}")
-async def get_background_asset(background_id: str) -> FileResponse:
-    path = resolve_background_path(settings, background_id)
-    return FileResponse(path)
+async def get_background_asset(background_id: str) -> Response:
+    store = _require_background_store()
+    try:
+        data = store.get_bytes(background_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="BACKGROUND_NOT_FOUND") from exc
+    return Response(content=data, media_type=store.get_content_type(background_id))
