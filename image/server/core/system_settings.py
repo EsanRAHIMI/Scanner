@@ -6,9 +6,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pymongo.database import Database
 
-from .config import Settings
+from .config import Settings, get_settings
 from .db import COL_SETTINGS
 from .models import utc_now
+from .rembg_config import rembg_config_from_env
 
 
 class SystemSettings(BaseModel):
@@ -19,6 +20,14 @@ class SystemSettings(BaseModel):
     watermark_scale: float = Field(default=0.185, ge=0.05, le=0.5)
     watermark_opacity: float = Field(default=1.0, ge=0.1, le=1.0)
     watermark_bottom_margin_px: int = Field(default=28, ge=0, le=200)
+    rembg_model: str = "birefnet-general"
+    rembg_preserve_detail: bool = True
+    rembg_mask_dilate: int = Field(default=1, ge=0, le=5)
+    rembg_alpha_matting: bool = False
+    rembg_foreground_threshold: int = Field(default=240, ge=0, le=255)
+    rembg_background_threshold: int = Field(default=8, ge=0, le=255)
+    rembg_erode_size: int = Field(default=0, ge=0, le=20)
+    rembg_min_dimension: int = Field(default=1800, ge=800, le=4096)
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
 
@@ -30,6 +39,28 @@ class UpdateSystemSettingsRequest(BaseModel):
     watermark_scale: float | None = Field(default=None, ge=0.05, le=0.5)
     watermark_opacity: float | None = Field(default=None, ge=0.1, le=1.0)
     watermark_bottom_margin_px: int | None = Field(default=None, ge=0, le=200)
+    rembg_model: str | None = None
+    rembg_preserve_detail: bool | None = None
+    rembg_mask_dilate: int | None = Field(default=None, ge=0, le=5)
+    rembg_alpha_matting: bool | None = None
+    rembg_foreground_threshold: int | None = Field(default=None, ge=0, le=255)
+    rembg_background_threshold: int | None = Field(default=None, ge=0, le=255)
+    rembg_erode_size: int | None = Field(default=None, ge=0, le=20)
+    rembg_min_dimension: int | None = Field(default=None, ge=800, le=4096)
+
+
+def default_system_settings(env: Settings) -> SystemSettings:
+    rembg = rembg_config_from_env(env)
+    return SystemSettings(
+        rembg_model=rembg.model,
+        rembg_preserve_detail=rembg.preserve_detail,
+        rembg_mask_dilate=rembg.mask_dilate,
+        rembg_alpha_matting=rembg.alpha_matting,
+        rembg_foreground_threshold=rembg.foreground_threshold,
+        rembg_background_threshold=rembg.background_threshold,
+        rembg_erode_size=rembg.erode_size,
+        rembg_min_dimension=rembg.min_dimension,
+    )
 
 
 class UploadBackgroundRequest(BaseModel):
@@ -45,13 +76,14 @@ def slugify_background_id(value: str) -> str:
 class SystemSettingsStore:
     SETTINGS_ID = "system"
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, env: Settings | None = None) -> None:
         self._collection = db[COL_SETTINGS]
+        self._env = env or get_settings()
 
     def get(self) -> SystemSettings:
         doc = self._collection.find_one({"_id": self.SETTINGS_ID})
         if not doc:
-            return self.save(SystemSettings())
+            return self.save(default_system_settings(self._env))
         payload = {k: v for k, v in doc.items() if k != "_id"}
         return SystemSettings.model_validate(payload)
 

@@ -8,6 +8,8 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .background_removal import loaded_model_name
 from .config import Settings
+from .rembg_config import rembg_config_from_system
+from .system_settings import SystemSettings
 
 
 def _pkg_version(name: str) -> str | None:
@@ -51,16 +53,36 @@ def _deploy_context() -> dict:
     }
 
 
-def runtime_info(settings: Settings, storage_s3_enabled: bool, mongo_ok: bool) -> dict:
+def runtime_info(
+    settings: Settings,
+    storage_s3_enabled: bool,
+    mongo_ok: bool,
+    *,
+    sys_settings: SystemSettings | None = None,
+) -> dict:
     libraries = _library_versions()
-    return {
-        "output_width": settings.image_output_width,
-        "output_height": settings.image_output_height,
-        "deploy": _deploy_context(),
-        "libraries": libraries,
-        "rembg": {
+    if sys_settings is not None:
+        rembg_cfg = rembg_config_from_system(settings, sys_settings)
+        rembg_section = {
+            "configured_model": rembg_cfg.model,
+            "loaded_model": loaded_model_name(),
+            "preserve_detail": rembg_cfg.preserve_detail,
+            "mask_dilate": rembg_cfg.mask_dilate,
+            "alpha_matting": rembg_cfg.alpha_matting,
+            "foreground_threshold": rembg_cfg.foreground_threshold,
+            "background_threshold": rembg_cfg.background_threshold,
+            "erode_size": rembg_cfg.erode_size,
+            "max_dimension": rembg_cfg.max_dimension,
+            "min_dimension": rembg_cfg.min_dimension,
+            "onnx_providers": _onnx_providers(),
+            "available": libraries.get("rembg") is not None,
+        }
+    else:
+        rembg_section = {
             "configured_model": settings.image_rembg_model,
             "loaded_model": loaded_model_name(),
+            "preserve_detail": settings.image_rembg_preserve_detail,
+            "mask_dilate": settings.image_rembg_mask_dilate,
             "alpha_matting": settings.image_rembg_alpha_matting,
             "foreground_threshold": settings.image_rembg_foreground_threshold,
             "background_threshold": settings.image_rembg_background_threshold,
@@ -69,7 +91,13 @@ def runtime_info(settings: Settings, storage_s3_enabled: bool, mongo_ok: bool) -
             "min_dimension": settings.image_rembg_min_dimension,
             "onnx_providers": _onnx_providers(),
             "available": libraries.get("rembg") is not None,
-        },
+        }
+    return {
+        "output_width": settings.image_output_width,
+        "output_height": settings.image_output_height,
+        "deploy": _deploy_context(),
+        "libraries": libraries,
+        "rembg": rembg_section,
         "storage": {
             "s3_enabled": storage_s3_enabled,
             "s3_bucket": settings.aws_s3_bucket,

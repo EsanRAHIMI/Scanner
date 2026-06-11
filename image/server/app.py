@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from pathlib import Path
 from typing import Annotated
@@ -31,8 +32,11 @@ from core.models import (
     LocalImportResponse,
     RenameItemRequest,
     S3ImportRequest,
+    utc_now,
 )
+from core.background_removal import loaded_model_name
 from core.processor import ImageProcessor, WatermarkConfig
+from core.rembg_config import rembg_config_from_system, rembg_meta_dict
 from core.repository import ImageRepository
 from core.storage import StorageBackend, sanitize_storage_name
 from core.watermarks import WatermarkStore
@@ -108,7 +112,35 @@ def _settings_response(sys_settings) -> dict:
 
 
 def _runtime() -> dict:
-    return runtime_info(settings, storage.s3_enabled, mongo_health(mongo_db).get("ok", False))
+    sys_settings = _require_settings_store().get()
+    return runtime_info(
+        settings,
+        storage.s3_enabled,
+        mongo_health(mongo_db).get("ok", False),
+        sys_settings=sys_settings,
+    )
+
+
+def _rembg_config():
+    return rembg_config_from_system(settings, _require_settings_store().get())
+
+
+def _build_processing_meta(*, background_id: str | None = None) -> dict:
+    sys_settings = _require_settings_store().get()
+    config = _rembg_config()
+    watermark = _watermark_config()
+    return {
+        "processed_at": utc_now().isoformat(),
+        "rembg": rembg_meta_dict(config, loaded_model=loaded_model_name()),
+        "subject_fill_ratio": sys_settings.subject_fill_ratio,
+        "background_id": background_id,
+        "watermark": {
+            "enabled": watermark.enabled,
+            "scale": watermark.scale,
+            "opacity": watermark.opacity,
+            "bottom_margin_px": watermark.bottom_margin_px,
+        },
+    }
 
 
 def _sync_processor_from_settings() -> None:
@@ -195,14 +227,17 @@ async def _process_batch(batch_id: str) -> None:
             item.status = ItemStatus.PROCESSING
             _require_repo().save_item(item)
             processed_key = storage.processed_key(batch_id, item.id)
+            rembg_config = _rembg_config()
             processed_url = await asyncio.to_thread(
                 processor.process_original,
                 item.original_key,
                 processed_key,
+                rembg_config,
             )
             item.processed_key = processed_key
             item.processed_url = processed_url
             await _render_item_final(item, batch_id, bg_id)
+            item.processing_meta = _build_processing_meta(background_id=bg_id)
             item.status = ItemStatus.PROCESSED
             item.error = None
             _require_repo().save_item(item)
@@ -273,7 +308,7 @@ async def startup() -> None:
         mongo_db = connect_mongo(settings)
         ensure_indexes(mongo_db)
         repository = ImageRepository(mongo_db)
-        system_settings_store = SystemSettingsStore(mongo_db)
+        system_settings_store = SystemSettingsStore(mongo_db, settings)
         background_store = BackgroundStore(settings, storage, mongo_db)
         watermark_store = WatermarkStore(settings, storage, mongo_db)
         processor = ImageProcessor(
@@ -371,6 +406,22 @@ async def reset_watermark() -> dict:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="WATERMARK_NOT_FOUND") from exc
     return _settings_response(_require_settings_store().get())
+
+
+@app.post("/api/v1/settings/rembg/preview")
+async def preview_rembg_settings(file: Annotated[UploadFile, File(...)]) -> dict:
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="EMPTY_FILE")
+    config = _rembg_config()
+    cutout = await asyncio.to_thread(processor.extract_tight_cutout, data, config)
+    return {
+        "preview_base64": base64.b64encode(cutout).decode("ascii"),
+        "settings": config.model_dump(),
+        "loaded_model": loaded_model_name(),
+    }
 
 
 @app.get("/api/v1/backgrounds")
@@ -521,14 +572,18 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
             item.status = ItemStatus.PROCESSING
             _require_repo().save_item(item)
             processed_key = storage.processed_key(item.batch_id, item.id)
+            rembg_config = _rembg_config()
             processed_url = await asyncio.to_thread(
                 processor.process_original,
                 item.original_key,
                 processed_key,
+                rembg_config,
             )
             item.processed_key = processed_key
             item.processed_url = processed_url
-            await _render_item_final(item, item.batch_id, _batch_background_id(batch))
+            bg_id = _batch_background_id(batch)
+            await _render_item_final(item, item.batch_id, bg_id)
+            item.processing_meta = _build_processing_meta(background_id=bg_id)
             item.status = ItemStatus.PROCESSED
             item.error = None
             _require_repo().save_item(item)
@@ -539,6 +594,35 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
 
     background_tasks.add_task(_run)
     return {"ok": True, "item_id": item_id}
+
+
+@app.post("/api/v1/items/{item_id}/apply-processing-settings")
+async def apply_item_processing_settings(item_id: str) -> dict:
+    item = _item_or_404(item_id)
+    meta = item.processing_meta or {}
+    rembg = meta.get("rembg")
+    if not rembg:
+        raise HTTPException(status_code=404, detail="NO_PROCESSING_META")
+
+    watermark = meta.get("watermark") or {}
+    patch = UpdateSystemSettingsRequest(
+        rembg_model=rembg.get("configured_model"),
+        rembg_preserve_detail=rembg.get("preserve_detail"),
+        rembg_mask_dilate=rembg.get("mask_dilate"),
+        rembg_alpha_matting=rembg.get("alpha_matting"),
+        rembg_foreground_threshold=rembg.get("foreground_threshold"),
+        rembg_background_threshold=rembg.get("background_threshold"),
+        rembg_erode_size=rembg.get("erode_size"),
+        rembg_min_dimension=rembg.get("min_dimension"),
+        subject_fill_ratio=meta.get("subject_fill_ratio"),
+        watermark_enabled=watermark.get("enabled"),
+        watermark_scale=watermark.get("scale"),
+        watermark_opacity=watermark.get("opacity"),
+        watermark_bottom_margin_px=watermark.get("bottom_margin_px"),
+    )
+    updated = _require_settings_store().update(patch)
+    _sync_processor_from_settings()
+    return _settings_response(updated)
 
 
 @app.post("/api/v1/batches/{batch_id}/apply-background")
@@ -639,12 +723,15 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             item.processed_key = cutout_key
             item.processed_url = storage.public_url(cutout_key)
         else:
+            rembg_config = _rembg_config()
             item.processed_url = await asyncio.to_thread(
                 processor.process_original,
                 item.original_key,
                 cutout_key,
+                rembg_config,
             )
             item.processed_key = cutout_key
+            item.processing_meta = _build_processing_meta(background_id=bg_id)
 
         final_url = await asyncio.to_thread(
             processor.render_final,

@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BatchProcessingState } from '@/components/batch-processing-state';
+import { ItemProcessingInfo } from '@/components/item-processing-info';
 import { PageHeader } from '@/components/page-header';
 import { WorkflowSteps } from '@/components/workflow-steps';
 import {
@@ -273,6 +274,7 @@ export default function BatchWorkflowPage() {
                         <div className="flex h-full items-center justify-center text-xs text-brand-medium-gray">—</div>
                       )}
                     </div>
+                    <ItemProcessingInfo item={item} />
                     <div className="space-y-2 p-2.5">
                       <input
                         className="field-input py-1.5 text-xs"

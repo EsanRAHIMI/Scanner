@@ -4,16 +4,16 @@ import io
 import logging
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
-from .config import Settings
+from .rembg_config import RembgConfig
 
 logger = logging.getLogger("image-service")
 
 _SESSION: Any = None
 _SESSION_MODEL: str | None = None
 
-_FALLBACK_MODELS = ("bria-rmbg", "birefnet-general", "isnet-general-use", "u2net")
+_FALLBACK_MODELS = ("birefnet-general", "bria-rmbg", "isnet-general-use", "u2net")
 
 
 def loaded_model_name() -> str | None:
@@ -35,9 +35,9 @@ def _create_session(model_name: str):
     return new_session(model_name)
 
 
-def _get_session(settings: Settings):
+def _get_session(model_name: str):
     global _SESSION, _SESSION_MODEL
-    model = settings.image_rembg_model.strip().lower()
+    model = model_name.strip().lower()
     if _SESSION is not None and _SESSION_MODEL == model:
         return _SESSION
 
@@ -58,15 +58,15 @@ def _get_session(settings: Settings):
     raise RuntimeError("No rembg model available")
 
 
-def _prepare_for_inference(image: Image.Image, settings: Settings) -> tuple[Image.Image, float]:
+def _prepare_for_inference(image: Image.Image, config: RembgConfig) -> tuple[Image.Image, float]:
     width, height = image.size
     long_side = max(width, height)
     scale = 1.0
 
-    if long_side < settings.image_rembg_min_dimension:
-        scale = settings.image_rembg_min_dimension / long_side
-    elif long_side > settings.image_rembg_max_dimension:
-        scale = settings.image_rembg_max_dimension / long_side
+    if long_side < config.min_dimension:
+        scale = config.min_dimension / long_side
+    elif long_side > config.max_dimension:
+        scale = config.max_dimension / long_side
 
     if abs(scale - 1.0) < 0.01:
         return image, 1.0
@@ -75,7 +75,17 @@ def _prepare_for_inference(image: Image.Image, settings: Settings) -> tuple[Imag
     return image.resize(new_size, Image.Resampling.LANCZOS), scale
 
 
-def remove_background(data: bytes, settings: Settings) -> bytes:
+def _compose_from_mask(rgb: Image.Image, mask: Image.Image, dilate: int) -> Image.Image:
+    alpha = mask.convert("L")
+    if dilate > 0:
+        size = dilate * 2 + 1
+        alpha = alpha.filter(ImageFilter.MaxFilter(size))
+    cutout = rgb.convert("RGBA")
+    cutout.putalpha(alpha)
+    return cutout
+
+
+def remove_background(data: bytes, config: RembgConfig) -> bytes:
     rembg_remove = _get_remove_fn()
     if rembg_remove is None:
         image = Image.open(io.BytesIO(data)).convert("RGBA")
@@ -87,23 +97,32 @@ def remove_background(data: bytes, settings: Settings) -> bytes:
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGB")
     original_size = image.size
-    infer_image, scale = _prepare_for_inference(image, settings)
-    session = _get_session(settings)
+    infer_image, scale = _prepare_for_inference(image, config)
+    session = _get_session(config.model)
 
-    kwargs: dict[str, Any] = {"session": session}
-    if settings.image_rembg_alpha_matting:
-        kwargs.update(
-            {
-                "alpha_matting": True,
-                "alpha_matting_foreground_threshold": settings.image_rembg_foreground_threshold,
-                "alpha_matting_background_threshold": settings.image_rembg_background_threshold,
-                "alpha_matting_erode_size": settings.image_rembg_erode_size,
-            }
+    if config.preserve_detail:
+        mask = rembg_remove(infer_image, session=session, only_mask=True)
+        if not isinstance(mask, Image.Image):
+            mask = Image.open(io.BytesIO(mask))
+        result = _compose_from_mask(
+            infer_image.convert("RGB"),
+            mask,
+            config.mask_dilate,
         )
-
-    result = rembg_remove(infer_image, **kwargs)
-    if not isinstance(result, Image.Image):
-        result = Image.open(io.BytesIO(result))
+    else:
+        kwargs: dict[str, Any] = {"session": session}
+        if config.alpha_matting:
+            kwargs.update(
+                {
+                    "alpha_matting": True,
+                    "alpha_matting_foreground_threshold": config.foreground_threshold,
+                    "alpha_matting_background_threshold": config.background_threshold,
+                    "alpha_matting_erode_size": config.erode_size,
+                }
+            )
+        result = rembg_remove(infer_image, **kwargs)
+        if not isinstance(result, Image.Image):
+            result = Image.open(io.BytesIO(result))
 
     if scale != 1.0 and result.size != original_size:
         result = result.resize(original_size, Image.Resampling.LANCZOS)

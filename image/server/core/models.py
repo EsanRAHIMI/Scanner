@@ -66,6 +66,7 @@ class ItemRecord(BaseModel):
     background_id: str | None = None
     status: ItemStatus = ItemStatus.IMPORTED
     error: str | None = None
+    processing_meta: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

@@ -133,12 +133,14 @@ export default function SettingsPage() {
       />
 
       <section className="dash-panel">
-        <div className="dash-panel-body space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-brand-black">Runtime</h2>
-            <p className="mt-1 text-xs text-brand-medium-gray">Live server config — environment, libraries, and processing.</p>
-          </div>
-          <RuntimePanel runtime={runtime} settings={settings} watermark={watermark} />
+        <div className="dash-panel-body">
+          <RuntimePanel
+            runtime={runtime}
+            settings={settings}
+            watermark={watermark}
+            saving={saving}
+            onSave={saveSettings}
+          />
         </div>
       </section>
 

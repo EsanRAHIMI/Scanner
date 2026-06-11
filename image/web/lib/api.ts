@@ -27,6 +27,31 @@ export type Batch = {
   updated_at: string;
 };
 
+export type RembgMeta = {
+  configured_model: string;
+  loaded_model: string | null;
+  preserve_detail: boolean;
+  mask_dilate: number;
+  alpha_matting: boolean;
+  foreground_threshold: number;
+  background_threshold: number;
+  erode_size: number;
+  min_dimension: number;
+};
+
+export type ProcessingMeta = {
+  processed_at?: string;
+  rembg?: RembgMeta;
+  subject_fill_ratio?: number;
+  background_id?: string | null;
+  watermark?: {
+    enabled?: boolean;
+    scale?: number;
+    opacity?: number;
+    bottom_margin_px?: number;
+  };
+};
+
 export type BatchItem = {
   id: string;
   batch_id: string;
@@ -42,6 +67,7 @@ export type BatchItem = {
   background_id: string | null;
   status: ItemStatus;
   error: string | null;
+  processing_meta?: ProcessingMeta | null;
 };
 
 export type Background = {
@@ -59,8 +85,26 @@ export type SystemSettings = {
   watermark_scale: number;
   watermark_opacity: number;
   watermark_bottom_margin_px: number;
+  rembg_model: string;
+  rembg_preserve_detail: boolean;
+  rembg_mask_dilate: number;
+  rembg_alpha_matting: boolean;
+  rembg_foreground_threshold: number;
+  rembg_background_threshold: number;
+  rembg_erode_size: number;
+  rembg_min_dimension: number;
   updated_at: string;
 };
+
+/** Strongest → lightest (best chandelier detail first). */
+export const REMBG_MODEL_OPTIONS = [
+  { rank: 1, id: 'birefnet-general' },
+  { rank: 2, id: 'bria-rmbg' },
+  { rank: 3, id: 'isnet-general-use' },
+  { rank: 4, id: 'u2net' },
+] as const;
+
+export const REMBG_MODELS = REMBG_MODEL_OPTIONS.map((m) => m.id);
 
 export type WatermarkInfo = {
   preview_url: string;
@@ -90,6 +134,8 @@ export type RuntimeLibraries = {
 export type RuntimeRembgInfo = {
   configured_model: string;
   loaded_model: string | null;
+  preserve_detail: boolean;
+  mask_dilate: number;
   alpha_matting: boolean;
   foreground_threshold: number;
   background_threshold: number;
@@ -286,6 +332,27 @@ export async function renameItem(itemId: string, displayName: string) {
 
 export async function reprocessItem(itemId: string) {
   return request<{ ok: boolean }>(`/api/v1/items/${itemId}/reprocess`, { method: 'POST' });
+}
+
+export async function previewRembg(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(apiUrl('/api/v1/settings/rembg/preview'), {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<{
+    preview_base64: string;
+    settings: Record<string, unknown>;
+    loaded_model: string | null;
+  }>;
+}
+
+export async function applyItemProcessingSettings(itemId: string) {
+  return request<SettingsResponse>(`/api/v1/items/${itemId}/apply-processing-settings`, {
+    method: 'POST',
+  });
 }
 
 export async function applyBackground(

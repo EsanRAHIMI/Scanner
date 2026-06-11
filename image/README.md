@@ -115,13 +115,14 @@ Do **not** set `NEXT_PUBLIC_IMAGE_API_BASE` to `…/api` (causes `/api/api/v1/�
 | `AWS_S3_UPLOAD_PREFIX` | Default: `uploads` |
 | `AWS_S3_BACKGROUNDS_PREFIX` | Default: `backgrounds` |
 | `GOOGLE_DRIVE_CREDENTIALS_JSON` | Service account JSON path for Drive import |
-| `IMAGE_REMBG_MODEL` | AI cutout model (default: `bria-rmbg`; fallbacks: `birefnet-general`, `isnet-general-use`) |
-| `IMAGE_REMBG_ALPHA_MATTING` | Edge refinement for thin wires/crystals (default: `true`) |
-| `IMAGE_REMBG_MIN_DIMENSION` | Upscale small photos before cutout to preserve fine detail (default: `1600`) |
+| `IMAGE_REMBG_MODEL` | AI cutout model (default: `birefnet-general`) |
+| `IMAGE_REMBG_PRESERVE_DETAIL` | Thin-wire mode: model mask only, no alpha matting erosion (default: `true`) |
+| `IMAGE_REMBG_MASK_DILATE` | Widen mask by N pixels to recover fine wires (default: `1`) |
+| `IMAGE_REMBG_MIN_DIMENSION` | Upscale before cutout to preserve fine detail (default: `1800`) |
 
 When S3 is not configured, image bytes are cached under `image/server/storage/files/` (metadata still in MongoDB).
 
-**Background removal quality:** the API uses `bria-rmbg` + alpha matting + halo cleanup (not the old default `u2net`). Reprocess existing batches to regenerate cutouts. First run downloads the model (~175MB).
+**Background removal quality:** default is `birefnet-general` with **preserve detail** (mask + 1px dilate, no matting erosion — better for wires/crystals). Set `IMAGE_REMBG_PRESERVE_DETAIL=false` and `IMAGE_REMBG_ALPHA_MATTING=true` for smoother edges on simple products. Reprocess batches after changing env. First run downloads the model (~175MB).
 
 ### Migration helpers
 

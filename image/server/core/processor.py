@@ -9,6 +9,7 @@ from PIL import Image
 from .background_removal import remove_background as rembg_remove_background
 from .config import Settings
 from .cutout_refine import refine_cutout
+from .rembg_config import RembgConfig
 from .storage import StorageBackend
 
 
@@ -40,15 +41,18 @@ class ImageProcessor:
             image = image.convert("RGBA")
         return image
 
-    def remove_background(self, data: bytes) -> bytes:
-        cutout = rembg_remove_background(data, self.settings)
-        refined = refine_cutout(Image.open(io.BytesIO(cutout)))
+    def remove_background(self, data: bytes, rembg_config: RembgConfig) -> bytes:
+        cutout = rembg_remove_background(data, rembg_config)
+        refined = refine_cutout(
+            Image.open(io.BytesIO(cutout)),
+            preserve_detail=rembg_config.preserve_detail,
+        )
         buf = io.BytesIO()
         refined.save(buf, format="PNG")
         return buf.getvalue()
 
     def to_tight_cutout(self, cutout_png: bytes) -> Image.Image:
-        subject = refine_cutout(Image.open(io.BytesIO(cutout_png)))
+        subject = Image.open(io.BytesIO(cutout_png)).convert("RGBA")
         # Legacy items stored a full 1080x1440 canvas — crop to visible subject.
         if subject.size == self.output_size:
             bbox = subject.getbbox()
@@ -62,8 +66,8 @@ class ImageProcessor:
             return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
         return subject
 
-    def extract_tight_cutout(self, data: bytes) -> bytes:
-        cutout = self.remove_background(data)
+    def extract_tight_cutout(self, data: bytes, rembg_config: RembgConfig) -> bytes:
+        cutout = self.remove_background(data, rembg_config)
         subject = self.to_tight_cutout(cutout)
         buf = io.BytesIO()
         subject.save(buf, format="PNG")
@@ -131,9 +135,9 @@ class ImageProcessor:
         composed.save(buf, format="JPEG", quality=92, optimize=True)
         return buf.getvalue()
 
-    def process_original(self, original_key: str, processed_key: str) -> str:
+    def process_original(self, original_key: str, processed_key: str, rembg_config: RembgConfig) -> str:
         raw = self.storage.get_bytes(original_key)
-        tight = self.extract_tight_cutout(raw)
+        tight = self.extract_tight_cutout(raw, rembg_config)
         return self.storage.put_bytes(processed_key, tight, content_type="image/png")
 
     def render_final(
