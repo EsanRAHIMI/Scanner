@@ -70,18 +70,3 @@ class SystemSettingsStore:
         return self.save(SystemSettings.model_validate(data))
 
 
-def runtime_info(settings: Settings, storage_s3_enabled: bool, mongo_ok: bool) -> dict:
-    return {
-        "output_width": settings.image_output_width,
-        "output_height": settings.image_output_height,
-        "s3_enabled": storage_s3_enabled,
-        "s3_bucket": settings.aws_s3_bucket,
-        "s3_public_base_url": settings.aws_s3_public_base_url,
-        "upload_prefix": settings.aws_s3_upload_prefix,
-        "processed_prefix": settings.aws_s3_processed_prefix,
-        "final_prefix": settings.aws_s3_final_prefix,
-        "google_drive_configured": bool(settings.google_drive_credentials_json),
-        "mongodb_enabled": bool(settings.mongodb_uri),
-        "mongodb_ok": mongo_ok,
-        "mongodb_db": settings.image_mongodb_db,
-    }

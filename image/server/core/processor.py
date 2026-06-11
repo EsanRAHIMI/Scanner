@@ -6,7 +6,9 @@ from pathlib import Path
 
 from PIL import Image
 
+from .background_removal import remove_background as rembg_remove_background
 from .config import Settings
+from .cutout_refine import refine_cutout
 from .storage import StorageBackend
 
 
@@ -16,22 +18,6 @@ class WatermarkConfig:
     scale: float = 0.185
     opacity: float = 1.0
     bottom_margin_px: int = 28
-
-_rembg_remove = None
-
-
-def _get_rembg_remove():
-    global _rembg_remove
-    if _rembg_remove is not None:
-        return _rembg_remove
-    try:
-        from rembg import remove as rembg_remove
-
-        _rembg_remove = rembg_remove
-        return _rembg_remove
-    except ImportError:
-        return None
-
 
 class ImageProcessor:
     def __init__(
@@ -55,36 +41,14 @@ class ImageProcessor:
         return image
 
     def remove_background(self, data: bytes) -> bytes:
-        rembg_remove = _get_rembg_remove()
-        if rembg_remove is None:
-            image = self._load_image(data).convert("RGBA")
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            return buf.getvalue()
-
-        result = rembg_remove(data)
-        if isinstance(result, bytes):
-            return result
+        cutout = rembg_remove_background(data, self.settings)
+        refined = refine_cutout(Image.open(io.BytesIO(cutout)))
         buf = io.BytesIO()
-        result.save(buf, format="PNG")
+        refined.save(buf, format="PNG")
         return buf.getvalue()
 
-    def normalize_rgba_cutout(self, image: Image.Image) -> Image.Image:
-        """Strip opaque near-white pixels rembg sometimes leaves behind."""
-        image = image.convert("RGBA")
-        pixels = image.load()
-        width, height = image.size
-        for y in range(height):
-            for x in range(width):
-                red, green, blue, alpha = pixels[x, y]
-                if alpha == 0:
-                    continue
-                if red > 238 and green > 238 and blue > 238:
-                    pixels[x, y] = (red, green, blue, 0)
-        return image
-
     def to_tight_cutout(self, cutout_png: bytes) -> Image.Image:
-        subject = self.normalize_rgba_cutout(Image.open(io.BytesIO(cutout_png)))
+        subject = refine_cutout(Image.open(io.BytesIO(cutout_png)))
         # Legacy items stored a full 1080x1440 canvas — crop to visible subject.
         if subject.size == self.output_size:
             bbox = subject.getbbox()

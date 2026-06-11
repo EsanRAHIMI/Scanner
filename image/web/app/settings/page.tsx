@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
 import { PageHeader } from '@/components/page-header';
+import { RuntimePanel } from '@/components/runtime-panel';
 import {
   getSettings,
   resetWatermark,
@@ -132,34 +133,12 @@ export default function SettingsPage() {
       />
 
       <section className="dash-panel">
-        <div className="dash-panel-body">
-          <h2 className="mb-3 text-sm font-semibold text-brand-black">Runtime</h2>
-          <dl className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <dt className="text-brand-medium-gray">Output size</dt>
-              <dd className="mt-0.5 font-medium">{runtime.output_width} × {runtime.output_height}</dd>
-            </div>
-            <div>
-              <dt className="text-brand-medium-gray">Amazon S3</dt>
-              <dd className="mt-0.5 font-medium">{runtime.s3_enabled ? `On · ${runtime.s3_bucket}` : 'Off'}</dd>
-            </div>
-            <div>
-              <dt className="text-brand-medium-gray">Google Drive</dt>
-              <dd className="mt-0.5 font-medium">{runtime.google_drive_configured ? 'Configured' : 'Not configured'}</dd>
-            </div>
-            <div>
-              <dt className="text-brand-medium-gray">Upload prefix</dt>
-              <dd className="mt-0.5 font-medium">{runtime.upload_prefix}</dd>
-            </div>
-            <div>
-              <dt className="text-brand-medium-gray">Processed prefix</dt>
-              <dd className="mt-0.5 font-medium">{runtime.processed_prefix}</dd>
-            </div>
-            <div>
-              <dt className="text-brand-medium-gray">Final prefix</dt>
-              <dd className="mt-0.5 font-medium">{runtime.final_prefix}</dd>
-            </div>
-          </dl>
+        <div className="dash-panel-body space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-brand-black">Runtime</h2>
+            <p className="mt-1 text-xs text-brand-medium-gray">Live server config — environment, libraries, and processing.</p>
+          </div>
+          <RuntimePanel runtime={runtime} settings={settings} watermark={watermark} />
         </div>
       </section>
 

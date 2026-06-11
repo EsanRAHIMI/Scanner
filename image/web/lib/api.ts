@@ -69,16 +69,71 @@ export type WatermarkInfo = {
   updated_at?: string | null;
 };
 
-export type RuntimeInfo = {
-  output_width: number;
-  output_height: number;
+export type RuntimeDeployInfo = {
+  hostname: string;
+  in_container: boolean;
+  python_version: string;
+  platform: string;
+  executable: string;
+};
+
+export type RuntimeLibraries = {
+  rembg: string | null;
+  pillow: string | null;
+  onnxruntime: string | null;
+  numpy: string | null;
+  pymongo: string | null;
+  fastapi: string | null;
+  boto3: string | null;
+};
+
+export type RuntimeRembgInfo = {
+  configured_model: string;
+  loaded_model: string | null;
+  alpha_matting: boolean;
+  foreground_threshold: number;
+  background_threshold: number;
+  erode_size: number;
+  max_dimension: number;
+  min_dimension: number;
+  onnx_providers: string[];
+  available: boolean;
+};
+
+export type RuntimeStorageInfo = {
   s3_enabled: boolean;
   s3_bucket: string | null;
+  s3_region: string;
   s3_public_base_url: string | null;
   upload_prefix: string;
   processed_prefix: string;
   final_prefix: string;
+  backgrounds_prefix: string;
+  watermarks_prefix: string;
+  local_storage_root: string;
+};
+
+export type RuntimeMongoInfo = {
+  enabled: boolean;
+  ok: boolean;
+  db: string;
+};
+
+export type RuntimeInfo = {
+  output_width: number;
+  output_height: number;
+  deploy: RuntimeDeployInfo;
+  libraries: RuntimeLibraries;
+  rembg: RuntimeRembgInfo;
+  storage: RuntimeStorageInfo;
+  mongodb: RuntimeMongoInfo;
   google_drive_configured: boolean;
+  // Legacy flat fields (optional)
+  s3_enabled?: boolean;
+  s3_bucket?: string | null;
+  upload_prefix?: string;
+  processed_prefix?: string;
+  final_prefix?: string;
 };
 
 export type SettingsResponse = {

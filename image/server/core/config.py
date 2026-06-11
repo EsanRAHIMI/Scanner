@@ -14,6 +14,14 @@ class Settings(BaseSettings):
     image_output_width: int = 1080
     image_output_height: int = 1440
 
+    image_rembg_model: str = "bria-rmbg"
+    image_rembg_alpha_matting: bool = True
+    image_rembg_foreground_threshold: int = 250
+    image_rembg_background_threshold: int = 8
+    image_rembg_erode_size: int = 5
+    image_rembg_max_dimension: int = 2048
+    image_rembg_min_dimension: int = 1600
+
     mongodb_uri: str | None = None
     image_mongodb_db: str = "lorenzo_image"
 

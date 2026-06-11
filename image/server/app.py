@@ -14,10 +14,10 @@ from core.backgrounds import BackgroundStore, background_asset_url
 from core.config import Settings, get_settings
 from core.db import connect_mongo, ensure_indexes, mongo_health
 from core.importers import ImportService
+from core.runtime_info import runtime_info
 from core.system_settings import (
     SystemSettingsStore,
     UpdateSystemSettingsRequest,
-    runtime_info,
     slugify_background_id,
 )
 from core.models import (
