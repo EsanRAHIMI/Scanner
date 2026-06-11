@@ -4,13 +4,19 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { BatchItem } from '@/lib/api';
 
-const PHASES = [
+type ProcessingPhase = {
+  min: number;
+  title: string;
+  detail: string;
+};
+
+const PHASES: ProcessingPhase[] = [
   { min: 0, title: 'Preparing images', detail: 'Reading imported files' },
   { min: 12, title: 'Removing backgrounds', detail: 'AI cutout and cleanup' },
   { min: 40, title: 'Centering products', detail: 'Fitting to 1080 × 1440 canvas' },
   { min: 68, title: 'Applying template', detail: 'Background and watermark' },
   { min: 88, title: 'Almost ready', detail: 'Building review previews' },
-] as const;
+];
 
 type BatchProcessingStateProps = {
   items: BatchItem[];
@@ -24,7 +30,7 @@ function itemTileStatus(status: BatchItem['status']): 'pending' | 'active' | 'do
   return 'done';
 }
 
-function phaseForProgress(percent: number) {
+function phaseForProgress(percent: number): ProcessingPhase {
   let current = PHASES[0];
   for (const phase of PHASES) {
     if (percent >= phase.min) current = phase;
