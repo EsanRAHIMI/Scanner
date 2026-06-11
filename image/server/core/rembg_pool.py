@@ -10,7 +10,6 @@ from .rembg_worker import extract_tight_cutout_bytes
 
 logger = logging.getLogger("image-service")
 
-# Single background thread — avoids ProcessPoolExecutor fork crashes under uvicorn.
 _executor: ThreadPoolExecutor | None = None
 _last_loaded_model: str | None = None
 
@@ -30,10 +29,23 @@ def pool_loaded_model() -> str | None:
     return _last_loaded_model
 
 
-def _run_cutout_sync(image_bytes: bytes, config_dict: dict) -> tuple[bytes, str | None]:
-    # Keep ONNX/Pillow from grabbing all CPU cores on small VPS hosts.
+def _apply_thread_limits() -> None:
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+
+def _warmup_sync(config_dict: dict) -> str:
+    from core.background_removal import loaded_model_name, warmup_model
+    from core.rembg_config import RembgConfig
+
+    _apply_thread_limits()
+    config = RembgConfig.model_validate(config_dict)
+    warmup_model(config)
+    return loaded_model_name() or config.model
+
+
+def _run_cutout_sync(image_bytes: bytes, config_dict: dict) -> tuple[bytes, str | None]:
+    _apply_thread_limits()
     return extract_tight_cutout_bytes(image_bytes, config_dict)
 
 
@@ -68,15 +80,17 @@ async def run_cutout(image_bytes: bytes, config: RembgConfig) -> tuple[bytes, st
 
 
 async def warmup_worker(config: RembgConfig) -> str | None:
-    tiny = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
-        b"\x01\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
+    loop = asyncio.get_running_loop()
     try:
-        _, loaded = await run_cutout(tiny, config)
-        logger.info("Rembg ready: %s", loaded or config.model)
+        loaded = await loop.run_in_executor(
+            _get_executor(),
+            _warmup_sync,
+            config.model_dump(),
+        )
+        global _last_loaded_model
+        _last_loaded_model = loaded
+        logger.info("Rembg model loaded: %s", loaded)
         return loaded
     except Exception:  # noqa: BLE001
-        logger.exception("Rembg warmup failed")
+        logger.exception("Rembg warmup failed — model will load on first image")
         return None
