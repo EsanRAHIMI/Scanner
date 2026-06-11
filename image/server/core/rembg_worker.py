@@ -1,4 +1,4 @@
-"""Runs rembg in an isolated worker process so API stays responsive."""
+"""Runs rembg cutout off the asyncio event loop (same process, no fork)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from PIL import Image
 
 
 def extract_tight_cutout_bytes(image_bytes: bytes, config_dict: dict) -> tuple[bytes, str | None]:
-    from .background_removal import loaded_model_name, remove_background
-    from .cutout_refine import refine_cutout
-    from .rembg_config import RembgConfig
+    from core.background_removal import loaded_model_name, remove_background
+    from core.cutout_refine import refine_cutout
+    from core.rembg_config import RembgConfig
 
     config = RembgConfig.model_validate(config_dict)
     cutout = remove_background(image_bytes, config)
