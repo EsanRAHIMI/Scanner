@@ -35,6 +35,13 @@ def _create_session(model_name: str):
     return new_session(model_name)
 
 
+def warmup_model(config: RembgConfig) -> str:
+    session = _get_session(config.model)
+    loaded = _SESSION_MODEL or config.model
+    logger.info("Rembg warmup complete: %s", loaded)
+    return loaded
+
+
 def _get_session(model_name: str):
     global _SESSION, _SESSION_MODEL
     model = model_name.strip().lower()

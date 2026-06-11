@@ -34,7 +34,8 @@ from core.models import (
     S3ImportRequest,
     utc_now,
 )
-from core.background_removal import loaded_model_name
+from core.background_removal import loaded_model_name, warmup_model
+from core.recovery import item_needs_processing, recover_interrupted_jobs
 from core.processor import ImageProcessor, WatermarkConfig
 from core.rembg_config import rembg_config_from_system, rembg_meta_dict
 from core.repository import ImageRepository
@@ -221,13 +222,26 @@ async def _process_batch(batch_id: str) -> None:
 
     bg_id = _batch_background_id(batch)
     items = _require_repo().list_items(batch_id)
-    failed = 0
-    for item in items:
+    pending = [item for item in items if item_needs_processing(item)]
+    if not pending:
+        ready = sum(1 for item in items if item.status != ItemStatus.FAILED)
+        batch.status = BatchStatus.REVIEW if ready else BatchStatus.FAILED
+        _require_repo().save_batch(batch)
+        return
+
+    failed = sum(1 for item in items if item.status == ItemStatus.FAILED)
+    rembg_config = _rembg_config()
+
+    for item in pending:
         try:
+            logger.info("Processing item %s (%s)", item.id, item.display_name)
             item.status = ItemStatus.PROCESSING
+            item.error = None
             _require_repo().save_item(item)
+            batch.updated_at = utc_now()
+            _require_repo().save_batch(batch)
+
             processed_key = storage.processed_key(batch_id, item.id)
-            rembg_config = _rembg_config()
             processed_url = await asyncio.to_thread(
                 processor.process_original,
                 item.original_key,
@@ -241,6 +255,7 @@ async def _process_batch(batch_id: str) -> None:
             item.status = ItemStatus.PROCESSED
             item.error = None
             _require_repo().save_item(item)
+            logger.info("Processed item %s", item.id)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed processing item %s", item.id)
             item.status = ItemStatus.FAILED
@@ -248,7 +263,20 @@ async def _process_batch(batch_id: str) -> None:
             _require_repo().save_item(item)
             failed += 1
 
-    batch.status = BatchStatus.REVIEW if failed < len(items) else BatchStatus.FAILED
+    items = _require_repo().list_items(batch_id)
+    failed = sum(1 for item in items if item.status == ItemStatus.FAILED)
+    ready = sum(
+        1
+        for item in items
+        if item.status
+        in {
+            ItemStatus.PROCESSED,
+            ItemStatus.REVIEWED,
+            ItemStatus.BACKGROUND_APPLIED,
+            ItemStatus.FINALIZED,
+        }
+    )
+    batch.status = BatchStatus.REVIEW if ready > 0 else BatchStatus.FAILED
     _require_repo().save_batch(batch)
 
 
@@ -322,6 +350,14 @@ async def startup() -> None:
             logger.info("Seeded %s background template(s) to shared storage", seeded)
         if watermark_store.seed_default():
             logger.info("Seeded default watermark to shared storage")
+        recovered = recover_interrupted_jobs(repository)
+        if recovered:
+            logger.info("Startup recovery handled %s stuck item(s)", recovered)
+        try:
+            config = rembg_config_from_system(settings, system_settings_store.get())
+            await asyncio.to_thread(warmup_model, config)
+        except Exception:  # noqa: BLE001
+            logger.exception("Rembg warmup failed — first cutout may be slow or OOM on small hosts")
         logger.info("Image service ready (MongoDB=%s)", settings.image_mongodb_db)
     except Exception:
         logger.exception("Failed to connect to MongoDB")
@@ -334,8 +370,7 @@ async def startup() -> None:
         importer = None
 
 
-@app.get("/health")
-async def health() -> dict:
+def _health_payload() -> dict:
     mongo = mongo_health(mongo_db)
     return {
         "ok": mongo.get("ok", False) and repository is not None,
@@ -343,7 +378,18 @@ async def health() -> dict:
         "mongodb": mongo,
         "mongodb_db": settings.image_mongodb_db,
         "output_size": [settings.image_output_width, settings.image_output_height],
+        "rembg_loaded_model": loaded_model_name(),
     }
+
+
+@app.get("/health")
+async def health() -> dict:
+    return _health_payload()
+
+
+@app.get("/api/v1/health")
+async def health_api() -> dict:
+    return _health_payload()
 
 
 @app.get("/api/v1/settings")

@@ -14,6 +14,7 @@ import {
   getBatch,
   renameItem,
   reprocessItem,
+  resumeBatchProcessing,
   resolveMediaUrl,
   type Batch,
   type BatchItem,
@@ -42,6 +43,9 @@ export default function BatchWorkflowPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showReady, setShowReady] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const [processingSince, setProcessingSince] = useState<number | null>(null);
   const prevActiveStep = useRef(0);
   const reviewRef = useRef<HTMLElement | null>(null);
   const finalizeRef = useRef<HTMLElement | null>(null);
@@ -50,6 +54,7 @@ export default function BatchWorkflowPage() {
     const batchRes = await getBatch(batchId);
     setBatch(batchRes.batch);
     setItems(batchRes.items);
+    setPollError(null);
   }, [batchId]);
 
   useEffect(() => {
@@ -69,6 +74,23 @@ export default function BatchWorkflowPage() {
   }, [refresh]);
 
   const processing = isProcessingBatch(batch?.status);
+  const doneCount = items.filter((item) =>
+    ['processed', 'reviewed', 'background_applied', 'finalized'].includes(item.status),
+  ).length;
+  const stuckProcessing =
+    processing &&
+    doneCount === 0 &&
+    processingSince !== null &&
+    Date.now() - processingSince > 3 * 60 * 1000;
+
+  useEffect(() => {
+    if (processing && processingSince === null) {
+      setProcessingSince(Date.now());
+    }
+    if (!processing) {
+      setProcessingSince(null);
+    }
+  }, [processing, processingSince]);
 
   useEffect(() => {
     if (batch?.status === 'finalized') {
@@ -80,7 +102,14 @@ export default function BatchWorkflowPage() {
     if (!batch || batch.status === 'finalized' || batch.status === 'failed') return;
     const intervalMs = processing ? 2000 : 3000;
     const timer = setInterval(() => {
-      void refresh().catch(() => undefined);
+      void refresh().catch((err) => {
+        const message = err instanceof Error ? err.message : 'Connection error';
+        if (message.includes('502') || message.includes('503') || message.includes('504')) {
+          setPollError('Server busy or restarting — still processing in background. Retrying…');
+        } else {
+          setPollError(message);
+        }
+      });
     }, intervalMs);
     return () => clearInterval(timer);
   }, [batch, processing, refresh]);
@@ -115,6 +144,22 @@ export default function BatchWorkflowPage() {
     }, 120);
     return () => window.clearTimeout(timer);
   }, [showReview]);
+
+  async function handleResumeProcessing() {
+    setResuming(true);
+    setError(null);
+    setPollError(null);
+    try {
+      await resumeBatchProcessing(batchId);
+      setProcessingSince(Date.now());
+      await refresh();
+      setMessage('Processing resumed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resume processing');
+    } finally {
+      setResuming(false);
+    }
+  }
 
   async function handleRename(item: BatchItem, name: string) {
     setBusy(true);
@@ -213,8 +258,27 @@ export default function BatchWorkflowPage() {
           {processing ? (
             <p className="rounded-xl bg-brand-burgundy/5 px-3 py-2 text-xs text-brand-dark-gray">
               <span className="font-medium text-brand-burgundy">Automatic workflow:</span> you do not need to click
-              Review or Finalize yet. This page will move to review on its own.
+              Review or Finalize yet. This page will move to review on its own. First image can take several minutes on
+              the server (AI model load).
             </p>
+          ) : null}
+          {pollError ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">{pollError}</p>
+          ) : null}
+          {stuckProcessing ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2.5">
+              <p className="text-xs text-amber-900">
+                Processing is taking longer than expected. The server may have restarted — try resuming.
+              </p>
+              <button
+                type="button"
+                className="btn-outline h-8 px-3 text-xs"
+                disabled={resuming}
+                onClick={() => void handleResumeProcessing()}
+              >
+                {resuming ? 'Resuming…' : 'Resume processing'}
+              </button>
+            </div>
           ) : null}
           {showReview ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2.5">

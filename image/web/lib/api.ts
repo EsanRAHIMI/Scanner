@@ -243,6 +243,13 @@ export async function getBatch(batchId: string) {
   return request<{ batch: Batch; items: BatchItem[] }>(`/api/v1/batches/${batchId}`);
 }
 
+export async function resumeBatchProcessing(batchId: string) {
+  return request<{ ok: boolean; batch_id: string; status: string }>(
+    `/api/v1/batches/${batchId}/process`,
+    { method: 'POST' },
+  );
+}
+
 export async function listBackgrounds() {
   return request<{ backgrounds: Background[] }>('/api/v1/backgrounds');
 }

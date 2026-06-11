@@ -108,6 +108,10 @@ class ImageRepository:
         docs = self._items.find(query).sort("created_at", 1)
         return [_item_from_doc(doc) for doc in docs]
 
+    def list_items_with_status(self, status: ItemStatus) -> list[ItemRecord]:
+        docs = self._items.find({"status": status.value}).sort("updated_at", 1)
+        return [_item_from_doc(doc) for doc in docs]
+
     def upsert_output(self, item: ItemRecord, batch: BatchRecord) -> OutputRecord:
         if not item.final_url:
             raise ValueError("Item has no final URL")
