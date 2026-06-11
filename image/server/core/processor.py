@@ -6,10 +6,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from .background_removal import remove_background as rembg_remove_background
 from .config import Settings
-from .cutout_refine import refine_cutout
 from .rembg_config import RembgConfig
+from .rembg_pool import run_cutout
 from .storage import StorageBackend
 
 
@@ -19,6 +18,7 @@ class WatermarkConfig:
     scale: float = 0.185
     opacity: float = 1.0
     bottom_margin_px: int = 28
+
 
 class ImageProcessor:
     def __init__(
@@ -35,25 +35,22 @@ class ImageProcessor:
     def set_subject_fill_ratio(self, ratio: float) -> None:
         self.subject_fill_ratio = max(0.5, min(0.95, ratio))
 
-    def _load_image(self, data: bytes) -> Image.Image:
-        image = Image.open(io.BytesIO(data))
-        if image.mode not in ("RGB", "RGBA"):
-            image = image.convert("RGBA")
-        return image
+    async def extract_tight_cutout_async(self, data: bytes, rembg_config: RembgConfig) -> bytes:
+        tight, _ = await run_cutout(data, rembg_config)
+        return tight
 
-    def remove_background(self, data: bytes, rembg_config: RembgConfig) -> bytes:
-        cutout = rembg_remove_background(data, rembg_config)
-        refined = refine_cutout(
-            Image.open(io.BytesIO(cutout)),
-            preserve_detail=rembg_config.preserve_detail,
-        )
-        buf = io.BytesIO()
-        refined.save(buf, format="PNG")
-        return buf.getvalue()
+    async def process_original_async(
+        self,
+        original_key: str,
+        processed_key: str,
+        rembg_config: RembgConfig,
+    ) -> str:
+        raw = self.storage.get_bytes(original_key)
+        tight = await self.extract_tight_cutout_async(raw, rembg_config)
+        return self.storage.put_bytes(processed_key, tight, content_type="image/png")
 
     def to_tight_cutout(self, cutout_png: bytes) -> Image.Image:
         subject = Image.open(io.BytesIO(cutout_png)).convert("RGBA")
-        # Legacy items stored a full 1080x1440 canvas — crop to visible subject.
         if subject.size == self.output_size:
             bbox = subject.getbbox()
             if bbox:
@@ -65,13 +62,6 @@ class ImageProcessor:
         if subject.getbbox() is None:
             return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
         return subject
-
-    def extract_tight_cutout(self, data: bytes, rembg_config: RembgConfig) -> bytes:
-        cutout = self.remove_background(data, rembg_config)
-        subject = self.to_tight_cutout(cutout)
-        buf = io.BytesIO()
-        subject.save(buf, format="PNG")
-        return buf.getvalue()
 
     def _apply_watermark(
         self,
@@ -134,11 +124,6 @@ class ImageProcessor:
         buf = io.BytesIO()
         composed.save(buf, format="JPEG", quality=92, optimize=True)
         return buf.getvalue()
-
-    def process_original(self, original_key: str, processed_key: str, rembg_config: RembgConfig) -> str:
-        raw = self.storage.get_bytes(original_key)
-        tight = self.extract_tight_cutout(raw, rembg_config)
-        return self.storage.put_bytes(processed_key, tight, content_type="image/png")
 
     def render_final(
         self,

@@ -6,9 +6,9 @@ import socket
 import sys
 from importlib.metadata import PackageNotFoundError, version
 
-from .background_removal import loaded_model_name
 from .config import Settings
 from .rembg_config import rembg_config_from_system
+from .rembg_pool import pool_loaded_model
 from .system_settings import SystemSettings
 
 
@@ -65,7 +65,7 @@ def runtime_info(
         rembg_cfg = rembg_config_from_system(settings, sys_settings)
         rembg_section = {
             "configured_model": rembg_cfg.model,
-            "loaded_model": loaded_model_name(),
+            "loaded_model": pool_loaded_model(),
             "preserve_detail": rembg_cfg.preserve_detail,
             "mask_dilate": rembg_cfg.mask_dilate,
             "alpha_matting": rembg_cfg.alpha_matting,
@@ -80,7 +80,7 @@ def runtime_info(
     else:
         rembg_section = {
             "configured_model": settings.image_rembg_model,
-            "loaded_model": loaded_model_name(),
+            "loaded_model": pool_loaded_model(),
             "preserve_detail": settings.image_rembg_preserve_detail,
             "mask_dilate": settings.image_rembg_mask_dilate,
             "alpha_matting": settings.image_rembg_alpha_matting,

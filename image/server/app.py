@@ -34,8 +34,8 @@ from core.models import (
     S3ImportRequest,
     utc_now,
 )
-from core.background_removal import loaded_model_name, warmup_model
 from core.recovery import item_needs_processing, recover_interrupted_jobs
+from core.rembg_pool import pool_loaded_model, warmup_worker
 from core.processor import ImageProcessor, WatermarkConfig
 from core.rembg_config import rembg_config_from_system, rembg_meta_dict
 from core.repository import ImageRepository
@@ -132,7 +132,7 @@ def _build_processing_meta(*, background_id: str | None = None) -> dict:
     watermark = _watermark_config()
     return {
         "processed_at": utc_now().isoformat(),
-        "rembg": rembg_meta_dict(config, loaded_model=loaded_model_name()),
+        "rembg": rembg_meta_dict(config, loaded_model=pool_loaded_model()),
         "subject_fill_ratio": sys_settings.subject_fill_ratio,
         "background_id": background_id,
         "watermark": {
@@ -242,8 +242,7 @@ async def _process_batch(batch_id: str) -> None:
             _require_repo().save_batch(batch)
 
             processed_key = storage.processed_key(batch_id, item.id)
-            processed_url = await asyncio.to_thread(
-                processor.process_original,
+            processed_url = await processor.process_original_async(
                 item.original_key,
                 processed_key,
                 rembg_config,
@@ -353,12 +352,9 @@ async def startup() -> None:
         recovered = recover_interrupted_jobs(repository)
         if recovered:
             logger.info("Startup recovery handled %s stuck item(s)", recovered)
-        try:
-            config = rembg_config_from_system(settings, system_settings_store.get())
-            await asyncio.to_thread(warmup_model, config)
-        except Exception:  # noqa: BLE001
-            logger.exception("Rembg warmup failed — first cutout may be slow or OOM on small hosts")
         logger.info("Image service ready (MongoDB=%s)", settings.image_mongodb_db)
+        config = rembg_config_from_system(settings, system_settings_store.get())
+        asyncio.create_task(warmup_worker(config))
     except Exception:
         logger.exception("Failed to connect to MongoDB")
         mongo_db = None
@@ -378,7 +374,7 @@ def _health_payload() -> dict:
         "mongodb": mongo,
         "mongodb_db": settings.image_mongodb_db,
         "output_size": [settings.image_output_width, settings.image_output_height],
-        "rembg_loaded_model": loaded_model_name(),
+        "rembg_loaded_model": pool_loaded_model(),
     }
 
 
@@ -462,11 +458,11 @@ async def preview_rembg_settings(file: Annotated[UploadFile, File(...)]) -> dict
     if not data:
         raise HTTPException(status_code=400, detail="EMPTY_FILE")
     config = _rembg_config()
-    cutout = await asyncio.to_thread(processor.extract_tight_cutout, data, config)
+    cutout = await processor.extract_tight_cutout_async(data, config)
     return {
         "preview_base64": base64.b64encode(cutout).decode("ascii"),
         "settings": config.model_dump(),
-        "loaded_model": loaded_model_name(),
+        "loaded_model": pool_loaded_model(),
     }
 
 
@@ -619,8 +615,7 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
             _require_repo().save_item(item)
             processed_key = storage.processed_key(item.batch_id, item.id)
             rembg_config = _rembg_config()
-            processed_url = await asyncio.to_thread(
-                processor.process_original,
+            processed_url = await processor.process_original_async(
                 item.original_key,
                 processed_key,
                 rembg_config,
@@ -770,8 +765,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             item.processed_url = storage.public_url(cutout_key)
         else:
             rembg_config = _rembg_config()
-            item.processed_url = await asyncio.to_thread(
-                processor.process_original,
+            item.processed_url = await processor.process_original_async(
                 item.original_key,
                 cutout_key,
                 rembg_config,

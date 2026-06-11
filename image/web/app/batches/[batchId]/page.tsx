@@ -77,6 +77,8 @@ export default function BatchWorkflowPage() {
   const doneCount = items.filter((item) =>
     ['processed', 'reviewed', 'background_applied', 'finalized'].includes(item.status),
   ).length;
+  const failedBatch = batch?.status === 'failed';
+  const failedItems = items.filter((item) => item.status === 'failed');
   const stuckProcessing =
     processing &&
     doneCount === 0 &&
@@ -265,7 +267,25 @@ export default function BatchWorkflowPage() {
           {pollError ? (
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">{pollError}</p>
           ) : null}
-          {stuckProcessing ? (
+          {failedBatch ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200/80 bg-red-50 px-3 py-2.5">
+              <div className="text-xs text-red-900">
+                <p className="font-semibold">Processing failed</p>
+                <p className="mt-0.5">
+                  {failedItems[0]?.error ?? 'The server restarted during cutout. Resume to try again.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-primary h-8 px-3 text-xs"
+                disabled={resuming}
+                onClick={() => void handleResumeProcessing()}
+              >
+                {resuming ? 'Starting…' : 'Resume processing'}
+              </button>
+            </div>
+          ) : null}
+          {stuckProcessing && !failedBatch ? (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-amber-50 px-3 py-2.5">
               <p className="text-xs text-amber-900">
                 Processing is taking longer than expected. The server may have restarted — try resuming.
