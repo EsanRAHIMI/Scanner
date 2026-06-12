@@ -126,6 +126,101 @@ class ImageProcessor:
         composed.save(buf, format="JPEG", quality=92, optimize=True)
         return buf.getvalue()
 
+    # ------------------------------------------------------------------ #
+    # Non-destructive touch-up
+    # ------------------------------------------------------------------ #
+    def build_adjusted_subject(
+        self,
+        original_cutout_png: bytes,
+        *,
+        mask_png: bytes | None = None,
+        rotation: float = 0.0,
+        flip_h: bool = False,
+        flip_v: bool = False,
+    ) -> Image.Image:
+        """Apply cleanup (erase mask) + flip + rotation to the original cutout.
+
+        The mask is interpreted as 'remove where painted' using its alpha (or
+        luminance) — painted areas become transparent. Returns a tight RGBA image.
+        """
+        subject = Image.open(io.BytesIO(original_cutout_png)).convert("RGBA")
+
+        if mask_png:
+            try:
+                from PIL import ImageChops
+
+                mask_img = Image.open(io.BytesIO(mask_png)).convert("RGBA")
+                if mask_img.size != subject.size:
+                    mask_img = mask_img.resize(subject.size, Image.Resampling.LANCZOS)
+                remove = mask_img.split()[3]  # painted strokes are opaque
+                keep = remove.point(lambda v: 0 if v > 10 else 255)  # 0 where erased
+                subj_alpha = subject.split()[3]
+                subject.putalpha(ImageChops.multiply(subj_alpha, keep))
+            except Exception:  # noqa: BLE001 - never let a bad mask break rendering
+                pass
+
+        if flip_h:
+            subject = subject.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if flip_v:
+            subject = subject.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        if rotation:
+            subject = subject.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC)
+
+        bbox = subject.getbbox()
+        if bbox:
+            subject = subject.crop(bbox)
+        if subject.getbbox() is None:
+            return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        return subject
+
+    def render_adjusted(
+        self,
+        subject_rgba: Image.Image,
+        background: bytes | Path,
+        *,
+        scale: float = 1.0,
+        offset_x: float = 0.0,
+        offset_y: float = 0.0,
+        watermark_bytes: bytes | None = None,
+        watermark_config: WatermarkConfig | None = None,
+    ) -> bytes:
+        """Compose an adjusted subject onto the canvas with manual placement.
+
+        scale: multiplier of the standard subject fill (0.2–2.0).
+        offset_x/offset_y: fraction of the canvas (-0.5..0.5) from centre.
+        """
+        subject = subject_rgba.convert("RGBA")
+        bbox = subject.getbbox()
+        if bbox:
+            subject = subject.crop(bbox)
+
+        canvas_w, canvas_h = self.output_size
+        base = self.subject_fill_ratio * max(0.2, min(2.0, scale))
+        max_w = max(1, int(canvas_w * base))
+        max_h = max(1, int(canvas_h * base))
+        sw, sh = subject.size
+        f = min(max_w / sw, max_h / sh)
+        new_size = (max(1, int(sw * f)), max(1, int(sh * f)))
+        resized = subject.resize(new_size, Image.Resampling.LANCZOS)
+
+        if isinstance(background, bytes):
+            bg = Image.open(io.BytesIO(background)).convert("RGB")
+        else:
+            bg = Image.open(background).convert("RGB")
+        bg = bg.resize(self.output_size, Image.Resampling.LANCZOS)
+        composed = bg.copy()
+
+        x = (canvas_w - new_size[0]) // 2 + int(offset_x * canvas_w)
+        y = (canvas_h - new_size[1]) // 2 + int(offset_y * canvas_h)
+        composed.paste(resized, (x, y), resized)
+
+        if watermark_bytes and watermark_config and watermark_config.enabled:
+            composed = self._apply_watermark(composed, watermark_bytes, watermark_config)
+
+        buf = io.BytesIO()
+        composed.convert("RGB").save(buf, format="JPEG", quality=92, optimize=True)
+        return buf.getvalue()
+
     def render_final(
         self,
         processed_key: str,

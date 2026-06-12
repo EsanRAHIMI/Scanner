@@ -71,6 +71,10 @@ class ItemRecord(BaseModel):
     stage: str | None = None
     processing_ms: int | None = None
     attempts: int = 0
+    # Non-destructive touch-up. Original processed_key is preserved; adjusted_key
+    # holds the corrected transparent cutout; adjustments stores the editable state.
+    adjusted_key: str | None = None
+    adjustments: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

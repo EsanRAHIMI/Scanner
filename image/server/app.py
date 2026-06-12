@@ -247,7 +247,7 @@ async def _generate_and_store_renditions(item, *, spec: RenditionSpec | None = N
     if not force and item.rendition_urls:
         return item.rendition_urls
 
-    cutout_key = _resolve_cutout_key(item)
+    cutout_key = _rendition_cutout_key(item)
     if not storage.exists(cutout_key):
         item.processed_url = await processor.process_original_async(
             item.original_key, cutout_key, _rembg_config()
@@ -271,6 +271,129 @@ async def _generate_and_store_renditions(item, *, spec: RenditionSpec | None = N
     item.rendition_urls = urls
     _require_repo().save_item(item)
     return urls
+
+
+# ---- Non-destructive touch-up (Adjust step) -------------------------------- #
+def _rendition_cutout_key(item) -> str:
+    """Prefer the adjusted (touched-up) cutout for renditions when present."""
+    if item.adjusted_key and storage.exists(item.adjusted_key):
+        return item.adjusted_key
+    return _resolve_cutout_key(item)
+
+
+def _normalize_transform(raw: dict | None) -> dict:
+    raw = raw or {}
+
+    def num(key: str, default: float, lo: float, hi: float) -> float:
+        try:
+            v = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+
+    return {
+        "scale": num("scale", 1.0, 0.2, 2.0),
+        "offset_x": num("offset_x", 0.0, -0.5, 0.5),
+        "offset_y": num("offset_y", 0.0, -0.5, 0.5),
+        "rotation": num("rotation", 0.0, -180.0, 180.0),
+        "flip_h": bool(raw.get("flip_h", False)),
+        "flip_v": bool(raw.get("flip_v", False)),
+    }
+
+
+def _decode_data_url(value: str) -> bytes:
+    payload = value.strip()
+    if payload.startswith("data:") and "," in payload:
+        payload = payload.split(",", 1)[1]
+    return base64.b64decode(payload)
+
+
+async def _render_item_with_adjustments(item, batch) -> None:
+    """Build the adjusted transparent cutout + branded output from item.adjustments.
+
+    Original processed_key is never modified (fully non-destructive).
+    """
+    cutout_key = _resolve_cutout_key(item)
+    if not storage.exists(cutout_key):
+        item.processed_url = await processor.process_original_async(
+            item.original_key, cutout_key, _rembg_config_for_batch(batch)
+        )
+        item.processed_key = cutout_key
+
+    original_png = storage.get_bytes(cutout_key)
+    adj = item.adjustments or {}
+    t = _normalize_transform(adj.get("transform"))
+    mask_key = adj.get("mask_key")
+    mask_png = storage.get_bytes(mask_key) if (mask_key and storage.exists(mask_key)) else None
+
+    subject = await asyncio.to_thread(
+        processor.build_adjusted_subject,
+        original_png,
+        mask_png=mask_png,
+        rotation=t["rotation"],
+        flip_h=t["flip_h"],
+        flip_v=t["flip_v"],
+    )
+
+    # Versioned filenames so every save produces NEW URLs — reliably cache-proof
+    # across the browser and any CDN. Previous versioned artifacts are removed.
+    version = int(time.time() * 1000)
+    for old_key in (adj.get("artifacts") or []):
+        if old_key and storage.exists(old_key):
+            storage.delete_key(old_key)
+    artifacts: list[str] = []
+    stem = sanitize_storage_name(item.display_name)
+
+    sbuf = io.BytesIO()
+    subject.save(sbuf, format="PNG")
+    adjusted_key = f"{storage.processed_prefix(item.batch_id)}/{item.id}_adjusted_v{version}.png"
+    storage.put_bytes(adjusted_key, sbuf.getvalue(), content_type="image/png")
+    item.adjusted_key = adjusted_key
+    artifacts.append(adjusted_key)
+
+    bg_id = _batch_background_id(batch)
+    bg_bytes = _require_background_store().get_bytes(bg_id)
+    final_bytes = await asyncio.to_thread(
+        processor.render_adjusted,
+        subject,
+        bg_bytes,
+        scale=t["scale"],
+        offset_x=t["offset_x"],
+        offset_y=t["offset_y"],
+        **_watermark_render_kwargs(),
+    )
+    final_key = f"{storage.final_prefix(item.batch_id)}/{stem}__{sanitize_storage_name(bg_id)}__v{version}.jpg"
+    item.final_key = final_key
+    item.final_url = storage.put_bytes(final_key, final_bytes, content_type="image/jpeg")
+    item.background_id = bg_id
+    artifacts.append(final_key)
+
+    # Regenerate ALL renditions from the adjusted cutout immediately (versioned).
+    spec = _rendition_spec_for_batch(batch)
+    renditions = await asyncio.to_thread(build_transparent_renditions, subject, spec)
+    rendition_urls: dict[str, str] = {}
+    for r in renditions:
+        key = f"{storage.final_prefix(item.batch_id)}/{stem}__{r.name}__v{version}.{r.ext}"
+        rendition_urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
+        artifacts.append(key)
+    item.rendition_urls = rendition_urls or None
+
+    item.adjustments = {
+        "transform": t,
+        "mask_key": mask_key,
+        "updated_at": utc_now().isoformat(),
+        "artifacts": artifacts,
+        "version": version,
+    }
+    if item.status == ItemStatus.PROCESSED:
+        item.status = ItemStatus.REVIEWED
+    _require_repo().save_item(item)
+    # If already published, refresh the output record so edits show on Outputs.
+    if item.status == ItemStatus.FINALIZED:
+        try:
+            _require_repo().upsert_output(item, batch)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to refresh output after adjust for %s", item.id)
 
 
 def _build_processing_meta(*, background_id: str | None = None) -> dict:
@@ -967,6 +1090,81 @@ async def retry_item(item_id: str, background_tasks: BackgroundTasks) -> dict:
     return {"ok": True, "item_id": item_id, "batch_id": item.batch_id}
 
 
+@app.get("/api/v1/items/{item_id}")
+async def get_item(item_id: str) -> dict:
+    return {"item": _item_or_404(item_id).model_dump(mode="json")}
+
+
+@app.post("/api/v1/items/{item_id}/adjust")
+async def adjust_item(item_id: str, payload: dict) -> dict:
+    """Save non-destructive touch-up (transform + erase mask) and re-render outputs."""
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    item = _item_or_404(item_id)
+    batch = _batch_or_404(item.batch_id)
+
+    transform = _normalize_transform(payload.get("transform"))
+    existing = item.adjustments or {}
+    mask_key = existing.get("mask_key")
+
+    if payload.get("clear_mask"):
+        if mask_key and storage.exists(mask_key):
+            storage.delete_key(mask_key)
+        mask_key = None
+
+    mask_b64 = payload.get("mask_base64")
+    if isinstance(mask_b64, str) and mask_b64.strip():
+        try:
+            raw = _decode_data_url(mask_b64)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="INVALID_MASK") from exc
+        mask_key = f"{storage.processed_prefix(item.batch_id)}/{item.id}_mask.png"
+        storage.put_bytes(mask_key, raw, content_type="image/png")
+
+    item.adjustments = {
+        "transform": transform,
+        "mask_key": mask_key,
+        "updated_at": utc_now().isoformat(),
+        "artifacts": existing.get("artifacts", []),  # carried forward for cleanup
+    }
+    await _render_item_with_adjustments(item, batch)
+    return {"item": item.model_dump(mode="json")}
+
+
+@app.post("/api/v1/items/{item_id}/adjust/reset")
+async def reset_item_adjustments(item_id: str) -> dict:
+    """Revert to the original processed output (discard touch-up)."""
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    item = _item_or_404(item_id)
+    batch = _batch_or_404(item.batch_id)
+
+    adj = item.adjustments or {}
+    for key in [adj.get("mask_key"), item.adjusted_key, *(adj.get("artifacts") or [])]:
+        if key and storage.exists(key):
+            storage.delete_key(key)
+
+    item.adjustments = None
+    item.adjusted_key = None
+    item.rendition_urls = None
+    # Re-render the automatic (auto-centered) branded output from the original cutout.
+    await _render_item_final(item, item.batch_id, _batch_background_id(batch))
+    # Regenerate renditions from the original so Outputs stays consistent.
+    try:
+        await _generate_and_store_renditions(
+            item, spec=_rendition_spec_for_batch(batch), force=True
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to regenerate renditions after reset for %s", item.id)
+    _require_repo().save_item(item)
+    if item.status == ItemStatus.FINALIZED:
+        try:
+            _require_repo().upsert_output(item, batch)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to refresh output after reset for %s", item.id)
+    return {"item": item.model_dump(mode="json")}
+
+
 @app.patch("/api/v1/items/{item_id}")
 async def rename_item(item_id: str, payload: RenameItemRequest) -> dict:
     item = _item_or_404(item_id)
@@ -1171,14 +1369,29 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             item.processed_key = cutout_key
             item.processing_meta = _build_processing_meta(background_id=bg_id)
 
-        final_url = await asyncio.to_thread(
-            processor.render_final,
-            cutout_key,
-            final_key,
-            bg_bytes,
-            f"{item.display_name}.jpg",
-            **_watermark_render_kwargs(),
-        )
+        if item.adjustments and item.adjusted_key and storage.exists(item.adjusted_key):
+            # Preserve the user's touch-up when changing background.
+            subject = Image.open(io.BytesIO(storage.get_bytes(item.adjusted_key))).convert("RGBA")
+            t = _normalize_transform((item.adjustments or {}).get("transform"))
+            final_bytes = await asyncio.to_thread(
+                processor.render_adjusted,
+                subject,
+                bg_bytes,
+                scale=t["scale"],
+                offset_x=t["offset_x"],
+                offset_y=t["offset_y"],
+                **_watermark_render_kwargs(),
+            )
+            final_url = storage.put_bytes(final_key, final_bytes, content_type="image/jpeg")
+        else:
+            final_url = await asyncio.to_thread(
+                processor.render_final,
+                cutout_key,
+                final_key,
+                bg_bytes,
+                f"{item.display_name}.jpg",
+                **_watermark_render_kwargs(),
+            )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to change background for output %s", item_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

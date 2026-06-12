@@ -68,6 +68,26 @@ export type BatchItem = {
   status: ItemStatus;
   error: string | null;
   processing_meta?: ProcessingMeta | null;
+  adjusted_key?: string | null;
+  adjustments?: { transform?: AdjustTransform; mask_key?: string | null; updated_at?: string } | null;
+};
+
+export type AdjustTransform = {
+  scale: number;
+  offset_x: number;
+  offset_y: number;
+  rotation: number;
+  flip_h: boolean;
+  flip_v: boolean;
+};
+
+export const DEFAULT_TRANSFORM: AdjustTransform = {
+  scale: 1,
+  offset_x: 0,
+  offset_y: 0,
+  rotation: 0,
+  flip_h: false,
+  flip_v: false,
 };
 
 export type Background = {
@@ -411,6 +431,25 @@ export async function renameItem(itemId: string, displayName: string) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ display_name: displayName }),
   });
+}
+
+export async function getItem(itemId: string) {
+  return request<{ item: BatchItem }>(`/api/v1/items/${itemId}`);
+}
+
+export async function adjustItem(
+  itemId: string,
+  payload: { transform: AdjustTransform; mask_base64?: string | null; clear_mask?: boolean },
+) {
+  return request<{ item: BatchItem }>(`/api/v1/items/${itemId}/adjust`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resetItemAdjustments(itemId: string) {
+  return request<{ item: BatchItem }>(`/api/v1/items/${itemId}/adjust/reset`, { method: 'POST' });
 }
 
 export async function reprocessItem(itemId: string) {

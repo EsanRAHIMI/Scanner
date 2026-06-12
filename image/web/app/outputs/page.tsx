@@ -3,14 +3,17 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
+import { AdjustEditor } from '@/components/adjust-editor';
 import { PageHeader } from '@/components/page-header';
 import {
   changeOutputBackground,
   deleteOutput,
+  getItem,
   listBackgrounds,
   listOutputs,
   resolveMediaUrl,
   type Background,
+  type BatchItem,
   type OutputRow,
 } from '@/lib/api';
 
@@ -30,6 +33,17 @@ export default function OutputsPage() {
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<BatchItem | null>(null);
+
+  async function openAdjust(row: OutputRow) {
+    setError(null);
+    try {
+      const res = await getItem(row.id);
+      setEditing(res.item);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not open editor');
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -138,6 +152,15 @@ export default function OutputsPage() {
                 </p>
                 <button
                   type="button"
+                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] text-brand-medium-gray transition hover:bg-brand-burgundy/10 hover:text-brand-burgundy disabled:opacity-40"
+                  disabled={busy}
+                  title="Adjust / touch up"
+                  onClick={() => void openAdjust(row)}
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
                   className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] text-brand-medium-gray transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
                   disabled={busy}
                   title="Delete"
@@ -192,6 +215,17 @@ export default function OutputsPage() {
       {!loading && rows.length > 0 && (
         <p className="text-xs text-brand-medium-gray">{total} published item{total === 1 ? '' : 's'}</p>
       )}
+
+      {editing ? (
+        <AdjustEditor
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setEditing(updated);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

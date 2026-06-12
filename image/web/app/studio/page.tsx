@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
+import { AdjustEditor } from '@/components/adjust-editor';
 import { ProcessingScreen } from '@/components/processing-screen';
 import { PageHeader } from '@/components/page-header';
 import {
@@ -33,7 +34,7 @@ const PRESET_DESC: Record<string, string> = {
   full_brand_package: 'Everything: premium cutout + all renditions + branded.',
 };
 
-const STEPS = ['Upload', 'Style', 'Process', 'Review', 'Finalize'] as const;
+const STEPS = ['Upload', 'Style', 'Process', 'Review', 'Adjust', 'Finalize'] as const;
 
 function Stepper({ step }: { step: number }) {
   return (
@@ -95,6 +96,7 @@ export default function StudioPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
+  const [editing, setEditing] = useState<BatchItem | null>(null);
 
   useEffect(() => {
     listPresets()
@@ -138,7 +140,7 @@ export default function StudioPage() {
     try {
       const res = await finalizeBatch(batchId);
       setOutputs(res.outputs);
-      setStep(4);
+      setStep(5);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Finalize failed');
     } finally {
@@ -307,19 +309,64 @@ export default function StudioPage() {
 
             <div className="flex justify-between">
               <button type="button" className="btn-outline px-4 py-2 text-sm" onClick={() => void loadReview()}>Refresh</button>
-              <button type="button" className="btn-primary px-4 py-2 text-sm" disabled={busy} onClick={() => void handleFinalize()}>
-                {busy ? 'Finalizing…' : 'Approve & finalize'}
+              <button type="button" className="btn-primary px-4 py-2 text-sm" onClick={() => setStep(4)}>
+                Continue to touch-up
               </button>
             </div>
           </div>
         </section>
       ) : null}
 
-      {/* Step 5 — Finalize / download */}
+      {/* Step 5 — Adjust / touch up */}
       {step === 4 ? (
         <section className="dash-panel">
           <div className="dash-panel-body space-y-4">
-            <h2 className="text-sm font-semibold text-brand-black">5 · Done — download &amp; publish</h2>
+            <div>
+              <h2 className="text-sm font-semibold text-brand-black">5 · Adjust / touch up</h2>
+              <p className="mt-0.5 text-xs text-brand-medium-gray">
+                Optional. Clean leftover bits, remove halos, or reposition each product. Originals are always kept.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+              {items.map((it) => {
+                const branded = resolveMediaUrl(it.final_url);
+                const adjusted = Boolean(it.adjustments);
+                return (
+                  <article key={it.id} className="overflow-hidden rounded-xl border border-brand-medium-gray/15 bg-brand-white">
+                    <button type="button" className="relative block aspect-[3/4] w-full bg-brand-light-gray/40" onClick={() => setEditing(it)}>
+                      {branded ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={`${branded}${branded.includes('?') ? '&' : '?'}t=${it.adjustments?.updated_at ?? ''}`} alt={it.display_name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-[10px] text-brand-medium-gray">—</div>
+                      )}
+                      {adjusted ? <span className="absolute left-2 top-2 rounded-full bg-brand-burgundy px-2 py-0.5 text-[9px] font-medium text-white">edited</span> : null}
+                    </button>
+                    <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                      <p className="truncate text-[11px] font-medium" title={it.display_name}>{it.display_name}</p>
+                      <button type="button" className="btn-outline shrink-0 px-2 py-1 text-[10px]" onClick={() => setEditing(it)}>Edit</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between">
+              <button type="button" className="btn-outline px-4 py-2 text-sm" onClick={() => setStep(3)}>Back to review</button>
+              <button type="button" className="btn-primary px-4 py-2 text-sm" disabled={busy} onClick={() => void handleFinalize()}>
+                {busy ? 'Finalizing…' : 'Finalize all'}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Step 6 — Finalize / download */}
+      {step === 5 ? (
+        <section className="dash-panel">
+          <div className="dash-panel-body space-y-4">
+            <h2 className="text-sm font-semibold text-brand-black">6 · Done — download &amp; publish</h2>
             <p className="text-xs text-brand-medium-gray">{outputs.length} image{outputs.length === 1 ? '' : 's'} finalized.</p>
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
               {outputs.map((o) => {
@@ -354,6 +401,17 @@ export default function StudioPage() {
             </div>
           </div>
         </section>
+      ) : null}
+
+      {editing ? (
+        <AdjustEditor
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
+            setEditing(updated);
+          }}
+        />
       ) : null}
 
       {zoom ? (
