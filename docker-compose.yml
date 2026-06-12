@@ -16,3 +16,29 @@ services:
       - ./backend/models:/models:ro
     expose:
       - "8000"
+
+  # Image service (background removal / cutout + standardized renditions).
+  image-server:
+    build:
+      context: ./image/server
+    environment:
+      - IMAGE_STORAGE_ROOT=/data/storage
+      - U2NET_HOME=/data/models
+      # Set MONGODB_URI / S3 / managed-API vars via Dokploy env, not here.
+    volumes:
+      # Persists cutouts, renditions, and downloaded model weights across redeploys.
+      - image_data:/data
+    expose:
+      - "8020"
+
+  image-web:
+    build:
+      context: ./image/web
+    environment:
+      - NODE_ENV=production
+      - IMAGE_API_BASE=http://image-server:8020
+    expose:
+      - "3006"
+
+volumes:
+  image_data:

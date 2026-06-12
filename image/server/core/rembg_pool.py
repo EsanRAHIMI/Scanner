@@ -44,12 +44,12 @@ def _warmup_sync(config_dict: dict) -> str:
     return loaded_model_name() or config.model
 
 
-def _run_cutout_sync(image_bytes: bytes, config_dict: dict) -> tuple[bytes, str | None]:
+def _run_cutout_sync(image_bytes: bytes, config_dict: dict, on_stage=None) -> tuple[bytes, str | None]:
     _apply_thread_limits()
-    return extract_tight_cutout_bytes(image_bytes, config_dict)
+    return extract_tight_cutout_bytes(image_bytes, config_dict, on_stage)
 
 
-async def run_cutout(image_bytes: bytes, config: RembgConfig) -> tuple[bytes, str | None]:
+async def run_cutout(image_bytes: bytes, config: RembgConfig, on_stage=None) -> tuple[bytes, str | None]:
     global _last_loaded_model
     loop = asyncio.get_running_loop()
     try:
@@ -58,6 +58,7 @@ async def run_cutout(image_bytes: bytes, config: RembgConfig) -> tuple[bytes, st
             _run_cutout_sync,
             image_bytes,
             config.model_dump(),
+            on_stage,
         )
     except Exception as exc:  # noqa: BLE001
         message = str(exc).lower()
@@ -77,6 +78,41 @@ async def run_cutout(image_bytes: bytes, config: RembgConfig) -> tuple[bytes, st
     if loaded:
         _last_loaded_model = loaded
     return png_bytes, loaded
+
+
+def _run_engine_sync(image_bytes: bytes, engine_dict: dict):
+    _apply_thread_limits()
+    from core.cutout import engine as cutout_engine
+    from core.cutout.base import EngineConfig
+
+    return cutout_engine.run_cutout(image_bytes, EngineConfig.from_dict(engine_dict))
+
+
+async def run_engine(image_bytes: bytes, engine_config):
+    """Run an explicit EngineConfig through the shared single-thread executor.
+
+    Used by preview/compare so on-demand tests reuse the same serialized,
+    OOM-safe worker as batch processing. Returns a CutoutResult.
+    """
+    global _last_loaded_model
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            _get_executor(), _run_engine_sync, image_bytes, engine_config.to_dict()
+        )
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc).lower()
+        if "terminated abruptly" in message or "broken process pool" in message or "memory" in message:
+            raise RembgProcessingError(
+                "AI cutout worker crashed (usually out of memory). "
+                "Use quality=fast or a lighter model, lower Infer size, or give the "
+                "Image API container at least 2GB RAM."
+            ) from exc
+        raise RembgProcessingError(f"Background removal failed: {exc}") from exc
+
+    if getattr(result, "model", None):
+        _last_loaded_model = result.model
+    return result
 
 
 async def warmup_worker(config: RembgConfig) -> str | None:

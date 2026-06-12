@@ -24,6 +24,40 @@ class Settings(BaseSettings):
     image_rembg_max_dimension: int = 2048
     image_rembg_min_dimension: int = 1800
 
+    # ----- Cutout engine architecture (provider-based, switchable) -----
+    # IMAGE_CUTOUT_ENGINE: self_hosted | managed_api | hybrid
+    image_cutout_engine: str = "self_hosted"
+    # IMAGE_PROCESSING_MODE: cpu | gpu  (gpu reserved for a future self-hosted upgrade)
+    image_processing_mode: str = "cpu"
+    # IMAGE_QUALITY_MODE: fast | balanced | premium
+    # balanced == today's behavior (rembg preserve_detail + heuristic refine).
+    image_quality_mode: str = "balanced"
+    # Master switch for the managed API provider (must also have a provider + key).
+    image_managed_api_enabled: bool = False
+    # Managed provider: photoroom | removebg | none
+    image_managed_api_provider: str = "none"
+    image_managed_api_key: str | None = None
+    image_managed_api_timeout_s: float = 30.0
+    # In hybrid mode, escalate to the managed API when the local cutout looks weak.
+    # 0..1 confidence; below this we try the managed provider (if enabled).
+    image_hybrid_escalate_below: float = 0.55
+    # Cap how many managed-API escalations per batch (cost control). -1 = unlimited.
+    image_hybrid_managed_budget: int = -1
+
+    # ----- Standardized output renditions -----
+    # Always keep a transparent high-res master derived cutout.
+    image_render_master_png: bool = True
+    image_render_master_webp: bool = True
+    # Web-optimized transparent renditions.
+    image_render_web_webp: bool = True
+    image_render_web_avif: bool = False  # needs pillow-avif-plugin; off by default
+    # Branded JPEG-on-background output (the existing finalized product image).
+    image_render_branded_jpeg: bool = True
+    image_web_max_dimension: int = 2048
+    image_webp_quality: int = 90
+    image_avif_quality: int = 60
+    image_master_max_dimension: int = 4096
+
     mongodb_uri: str | None = None
     image_mongodb_db: str = "lorenzo_image"
 

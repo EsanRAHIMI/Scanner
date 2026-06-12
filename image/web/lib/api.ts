@@ -93,7 +93,65 @@ export type SystemSettings = {
   rembg_background_threshold: number;
   rembg_erode_size: number;
   rembg_min_dimension: number;
+  // Cutout engine (null = inherit env baseline)
+  cutout_engine?: string | null;
+  processing_mode?: string | null;
+  quality_mode?: string | null;
+  managed_api_enabled?: boolean | null;
+  managed_api_provider?: string | null;
+  hybrid_escalate_below?: number | null;
+  // Output renditions (null = inherit env baseline)
+  render_master_png?: boolean | null;
+  render_master_webp?: boolean | null;
+  render_web_webp?: boolean | null;
+  render_web_avif?: boolean | null;
+  render_branded_jpeg?: boolean | null;
+  master_max_dimension?: number | null;
+  web_max_dimension?: number | null;
+  webp_quality?: number | null;
+  avif_quality?: number | null;
   updated_at: string;
+};
+
+export const CUTOUT_ENGINE_OPTIONS = [
+  { id: 'self_hosted', label: 'Self-hosted (local)' },
+  { id: 'managed_api', label: 'Managed API' },
+  { id: 'hybrid', label: 'Hybrid (local + escalate)' },
+] as const;
+
+export const PROCESSING_MODE_OPTIONS = [
+  { id: 'cpu', label: 'CPU' },
+  { id: 'gpu', label: 'GPU (future)' },
+] as const;
+
+export const QUALITY_MODE_OPTIONS = [
+  { id: 'fast', label: 'Fast' },
+  { id: 'balanced', label: 'Balanced' },
+  { id: 'premium', label: 'Premium' },
+] as const;
+
+export const MANAGED_PROVIDER_OPTIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'photoroom', label: 'Photoroom' },
+  { id: 'removebg', label: 'remove.bg' },
+] as const;
+
+export const COMPARE_MODES = ['balanced', 'premium', 'hybrid'] as const;
+
+export type CutoutPreviewResult = {
+  mode?: string;
+  engine: string;
+  processing_mode: string;
+  quality: string;
+  provider: string;
+  model: string | null;
+  confidence: number;
+  escalated: boolean;
+  elapsed_ms: number;
+  cutout_base64: string;
+  branded_base64?: string;
+  meta?: Record<string, unknown>;
+  error?: string;
 };
 
 /** Strongest → lightest (best chandelier detail first). */
@@ -165,12 +223,29 @@ export type RuntimeMongoInfo = {
   db: string;
 };
 
+export type RuntimeCutoutInfo = {
+  engine: string;
+  processing_mode: string;
+  quality: string;
+  managed_api_enabled: boolean;
+  managed_api_provider: string;
+  managed_api_key_set: boolean;
+  pymatting_available: boolean;
+  renditions: {
+    master_png: boolean;
+    master_webp: boolean;
+    web_webp: boolean;
+    web_avif: boolean;
+  };
+};
+
 export type RuntimeInfo = {
   output_width: number;
   output_height: number;
   deploy: RuntimeDeployInfo;
   libraries: RuntimeLibraries;
   rembg: RuntimeRembgInfo;
+  cutout?: RuntimeCutoutInfo;
   storage: RuntimeStorageInfo;
   mongodb: RuntimeMongoInfo;
   google_drive_configured: boolean;
@@ -199,6 +274,7 @@ export type OutputRow = {
   source: string;
   status: ItemStatus;
   background_id?: string | null;
+  rendition_urls?: Record<string, string> | null;
   updated_at: string;
 };
 
@@ -354,6 +430,107 @@ export async function previewRembg(file: File) {
     settings: Record<string, unknown>;
     loaded_model: string | null;
   }>;
+}
+
+export type ProgressItem = {
+  item_id: string;
+  name: string;
+  index: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  stage: string;
+  stage_label: string;
+  percent: number;
+  elapsed_ms: number | null;
+  error: string | null;
+};
+
+export type BatchProgress = {
+  batch_id: string;
+  active: boolean;
+  total: number;
+  completed: number;
+  failed: number;
+  overall_percent: number;
+  elapsed_ms: number | null;
+  eta_ms: number | null;
+  current: { item_id: string; name: string; index: number; stage: string; stage_label: string } | null;
+  items: ProgressItem[];
+};
+
+export type Preset = {
+  id: string;
+  label: string;
+  quality: string;
+  engine: string;
+  renditions: Record<string, boolean>;
+};
+
+export async function getBatchProgress(batchId: string) {
+  return request<BatchProgress>(`/api/v1/batches/${batchId}/progress`);
+}
+
+export async function retryItem(itemId: string) {
+  return request<{ ok: boolean; batch_id: string }>(`/api/v1/items/${itemId}/retry`, { method: 'POST' });
+}
+
+export async function listPresets() {
+  return request<{ presets: Preset[] }>('/api/v1/presets');
+}
+
+export async function importImages(
+  files: File[],
+  opts?: { batchName?: string; preset?: string; quality?: string; purpose?: string; autoProcess?: boolean },
+) {
+  const form = new FormData();
+  for (const file of files) form.append('files', file);
+  const query = new URLSearchParams({ auto_process: String(opts?.autoProcess ?? true) });
+  if (opts?.batchName) query.set('batch_name', opts.batchName);
+  if (opts?.preset) query.set('preset', opts.preset);
+  if (opts?.quality) query.set('quality', opts.quality);
+  if (opts?.purpose) query.set('purpose', opts.purpose);
+  const res = await fetch(apiUrl(`/api/v1/import/local?${query}`), { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<{ batch_id: string; item_count: number }>;
+}
+
+export async function cutoutPreview(
+  file: File,
+  overrides?: {
+    engine?: string;
+    quality?: string;
+    processing_mode?: string;
+    managed_api_enabled?: boolean;
+    branded?: boolean;
+  },
+) {
+  const form = new FormData();
+  form.append('file', file);
+  if (overrides?.engine) form.append('engine', overrides.engine);
+  if (overrides?.quality) form.append('quality', overrides.quality);
+  if (overrides?.processing_mode) form.append('processing_mode', overrides.processing_mode);
+  if (overrides?.managed_api_enabled !== undefined)
+    form.append('managed_api_enabled', String(overrides.managed_api_enabled));
+  form.append('branded', String(overrides?.branded ?? false));
+  const res = await fetch(apiUrl('/api/v1/cutout/preview'), { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<CutoutPreviewResult>;
+}
+
+export async function cutoutCompare(file: File, modes: string[], branded = true) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('modes', modes.join(','));
+  form.append('branded', String(branded));
+  const res = await fetch(apiUrl('/api/v1/cutout/compare'), { method: 'POST', body: form });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json() as Promise<{ results: CutoutPreviewResult[] }>;
+}
+
+export async function generateRenditions(itemId: string) {
+  return request<{ item_id: string; renditions: Record<string, string> }>(
+    `/api/v1/items/${itemId}/renditions`,
+    { method: 'POST' },
+  );
 }
 
 export async function applyItemProcessingSettings(itemId: string) {

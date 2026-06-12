@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
+import time
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import unquote
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from PIL import Image
 
 from core.backgrounds import BackgroundStore, background_asset_url
 from core.config import Settings, get_settings
@@ -35,9 +38,12 @@ from core.models import (
     utc_now,
 )
 from core.recovery import item_needs_processing, recover_interrupted_jobs
-from core.rembg_pool import pool_loaded_model, warmup_worker
 from core.processor import ImageProcessor, WatermarkConfig
+from core.cutout.base import EngineConfig
+from core.progress import STAGE_LABELS, registry as progress_registry, stage_percent
 from core.rembg_config import rembg_config_from_system, rembg_meta_dict
+from core.rembg_pool import pool_loaded_model, run_engine, warmup_worker
+from core.renditions import RenditionSpec, build_transparent_renditions
 from core.repository import ImageRepository
 from core.storage import StorageBackend, sanitize_storage_name
 from core.watermarks import WatermarkStore
@@ -124,6 +130,147 @@ def _runtime() -> dict:
 
 def _rembg_config():
     return rembg_config_from_system(settings, _require_settings_store().get())
+
+
+_ENGINE_OVERRIDE_KEYS = ("engine", "processing_mode", "quality", "managed_api_enabled")
+
+
+def _engine_config(overrides: dict | None = None) -> EngineConfig:
+    """Effective EngineConfig: env defaults overlaid by admin settings, then per-request overrides."""
+    cfg = EngineConfig.from_settings(settings, _require_settings_store().get())
+    if overrides:
+        from core.cutout.base import CutoutEngine, ProcessingMode, QualityMode, _coerce
+
+        if overrides.get("engine"):
+            cfg.engine = _coerce(CutoutEngine, overrides["engine"], cfg.engine)
+        if overrides.get("processing_mode"):
+            cfg.processing_mode = _coerce(ProcessingMode, overrides["processing_mode"], cfg.processing_mode)
+        if overrides.get("quality"):
+            cfg.quality = _coerce(QualityMode, overrides["quality"], cfg.quality)
+        if overrides.get("managed_api_enabled") is not None:
+            cfg.managed_api_enabled = bool(overrides["managed_api_enabled"])
+    return cfg
+
+
+def _rendition_spec() -> RenditionSpec:
+    return RenditionSpec.from_config(settings, _require_settings_store().get())
+
+
+# ---- Presets: simple, purpose-driven mappings to engine + rendition config ---- #
+# The UI surfaces these by name; advanced users can still override individual
+# settings. `renditions` keys map to RenditionSpec fields.
+PRESETS: dict[str, dict] = {
+    "fast_preview": {
+        "label": "Fast Preview",
+        "quality": "fast",
+        "engine": "self_hosted",
+        "renditions": {"master_png": True, "master_webp": False, "web_webp": False, "web_avif": False, "branded_jpeg": True},
+    },
+    "website_product": {
+        "label": "Website Product",
+        "quality": "balanced",
+        "engine": "self_hosted",
+        "renditions": {"master_png": True, "master_webp": False, "web_webp": True, "web_avif": False, "branded_jpeg": True},
+    },
+    "premium_cutout": {
+        "label": "Premium Cutout",
+        "quality": "premium",
+        "engine": "self_hosted",
+        "renditions": {"master_png": True, "master_webp": True, "web_webp": True, "web_avif": False, "branded_jpeg": False},
+    },
+    "social_media": {
+        "label": "Social Media Output",
+        "quality": "balanced",
+        "engine": "self_hosted",
+        "renditions": {"master_png": False, "master_webp": False, "web_webp": True, "web_avif": True, "branded_jpeg": True},
+    },
+    "transparent_master": {
+        "label": "Transparent Master",
+        "quality": "premium",
+        "engine": "self_hosted",
+        "renditions": {"master_png": True, "master_webp": True, "web_webp": True, "web_avif": False, "branded_jpeg": False},
+    },
+    "full_brand_package": {
+        "label": "Full Brand Package",
+        "quality": "premium",
+        "engine": "hybrid",
+        "renditions": {"master_png": True, "master_webp": True, "web_webp": True, "web_avif": True, "branded_jpeg": True},
+    },
+}
+
+
+def _preset_overrides(preset: str | None, quality: str | None, purpose: str | None) -> dict:
+    base: dict = {}
+    if preset and preset in PRESETS:
+        p = PRESETS[preset]
+        base = {"preset": preset, "quality": p["quality"], "engine": p["engine"], "renditions": dict(p["renditions"])}
+    if quality:
+        base["quality"] = quality
+    if purpose:
+        base["purpose"] = purpose
+    return base
+
+
+def _batch_overrides(batch) -> dict:
+    md = getattr(batch, "metadata", None) or {}
+    ov = md.get("overrides")
+    return ov if isinstance(ov, dict) else {}
+
+
+def _rembg_config_for_batch(batch):
+    rc = _rembg_config()
+    ov = _batch_overrides(batch)
+    if ov.get("quality"):
+        rc.quality = ov["quality"]
+    if ov.get("engine"):
+        rc.engine = ov["engine"]
+    if ov.get("managed_api_enabled") is not None:
+        rc.managed_api_enabled = bool(ov["managed_api_enabled"])
+    return rc
+
+
+def _rendition_spec_for_batch(batch) -> RenditionSpec:
+    spec = _rendition_spec()
+    rend = _batch_overrides(batch).get("renditions")
+    if isinstance(rend, dict):
+        for key in ("master_png", "master_webp", "web_webp", "web_avif", "branded_jpeg"):
+            if key in rend and rend[key] is not None:
+                setattr(spec, key, bool(rend[key]))
+    return spec
+
+
+async def _generate_and_store_renditions(item, *, spec: RenditionSpec | None = None, force: bool = False) -> dict[str, str]:
+    """Build + store standardized transparent renditions for an item. Returns name->url.
+
+    Cached: if the item already has renditions and force is False, returns them as-is.
+    """
+    if not force and item.rendition_urls:
+        return item.rendition_urls
+
+    cutout_key = _resolve_cutout_key(item)
+    if not storage.exists(cutout_key):
+        item.processed_url = await processor.process_original_async(
+            item.original_key, cutout_key, _rembg_config()
+        )
+        item.processed_key = cutout_key
+
+    cutout_bytes = storage.get_bytes(cutout_key)
+    tight = Image.open(io.BytesIO(cutout_bytes)).convert("RGBA")
+    bbox = tight.getbbox()
+    if bbox:
+        tight = tight.crop(bbox)
+
+    spec = spec or _rendition_spec()
+    renditions = await asyncio.to_thread(build_transparent_renditions, tight, spec)
+    stem = sanitize_storage_name(item.display_name)
+    urls: dict[str, str] = {}
+    for r in renditions:
+        key = f"{storage.final_prefix(item.batch_id)}/{r.filename(stem)}"
+        urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
+
+    item.rendition_urls = urls
+    _require_repo().save_item(item)
+    return urls
 
 
 def _build_processing_meta(*, background_id: str | None = None) -> dict:
@@ -223,20 +370,37 @@ async def _process_batch(batch_id: str) -> None:
     bg_id = _batch_background_id(batch)
     items = _require_repo().list_items(batch_id)
     pending = [item for item in items if item_needs_processing(item)]
+
+    # Register the whole batch for live progress (all items, in order).
+    progress_registry.start_batch(batch_id, len(items))
+    for idx, item in enumerate(items):
+        progress_registry.register_item(batch_id, item.id, item.display_name, idx + 1)
+        if item not in pending:
+            progress_registry.finish_item(batch_id, item.id, "completed")
+
     if not pending:
         ready = sum(1 for item in items if item.status != ItemStatus.FAILED)
         batch.status = BatchStatus.REVIEW if ready else BatchStatus.FAILED
         _require_repo().save_batch(batch)
+        progress_registry.end_batch(batch_id)
         return
 
-    failed = sum(1 for item in items if item.status == ItemStatus.FAILED)
-    rembg_config = _rembg_config()
+    rembg_config = _rembg_config_for_batch(batch)
+    import time as _time
 
     for item in pending:
+        started = _time.perf_counter()
+        progress_registry.start_item(batch_id, item.id)
+
+        def _on_stage(stage: str, _id=item.id) -> None:
+            progress_registry.set_stage(batch_id, _id, stage)
+
         try:
             logger.info("Processing item %s (%s)", item.id, item.display_name)
             item.status = ItemStatus.PROCESSING
+            item.stage = "preparing"
             item.error = None
+            item.attempts = (item.attempts or 0) + 1
             _require_repo().save_item(item)
             batch.updated_at = utc_now()
             _require_repo().save_batch(batch)
@@ -246,22 +410,34 @@ async def _process_batch(batch_id: str) -> None:
                 item.original_key,
                 processed_key,
                 rembg_config,
+                on_stage=_on_stage,
             )
             item.processed_key = processed_key
             item.processed_url = processed_url
+
+            progress_registry.set_stage(batch_id, item.id, "branded_output")
+            item.stage = "branded_output"
             await _render_item_final(item, batch_id, bg_id)
+
+            progress_registry.set_stage(batch_id, item.id, "saving")
             item.processing_meta = _build_processing_meta(background_id=bg_id)
             item.status = ItemStatus.PROCESSED
+            item.stage = "completed"
             item.error = None
+            item.processing_ms = int((_time.perf_counter() - started) * 1000)
             _require_repo().save_item(item)
-            logger.info("Processed item %s", item.id)
+            progress_registry.finish_item(batch_id, item.id, "completed")
+            logger.info("Processed item %s in %sms", item.id, item.processing_ms)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed processing item %s", item.id)
             item.status = ItemStatus.FAILED
+            item.stage = "failed"
             item.error = str(exc)
+            item.processing_ms = int((_time.perf_counter() - started) * 1000)
             _require_repo().save_item(item)
-            failed += 1
+            progress_registry.finish_item(batch_id, item.id, "failed", str(exc))
 
+    progress_registry.end_batch(batch_id)
     items = _require_repo().list_items(batch_id)
     failed = sum(1 for item in items if item.status == ItemStatus.FAILED)
     ready = sum(
@@ -466,6 +642,110 @@ async def preview_rembg_settings(file: Annotated[UploadFile, File(...)]) -> dict
     }
 
 
+def _mode_to_overrides(mode: str) -> dict:
+    mode = mode.strip().lower()
+    if mode == "hybrid":
+        return {"engine": "hybrid", "quality": "premium"}
+    if mode == "managed":
+        return {"engine": "managed_api", "managed_api_enabled": True}
+    if mode in ("fast", "balanced", "premium"):
+        return {"engine": "self_hosted", "quality": mode}
+    return {"quality": "balanced"}
+
+
+async def _run_cutout_dto(data: bytes, cfg: EngineConfig, *, branded: bool, default_bg_bytes: bytes | None) -> dict:
+    t0 = time.perf_counter()
+    result = await run_engine(data, cfg)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+    cutout_png = result.to_png_bytes()
+    dto: dict = {
+        "engine": cfg.engine.value,
+        "processing_mode": cfg.processing_mode.value,
+        "quality": cfg.quality.value,
+        "provider": result.provider,
+        "model": result.model,
+        "confidence": round(result.confidence, 3),
+        "escalated": result.escalated,
+        "elapsed_ms": elapsed_ms,
+        "cutout_base64": base64.b64encode(cutout_png).decode("ascii"),
+        "meta": result.meta,
+    }
+    if branded and default_bg_bytes is not None:
+        try:
+            branded_bytes = await asyncio.to_thread(
+                processor.compose_on_background,
+                cutout_png,
+                default_bg_bytes,
+                **_watermark_render_kwargs(),
+            )
+            dto["branded_base64"] = base64.b64encode(branded_bytes).decode("ascii")
+        except Exception:  # noqa: BLE001
+            logger.exception("Branded compose failed in cutout preview")
+    return dto
+
+
+def _default_bg_bytes_or_none(enabled: bool) -> bytes | None:
+    if not enabled:
+        return None
+    try:
+        return _require_background_store().get_bytes(_default_background_id())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@app.post("/api/v1/cutout/preview")
+async def cutout_preview(
+    file: Annotated[UploadFile, File(...)],
+    engine: Annotated[str | None, Form()] = None,
+    quality: Annotated[str | None, Form()] = None,
+    processing_mode: Annotated[str | None, Form()] = None,
+    managed_api_enabled: Annotated[bool | None, Form()] = None,
+    branded: Annotated[bool, Form()] = False,
+) -> dict:
+    """Test the current (or overridden) engine settings on one image."""
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="EMPTY_FILE")
+    cfg = _engine_config(
+        {
+            "engine": engine,
+            "quality": quality,
+            "processing_mode": processing_mode,
+            "managed_api_enabled": managed_api_enabled,
+        }
+    )
+    return await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=_default_bg_bytes_or_none(branded))
+
+
+@app.post("/api/v1/cutout/compare")
+async def cutout_compare(
+    file: Annotated[UploadFile, File(...)],
+    modes: Annotated[str | None, Form()] = None,  # csv: fast,balanced,premium,hybrid,managed
+    branded: Annotated[bool, Form()] = True,
+) -> dict:
+    """Run several modes on one image for side-by-side quality comparison."""
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="EMPTY_FILE")
+
+    requested = [m.strip().lower() for m in (modes or "balanced,premium").split(",") if m.strip()]
+    default_bg_bytes = _default_bg_bytes_or_none(branded)
+    results: list[dict] = []
+    for mode in requested:
+        cfg = _engine_config(_mode_to_overrides(mode))
+        try:
+            dto = await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=default_bg_bytes)
+            dto["mode"] = mode
+            results.append(dto)
+        except Exception as exc:  # noqa: BLE001
+            results.append({"mode": mode, "error": str(exc)})
+    return {"results": results}
+
+
 @app.get("/api/v1/backgrounds")
 async def get_backgrounds() -> dict:
     return {"backgrounds": _require_background_store().list_all(_default_background_id())}
@@ -493,6 +773,9 @@ async def import_local(
     files: Annotated[list[UploadFile], File(...)],
     batch_name: str | None = None,
     auto_process: bool = Query(default=True),
+    preset: str | None = Query(default=None),
+    quality: str | None = Query(default=None),
+    purpose: str | None = Query(default=None),
 ) -> LocalImportResponse:
     if not files:
         raise HTTPException(status_code=400, detail="NO_FILES")
@@ -500,10 +783,12 @@ async def import_local(
     if importer is None:
         raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
 
+    overrides = _preset_overrides(preset, quality, purpose)
     batch = importer.create_batch(
         name=batch_name or f"Local import {len(files)} file(s)",
         source=ImportSource.LOCAL,
         default_background_id=_default_background_id(),
+        metadata={"overrides": overrides} if overrides else {},
     )
     payload: list[tuple[str, bytes]] = []
     for upload in files:
@@ -591,6 +876,97 @@ async def process_batch(batch_id: str, background_tasks: BackgroundTasks) -> dic
     return {"ok": True, "batch_id": batch_id, "status": "processing"}
 
 
+@app.get("/api/v1/presets")
+async def list_presets() -> dict:
+    return {
+        "presets": [
+            {
+                "id": pid,
+                "label": p["label"],
+                "quality": p["quality"],
+                "engine": p["engine"],
+                "renditions": p["renditions"],
+            }
+            for pid, p in PRESETS.items()
+        ]
+    }
+
+
+def _progress_from_mongo(batch_id: str) -> dict:
+    """Durable fallback progress from Mongo (after a reload or server restart)."""
+    items = _require_repo().list_items(batch_id)
+    total = len(items)
+    done_statuses = {
+        ItemStatus.PROCESSED,
+        ItemStatus.REVIEWED,
+        ItemStatus.BACKGROUND_APPLIED,
+        ItemStatus.FINALIZED,
+    }
+    completed = 0
+    failed = 0
+    out_items: list[dict] = []
+    for idx, it in enumerate(items):
+        if it.status in done_statuses:
+            pct, pstatus, stage = 100, "completed", "completed"
+            completed += 1
+        elif it.status == ItemStatus.FAILED:
+            pct, pstatus, stage = 0, "failed", "failed"
+            failed += 1
+        elif it.status == ItemStatus.PROCESSING:
+            stage = it.stage or "preparing"
+            pct, pstatus = stage_percent(stage), "processing"
+        else:
+            pct, pstatus, stage = 0, "pending", (it.stage or "queued")
+        out_items.append(
+            {
+                "item_id": it.id,
+                "name": it.display_name,
+                "index": idx + 1,
+                "status": pstatus,
+                "stage": stage,
+                "stage_label": STAGE_LABELS.get(stage, stage),
+                "percent": pct,
+                "elapsed_ms": it.processing_ms,
+                "error": it.error,
+            }
+        )
+    active = any(it.status == ItemStatus.PROCESSING for it in items)
+    overall = round((completed / total * 100.0), 1) if total else 0.0
+    return {
+        "batch_id": batch_id,
+        "active": active,
+        "total": total,
+        "completed": completed,
+        "failed": failed,
+        "overall_percent": overall,
+        "elapsed_ms": None,
+        "eta_ms": None,
+        "current": next((i for i in out_items if i["status"] == "processing"), None),
+        "items": out_items,
+    }
+
+
+@app.get("/api/v1/batches/{batch_id}/progress")
+async def batch_progress(batch_id: str) -> dict:
+    _batch_or_404(batch_id)
+    snap = progress_registry.snapshot(batch_id)
+    if snap is not None and snap.get("total"):
+        return snap
+    return _progress_from_mongo(batch_id)
+
+
+@app.post("/api/v1/items/{item_id}/retry")
+async def retry_item(item_id: str, background_tasks: BackgroundTasks) -> dict:
+    """Reset a failed item and re-run its batch (only pending/failed items reprocess)."""
+    item = _item_or_404(item_id)
+    item.status = ItemStatus.IMPORTED
+    item.stage = None
+    item.error = None
+    _require_repo().save_item(item)
+    background_tasks.add_task(_process_batch, item.batch_id)
+    return {"ok": True, "item_id": item_id, "batch_id": item.batch_id}
+
+
 @app.patch("/api/v1/items/{item_id}")
 async def rename_item(item_id: str, payload: RenameItemRequest) -> dict:
     item = _item_or_404(item_id)
@@ -666,6 +1042,20 @@ async def apply_item_processing_settings(item_id: str) -> dict:
     return _settings_response(updated)
 
 
+@app.post("/api/v1/items/{item_id}/renditions")
+async def generate_item_renditions(item_id: str) -> dict:
+    """Generate standardized transparent renditions (master PNG/WebP, web WebP/AVIF).
+
+    On-demand; which renditions are produced is controlled by the IMAGE_RENDER_*
+    settings (env or admin). Renditions are also generated automatically on finalize.
+    """
+    if processor is None:
+        raise HTTPException(status_code=503, detail="PROCESSOR_NOT_READY")
+    item = _item_or_404(item_id)
+    urls = await _generate_and_store_renditions(item, force=True)
+    return {"item_id": item_id, "renditions": urls}
+
+
 @app.post("/api/v1/batches/{batch_id}/apply-background")
 async def apply_background(batch_id: str, payload: ApplyBackgroundRequest) -> dict:
     _batch_or_404(batch_id)
@@ -691,12 +1081,18 @@ async def finalize_batch(batch_id: str, payload: FinalizeBatchRequest) -> dict:
         ItemStatus.BACKGROUND_APPLIED,
     }
     outputs = []
+    rendition_spec = _rendition_spec_for_batch(batch)
     for item in items:
         if item.status not in ready_statuses or not item.final_url:
             continue
         item.status = ItemStatus.FINALIZED
+        if processor is not None:
+            try:
+                await _generate_and_store_renditions(item, spec=rendition_spec, force=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("Rendition generation failed for item %s", item.id)
         _require_repo().save_item(item)
-        outputs.append(_require_repo().upsert_output(item, batch).model_dump(mode="json"))
+        outputs.append(_enrich_output_row(_require_repo().upsert_output(item, batch)))
 
     batch.status = BatchStatus.FINALIZED
     _require_repo().save_batch(batch)
@@ -705,10 +1101,12 @@ async def finalize_batch(batch_id: str, payload: FinalizeBatchRequest) -> dict:
 
 def _enrich_output_row(row):
     payload = row.model_dump(mode="json")
-    if not payload.get("background_id"):
-        item = _require_repo().get_item(row.item_id)
-        if item and item.background_id:
+    item = _require_repo().get_item(row.item_id)
+    if item:
+        if not payload.get("background_id") and item.background_id:
             payload["background_id"] = item.background_id
+        if getattr(item, "rendition_urls", None):
+            payload["rendition_urls"] = item.rendition_urls
     return payload
 
 

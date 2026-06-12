@@ -10,3 +10,10 @@ pydantic==2.10.3
 pydantic-settings==2.6.1
 aiofiles==24.1.0
 pymongo==4.10.1
+
+# ---- Optional, for higher-quality / standardized output (safe to omit) ----
+# premium quality matting + foreground decontamination (CPU). If absent, the
+# self-hosted premium path falls back to a dependency-free guided-filter method.
+# pymatting==1.1.12
+# AVIF web renditions (IMAGE_RENDER_WEB_AVIF=true). If absent, AVIF is skipped.
+# pillow-avif-plugin==1.4.6

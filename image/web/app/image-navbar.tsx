@@ -32,6 +32,7 @@ export function ImageNavbar() {
   const pathname = usePathname();
 
   const navItems: NavItem[] = [
+    { href: '/studio', label: 'Studio' },
     { href: '/', label: 'Import' },
     { href: '/outputs', label: 'Outputs' },
     { href: '/settings', label: 'Settings' },
@@ -65,7 +66,7 @@ export function ImageNavbar() {
         <div className="hidden min-h-[4.25rem] min-w-0 items-center gap-4 lg:flex lg:gap-6">
           <BrandHeader appName="Image" tagline="Chandelier platform" />
           <nav className="flex min-w-0 flex-1 justify-center" aria-label="Primary">
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-4 gap-1">
               {navItems.map((item) => (
                 <NavLinkItem key={item.label} item={item} pathname={pathname} />
               ))}

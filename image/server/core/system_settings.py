@@ -28,6 +28,24 @@ class SystemSettings(BaseModel):
     rembg_background_threshold: int = Field(default=8, ge=0, le=255)
     rembg_erode_size: int = Field(default=0, ge=0, le=20)
     rembg_min_dimension: int = Field(default=1800, ge=800, le=4096)
+    # Cutout engine selection (admin-switchable). None = inherit the env value,
+    # so switching works via env vars OR admin settings without code changes.
+    cutout_engine: str | None = None          # self_hosted | managed_api | hybrid
+    processing_mode: str | None = None        # cpu | gpu
+    quality_mode: str | None = None           # fast | balanced | premium
+    managed_api_enabled: bool | None = None
+    managed_api_provider: str | None = None   # photoroom | removebg | none
+    hybrid_escalate_below: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Output rendition toggles (None = inherit env).
+    render_master_png: bool | None = None
+    render_master_webp: bool | None = None
+    render_web_webp: bool | None = None
+    render_web_avif: bool | None = None
+    render_branded_jpeg: bool | None = None
+    master_max_dimension: int | None = Field(default=None, ge=512, le=8192)
+    web_max_dimension: int | None = Field(default=None, ge=512, le=8192)
+    webp_quality: int | None = Field(default=None, ge=1, le=100)
+    avif_quality: int | None = Field(default=None, ge=1, le=100)
     updated_at: str = Field(default_factory=lambda: utc_now().isoformat())
 
 
@@ -47,6 +65,21 @@ class UpdateSystemSettingsRequest(BaseModel):
     rembg_background_threshold: int | None = Field(default=None, ge=0, le=255)
     rembg_erode_size: int | None = Field(default=None, ge=0, le=20)
     rembg_min_dimension: int | None = Field(default=None, ge=800, le=4096)
+    cutout_engine: str | None = None
+    processing_mode: str | None = None
+    quality_mode: str | None = None
+    managed_api_enabled: bool | None = None
+    managed_api_provider: str | None = None
+    hybrid_escalate_below: float | None = Field(default=None, ge=0.0, le=1.0)
+    render_master_png: bool | None = None
+    render_master_webp: bool | None = None
+    render_web_webp: bool | None = None
+    render_web_avif: bool | None = None
+    render_branded_jpeg: bool | None = None
+    master_max_dimension: int | None = Field(default=None, ge=512, le=8192)
+    web_max_dimension: int | None = Field(default=None, ge=512, le=8192)
+    webp_quality: int | None = Field(default=None, ge=1, le=100)
+    avif_quality: int | None = Field(default=None, ge=1, le=100)
 
 
 def default_system_settings(env: Settings) -> SystemSettings:

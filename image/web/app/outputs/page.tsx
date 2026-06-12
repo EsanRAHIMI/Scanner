@@ -163,6 +163,26 @@ export default function OutputsPage() {
                     </option>
                   ))}
                 </select>
+
+                {row.rendition_urls && Object.keys(row.rendition_urls).length > 0 ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {Object.entries(row.rendition_urls).map(([name, url]) => {
+                      const href = resolveMediaUrl(url) ?? url;
+                      return (
+                        <a
+                          key={name}
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-brand-medium-gray/25 px-1.5 py-0.5 text-[9px] font-medium text-brand-dark-gray transition hover:border-brand-burgundy/40 hover:text-brand-burgundy"
+                          title={`Open ${name}`}
+                        >
+                          {name.replace('_', ' ')}
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             </article>
           );

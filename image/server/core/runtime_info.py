@@ -92,12 +92,35 @@ def runtime_info(
             "onnx_providers": _onnx_providers(),
             "available": libraries.get("rembg") is not None,
         }
+    try:
+        from .cutout.base import EngineConfig
+
+        _eng = EngineConfig.from_settings(settings, sys_settings)
+        cutout_section = {
+            "engine": _eng.engine.value,
+            "processing_mode": _eng.processing_mode.value,
+            "quality": _eng.quality.value,
+            "managed_api_enabled": _eng.managed_api_enabled,
+            "managed_api_provider": _eng.managed_api_provider,
+            "managed_api_key_set": bool(_eng.managed_api_key),
+            "pymatting_available": _pkg_version("pymatting") is not None,
+            "renditions": {
+                "master_png": settings.image_render_master_png,
+                "master_webp": settings.image_render_master_webp,
+                "web_webp": settings.image_render_web_webp,
+                "web_avif": settings.image_render_web_avif,
+            },
+        }
+    except Exception:  # noqa: BLE001
+        cutout_section = {"engine": settings.image_cutout_engine}
+
     return {
         "output_width": settings.image_output_width,
         "output_height": settings.image_output_height,
         "deploy": _deploy_context(),
         "libraries": libraries,
         "rembg": rembg_section,
+        "cutout": cutout_section,
         "storage": {
             "s3_enabled": storage_s3_enabled,
             "s3_bucket": settings.aws_s3_bucket,

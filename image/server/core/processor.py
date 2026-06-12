@@ -35,8 +35,8 @@ class ImageProcessor:
     def set_subject_fill_ratio(self, ratio: float) -> None:
         self.subject_fill_ratio = max(0.5, min(0.95, ratio))
 
-    async def extract_tight_cutout_async(self, data: bytes, rembg_config: RembgConfig) -> bytes:
-        tight, _ = await run_cutout(data, rembg_config)
+    async def extract_tight_cutout_async(self, data: bytes, rembg_config: RembgConfig, on_stage=None) -> bytes:
+        tight, _ = await run_cutout(data, rembg_config, on_stage=on_stage)
         return tight
 
     async def process_original_async(
@@ -44,9 +44,10 @@ class ImageProcessor:
         original_key: str,
         processed_key: str,
         rembg_config: RembgConfig,
+        on_stage=None,
     ) -> str:
         raw = self.storage.get_bytes(original_key)
-        tight = await self.extract_tight_cutout_async(raw, rembg_config)
+        tight = await self.extract_tight_cutout_async(raw, rembg_config, on_stage=on_stage)
         return self.storage.put_bytes(processed_key, tight, content_type="image/png")
 
     def to_tight_cutout(self, cutout_png: bytes) -> Image.Image:

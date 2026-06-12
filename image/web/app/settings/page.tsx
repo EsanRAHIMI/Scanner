@@ -3,6 +3,8 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
+import { CutoutCompare } from '@/components/cutout-compare';
+import { CutoutEnginePanel } from '@/components/cutout-engine-panel';
 import { PageHeader } from '@/components/page-header';
 import { RuntimePanel } from '@/components/runtime-panel';
 import {
@@ -143,6 +145,10 @@ export default function SettingsPage() {
           />
         </div>
       </section>
+
+      <CutoutEnginePanel runtime={runtime} settings={settings} saving={saving} onSave={saveSettings} />
+
+      <CutoutCompare />
 
       <section className="dash-panel">
         <div className="dash-panel-body space-y-4">
