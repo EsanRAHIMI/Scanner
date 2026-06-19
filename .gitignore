@@ -38,9 +38,13 @@ next-env.d.ts
 !trainer/web/next-env.d.ts
 !products/next-env.d.ts
 !image/web/next-env.d.ts
+!proposals/web/next-env.d.ts
 
 # Image service local file cache (S3 fallback only; metadata is in MongoDB)
 image/server/storage/
+
+# Proposals service local file storage (S3 fallback only; metadata is in MongoDB)
+proposals/server/storage/
 image/server/.venv/
 
 # logs

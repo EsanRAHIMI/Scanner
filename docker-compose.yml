@@ -40,5 +40,28 @@ services:
     expose:
       - "3006"
 
+  # Proposal builder API (templates, generation, Playwright PDF export).
+  proposals-server:
+    build:
+      context: ./proposals/server
+    environment:
+      - PROPOSALS_STORAGE_ROOT=/data/storage
+      # Set MONGODB_URI / TRAINER_JWT_SECRET / S3 vars via Dokploy env, not here.
+    volumes:
+      # Persists generated PDFs and uploaded proposal assets across redeploys.
+      - proposals_data:/data
+    expose:
+      - "8030"
+
+  proposals-web:
+    build:
+      context: ./proposals/web
+    environment:
+      - NODE_ENV=production
+      - PROPOSALS_API_BASE=http://proposals-server:8030
+    expose:
+      - "3007"
+
 volumes:
   image_data:
+  proposals_data:

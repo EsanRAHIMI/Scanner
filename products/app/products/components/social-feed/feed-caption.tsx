@@ -170,7 +170,7 @@ export function FeedCaption({ variant, canEdit, canEditField, onUpdateVariant }:
                 { label: 'Space', value: variant.space, airtable: 'Space', icon: '🏠' },
                 { label: 'Color', value: variant.color, airtable: 'Color', icon: '🎨' },
                 { label: 'Material', value: variant.material, airtable: 'Material', icon: '🏗️' },
-                { label: 'Dimension', value: variant.dimension, airtable: 'DIMENSION (mm)', icon: '📏' },
+                { label: 'Dimension (cm)', value: variant.dimension, airtable: 'DIMENSION (mm)', icon: '📏' },
                 { label: 'Code Number', value: codeNumber, airtable: 'CODE NUMBER', icon: '🔢' }
               ].filter(f => f.value).map((field, i) => (
                 <div

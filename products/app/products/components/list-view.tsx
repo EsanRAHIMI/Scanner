@@ -258,7 +258,12 @@ export function ListView({
     if (normalized === 'colecction name' || normalized === 'collection name') return 'Collection Name';
     if (normalized === 'colecction code' || normalized === 'collection code') return 'Collection Code';
     if (isCodeNumberColumn(normalized)) return 'Code Number';
-    if (normalized === 'dimension (mm)' || normalized === 'dimension') return 'Dimension (mm)';
+    if (normalized === 'dimension (mm)' || normalized === 'dimension (cm)' || normalized === 'dimension') {
+      return 'Dimension (cm)';
+    }
+    if (normalized === 'h') return 'H (cm)';
+    if (normalized === 'l') return 'L (cm)';
+    if (normalized === 'w') return 'W (cm)';
     if (normalized === 'content status') return 'Content Status';
     return column;
   }, []);

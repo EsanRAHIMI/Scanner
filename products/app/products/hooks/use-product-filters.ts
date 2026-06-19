@@ -9,6 +9,9 @@ import {
   filterUrlsForGalleryDisplay,
   isGalleryHiddenFieldName,
   isContentStatusFieldName,
+  isDimensionFieldName,
+  pickDimensionColumn,
+  readDimensionValue,
   resolveContentStatusFieldName,
   getCollectionKey,
   getCollectionDisplayKey,
@@ -83,7 +86,7 @@ export function useProductFilters({
       pickColumn(['Price']),
       pickColumn(['Collection Code', 'Colecction Code', 'Code']),
       pickColumn(['Variant Number', 'Variant']),
-      pickColumn(['Dimension (mm)', 'DIMENSION (mm)', 'DIMENSION', 'Dimension']),
+      pickDimensionColumn(columns) ?? pickColumn(['DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension']),
       pickColumn(['Note']),
       pickColumn(['Category']),
       pickColumn(['Material']),
@@ -124,7 +127,8 @@ export function useProductFilters({
           c !== 'Video' &&
           c !== 'L000' &&
           !isGalleryHiddenFieldName(c) &&
-          !isContentStatusFieldName(c),
+          !isContentStatusFieldName(c) &&
+          !isDimensionFieldName(c),
       )
       .sort((a, b) => a.localeCompare(b));
     out.push(...extras);
@@ -450,7 +454,7 @@ export function useProductFilters({
       code: collectionCode,
       variant: formatScalar(fields['Variant Number']) || formatScalar(fields['Num']),
       price: formatPrice(fields.Price) ?? null,
-      dimension: formatScalar(fields['DIMENSION (mm)']) || formatScalar(fields['Dimension (mm)']) || formatScalar(fields['DIMENSION']) || '',
+      dimension: readDimensionValue(fields),
       note: formatScalar(fields['Note']),
       category: formatScalar(fields['Category']),
       space: formatScalar(fields['Space']),

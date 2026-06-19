@@ -10,6 +10,8 @@ This repository is a multi-service monorepo:
 - `trainer/web/` — Training dashboard (Next.js)
 - `image/server/` — Image import, processing, and outputs API (FastAPI)
 - `image/web/` — Image admin UI (Next.js)
+- `proposals/server/` — Proposal builder API: templates, generation, PDF export (FastAPI + Playwright)
+- `proposals/web/` — Proposal builder UI for the sales team (Next.js) — see `proposals/README.md`
 
 ---
 
@@ -98,6 +100,8 @@ Routing is handled by Nginx in Docker and by the reverse proxy in production.
 | Trainer Web (Dashboard) | `trainer/web/` | 3010 |
 | Image API | `image/server/` | 8020 |
 | Image Admin UI | `image/web/` | 3006 |
+| Proposals API | `proposals/server/` | 8030 |
+| Proposals Web | `proposals/web/` | 3007 |
 
 ---
 

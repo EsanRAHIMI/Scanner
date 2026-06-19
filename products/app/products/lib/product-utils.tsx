@@ -592,6 +592,47 @@ export function buildFieldsAfterReplacingMediaUrl(
   return applyMediaListChange(fields, columns, next);
 }
 
+/** Canonical dimension column — values are centimetres; legacy Airtable key name. */
+export const DIMENSION_FIELD_WRITE_KEY = 'DIMENSION (mm)';
+
+const DIMENSION_FIELD_CANDIDATES = [
+  DIMENSION_FIELD_WRITE_KEY,
+  'Dimension (mm)',
+  'DIMENSION (cm)',
+  'Dimension (cm)',
+  'DIMENSION',
+  'Dimension',
+  'Dimensions',
+  'Size',
+] as const;
+
+export function isDimensionFieldName(fieldName: string): boolean {
+  const normalized = fieldName.trim().toLowerCase();
+  if (DIMENSION_FIELD_CANDIDATES.some((candidate) => candidate.toLowerCase() === normalized)) {
+    return true;
+  }
+  return normalized.includes('dimension') || normalized === 'size';
+}
+
+export function pickDimensionColumn(columns: string[]): string | null {
+  const normalized = new Map(columns.map((column) => [column.trim().toLowerCase(), column]));
+  for (const candidate of DIMENSION_FIELD_CANDIDATES) {
+    const found = normalized.get(candidate.toLowerCase());
+    if (found) return found;
+  }
+  return columns.find((column) => isDimensionFieldName(column)) ?? null;
+}
+
+export function readDimensionValue(fields: Record<string, unknown> | undefined): string {
+  if (!fields) return '';
+  for (const key of DIMENSION_FIELD_CANDIDATES) {
+    const value = formatScalar(fields[key]);
+    if (value) return value;
+  }
+  const dynamicKey = Object.keys(fields).find((key) => isDimensionFieldName(key));
+  return dynamicKey ? formatScalar(fields[dynamicKey]) : '';
+}
+
 /** Internal field: URLs hidden from Image column / Feed (still listed under URL). */
 export const GALLERY_HIDDEN_FIELD = 'Gallery Hidden';
 

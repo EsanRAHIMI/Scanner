@@ -12,6 +12,7 @@ import {
   resolveCollectionName,
   resolveCollectionCode,
   getCollectionDisplayKey,
+  readDimensionValue,
   DRIVE_IMAGE_WIDTH_FULL,
   DRIVE_IMAGE_WIDTH_GALLERY,
 } from '../lib/product-utils';
@@ -56,28 +57,7 @@ export function GalleryCard({
   const variant = formatScalar(r.fields?.['Variant Number']) || formatScalar(r.fields?.Num);
   const fields = r.fields ?? {};
 
-  const dimensionKey = (() => {
-    const keys = Object.keys(fields);
-    const normalized = keys.map((k) => ({ k, n: k.trim().toLowerCase() }));
-    const mm = normalized.find((x) => x.n.includes('dimension') && x.n.includes('mm'))?.k;
-    if (mm) return mm;
-    const dim = normalized.find((x) => x.n.startsWith('dimension'))?.k;
-    if (dim) return dim;
-    const size = normalized.find((x) => x.n.startsWith('size'))?.k;
-    if (size) return size;
-    return null;
-  })();
-
-  const size =
-    formatScalar(fields['DIMENSION (mm)']) ||
-    formatScalar(fields['Dimension (mm)']) ||
-    (dimensionKey ? formatScalar(fields[dimensionKey]) : '') ||
-    formatScalar(fields['DIMENSION']) ||
-    formatScalar(fields['DIMENSIONS']) ||
-    formatScalar(fields['Dimension']) ||
-    formatScalar(fields['Dimensions']) ||
-    formatScalar(fields['SIZE']) ||
-    formatScalar(fields['Size']);
+  const size = readDimensionValue(fields);
 
   const price = formatPrice(r.fields?.Price) ?? null;
   const isSelected = selectedIds.has(r.id);

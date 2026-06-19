@@ -201,7 +201,8 @@ function getEquivalentFieldValue(fields: Record<string, unknown>, column: string
     variant: ['Variant Number', 'Variant', 'Num'],
     num: ['Num', 'Variant Number', 'Variant'],
     'code number': ['CODE NUMBER', 'Code Number', 'Code No'],
-    'dimension (mm)': ['DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension', 'Dimensions', 'Size'],
+    'dimension (cm)': ['DIMENSION (cm)', 'Dimension (cm)', 'DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension', 'Dimensions', 'Size'],
+    'dimension (mm)': ['DIMENSION (cm)', 'Dimension (cm)', 'DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension', 'Dimensions', 'Size'],
   };
   return getFirstField(fields, aliases[lower] ?? [column]);
 }

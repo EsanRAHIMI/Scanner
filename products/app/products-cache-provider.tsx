@@ -98,7 +98,30 @@ function mergeProductsColumnNames(
     }
   }
   for (const column of DEFAULT_PRODUCT_COLUMNS) names.add(column);
-  return Array.from(names).sort((a, b) => a.localeCompare(b));
+  return dedupeDimensionColumnNames(Array.from(names));
+}
+
+/** Keep one dimension column in the grid (legacy mm key; values shown as cm). */
+function dedupeDimensionColumnNames(columns: string[]): string[] {
+  const dimensionLike = columns.filter((column) => {
+    const normalized = column.trim().toLowerCase();
+    return (
+      normalized.includes('dimension') ||
+      normalized === 'dimensions' ||
+      normalized === 'size'
+    );
+  });
+  if (dimensionLike.length <= 1) {
+    return columns.sort((a, b) => a.localeCompare(b));
+  }
+
+  const preferred =
+    columns.find((column) => column.trim().toLowerCase() === 'dimension (mm)') ??
+    columns.find((column) => column.trim().toLowerCase() === 'dimension (cm)') ??
+    dimensionLike[0];
+
+  const drop = new Set(dimensionLike.filter((column) => column !== preferred));
+  return columns.filter((column) => !drop.has(column)).sort((a, b) => a.localeCompare(b));
 }
 
 /** Shared GET for SWR and background revalidation — never leaves raw TypeError uncaught. */

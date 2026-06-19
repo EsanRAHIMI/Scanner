@@ -10,6 +10,12 @@
 | Trainer Server | `trainer/server/` | `trainer.{DOMAIN}` → path `/api/*` | 8010 |
 | Products | `products/` | `products.{DOMAIN}` | 3004 |
 | Marketing | `marketing/` | `marketing.{DOMAIN}` | 3005 |
+| Proposals Web | `proposals/web/` | `proposals.{DOMAIN}` | 3007 |
+| Proposals Server | `proposals/server/` | internal (یا `proposals.{DOMAIN}` → path `/api/proposals/*` برای لینک‌های اشتراک عمومی) | 8030 |
+
+**Proposals Server env (REQ):** `MONGODB_URI` و `TRAINER_JWT_SECRET` باید دقیقاً با Trainer Server یکسان باشند. Volume پایدار روی `/data` (یا S3) برای PDFها الزامی است. جزئیات کامل: `proposals/README.md`
+
+**Proposals Web env:** `PROPOSALS_API_BASE=http://proposals-server:8030` (داخلی)، `TRAINER_API_BASE=https://trainer.{DOMAIN}/api`، `NEXT_PUBLIC_TRAINER_URL=https://trainer.{DOMAIN}`
 
 **Traefik:** روی Frontend و Trainer Web، مسیر `/api` را به Backend / Trainer Server پروکسی کنید.
 

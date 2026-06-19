@@ -125,6 +125,7 @@ PRODUCT_IMPORT_HEADER_ALIASES: dict[str, str] = {
   "material": "Material",
   "dimension": "DIMENSION (mm)",
   "dimensions": "DIMENSION (mm)",
+  "dimension cm": "DIMENSION (mm)",
   "dimension mm": "DIMENSION (mm)",
   "size": "DIMENSION (mm)",
   "note": "Note",
@@ -606,7 +607,8 @@ def _canonical_product_field_value(fields: dict[str, Any], field_name: str) -> A
     "variant": ["Variant Number", "Variant", "Num"],
     "num": ["Num", "Variant Number", "Variant"],
     "code number": ["CODE NUMBER", "Code Number", "Code No"],
-    "dimension (mm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
+    "dimension (mm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION (cm)", "Dimension (cm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
+    "dimension (cm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION (cm)", "Dimension (cm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
   }
   names = aliases.get(field_name.strip().casefold(), [field_name])
   return _first_non_empty_field(fields, names)
