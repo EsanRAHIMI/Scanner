@@ -7,6 +7,8 @@ export type AppUrls = {
   trainer: string;
   products: string;
   marketing: string;
+  image: string;
+  proposals: string;
   calendar: string;
   scanner: string;
   status: string;
@@ -15,6 +17,8 @@ export type AppUrls = {
   trainerLogin: string;
   backendHealth: string;
   trainerHealth: string;
+  imageHealth: string;
+  proposalsHealth: string;
   mongodbHealth: string;
 };
 
@@ -30,6 +34,8 @@ export function resolveAppUrls(hubOrigin?: string): AppUrls {
     trainer: `${trim(getPublicServiceUrl('trainer'))}/`,
     products: trim(getPublicServiceUrl('products')),
     marketing: trim(getPublicServiceUrl('marketing')),
+    image: trim(getPublicServiceUrl('image')),
+    proposals: trim(getPublicServiceUrl('proposals')),
     calendar: `${trim(getPublicServiceUrl('marketing'))}/calendar`,
     scanner: hubOrigin ? `${hub}/scanner` : getDefaultScannerUrl(),
     status: hubOrigin ? `${hub}/status` : `${trim(getPublicServiceUrl('hub'))}/status`,
@@ -38,6 +44,8 @@ export function resolveAppUrls(hubOrigin?: string): AppUrls {
     trainerLogin: getPublicServiceUrl('trainer', '/login?next=/'),
     backendHealth: getPublicServiceUrl('hub', '/api/health'),
     trainerHealth: getPublicServiceUrl('trainer', '/api/health'),
+    imageHealth: getPublicServiceUrl('image', '/api/v1/health'),
+    proposalsHealth: getPublicServiceUrl('proposals', '/api/proposals/health'),
     mongodbHealth: getPublicServiceUrl('trainer', '/api/mongodb/health'),
   };
 }
@@ -46,6 +54,8 @@ export const LOCAL_APP_URLS: AppUrls = {
   trainer: 'http://localhost:3010/',
   products: 'http://localhost:3004',
   marketing: 'http://localhost:3005',
+  image: 'http://localhost:3006',
+  proposals: 'http://localhost:3007',
   calendar: 'http://localhost:3005/calendar',
   scanner: 'http://localhost:3003/scanner',
   status: 'http://localhost:3003/status',
@@ -54,6 +64,8 @@ export const LOCAL_APP_URLS: AppUrls = {
   trainerLogin: 'http://localhost:3010/login?next=/',
   backendHealth: 'http://localhost:8000/health',
   trainerHealth: 'http://localhost:8010/health',
+  imageHealth: 'http://127.0.0.1:8020/health',
+  proposalsHealth: 'http://127.0.0.1:8030/api/proposals/health',
   mongodbHealth: 'http://localhost:8010/mongodb/health',
 };
 

@@ -16,5 +16,7 @@ export function resolveScannerServiceUrls(hubOrigin?: string): ScannerServiceUrl
     hubWeb: hubOrigin ? trim(hubOrigin) : trim(getPublicServiceUrl('hub')),
     productsWeb: trim(urls.products),
     marketingWeb: trim(urls.marketing),
+    imageWeb: trim(urls.image),
+    proposalsWeb: trim(urls.proposals),
   };
 }

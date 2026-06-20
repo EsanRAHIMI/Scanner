@@ -11,6 +11,8 @@ export type ScannerServiceUrls = {
   hubWeb: string;
   productsWeb?: string;
   marketingWeb?: string;
+  imageWeb?: string;
+  proposalsWeb?: string;
 };
 
 export type AccountMenuItem =

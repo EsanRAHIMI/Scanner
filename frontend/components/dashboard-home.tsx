@@ -91,6 +91,18 @@ function loadingFrontendStatuses(urls: AppUrls): Record<string, ServiceStatus> {
       openUrl: urls.marketing,
       status: 'loading',
     },
+    'Image App': {
+      name: 'Image App',
+      checkUrl: urls.image,
+      openUrl: urls.image,
+      status: 'loading',
+    },
+    'Proposals App': {
+      name: 'Proposals App',
+      checkUrl: urls.proposals,
+      openUrl: urls.proposals,
+      status: 'loading',
+    },
   };
 }
 
@@ -106,6 +118,18 @@ function loadingBackendStatuses(urls: AppUrls): Record<string, ServiceStatus> {
       name: 'Trainer API',
       checkUrl: urls.trainerHealth,
       openUrl: urls.trainerHealth,
+      status: 'loading',
+    },
+    'Image API': {
+      name: 'Image API',
+      checkUrl: urls.imageHealth,
+      openUrl: urls.imageHealth,
+      status: 'loading',
+    },
+    'Proposals API': {
+      name: 'Proposals API',
+      checkUrl: urls.proposalsHealth,
+      openUrl: urls.proposalsHealth,
       status: 'loading',
     },
     MongoDB: {
@@ -153,10 +177,14 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
   const trainerUrl = urls.trainer;
   const productsUrl = urls.products;
   const marketingUrl = urls.marketing;
+  const imageUrl = urls.image;
+  const proposalsUrl = urls.proposals;
   const scannerUrl = urls.scanner;
   const statusUrl = urls.status;
   const backendHealthUrl = urls.backendHealth;
   const trainerHealthUrl = urls.trainerHealth;
+  const imageHealthUrl = urls.imageHealth;
+  const proposalsHealthUrl = urls.proposalsHealth;
   const mongodbHealthUrl = urls.mongodbHealth;
   const trainerLoginUrl = urls.trainerLogin;
   const canManageLocalGit = isLocal && !!authUser && (Boolean(authUser.is_admin) || (authUser.role || '').toLowerCase() === 'admin');
@@ -489,7 +517,7 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                 Launch apps. Monitor health. Track live data.
               </h1>
               <p className="relative z-10 mt-4 max-w-2xl text-lg leading-relaxed text-brand-light-gray">
-                One hub for Products, Scanner, Trainer, and Marketing — with real-time service checks and MongoDB stats.
+                One hub for Products, Scanner, Trainer, Marketing, Image, and Proposals — with real-time service checks and MongoDB stats.
               </p>
               <div className="relative z-10 mt-8 flex flex-wrap gap-3">
                 <StatusBadge
@@ -518,7 +546,7 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
               description="Open a frontend app in a new tab. Status reflects live reachability."
               className={`mb-14 transition-all duration-700 delay-200 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
             >
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 <AppLaunchCard
                   href={href(productsUrl)}
                   serviceName="Products App"
@@ -580,6 +608,36 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                     </svg>
                   }
                 />
+                <AppLaunchCard
+                  href={href(imageUrl)}
+                  serviceName="Image App"
+                  title="Image Studio"
+                  description="Import, cut out backgrounds, review batches, and publish outputs."
+                  status={toHealthStatus(frontendStatuses['Image App']?.status)}
+                  responseTime={frontendStatuses['Image App']?.responseTime}
+                  error={frontendStatuses['Image App']?.error}
+                  detail={frontendStatuses['Image App']?.detail}
+                  icon={
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  }
+                />
+                <AppLaunchCard
+                  href={href(proposalsUrl)}
+                  serviceName="Proposals App"
+                  title="Sales Proposals"
+                  description="Build branded customer proposals, preview pages, and export PDFs."
+                  status={toHealthStatus(frontendStatuses['Proposals App']?.status)}
+                  responseTime={frontendStatuses['Proposals App']?.responseTime}
+                  error={frontendStatuses['Proposals App']?.error}
+                  detail={frontendStatuses['Proposals App']?.detail}
+                  icon={
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  }
+                />
               </div>
             </DashboardSection>
 
@@ -606,6 +664,24 @@ export function DashboardHome({ urls, isLocal }: DashboardHomeProps) {
                   status={toHealthStatus(backendStatuses['Trainer API']?.status)}
                   responseTime={backendStatuses['Trainer API']?.responseTime}
                   error={backendStatuses['Trainer API']?.error}
+                />
+                <ServiceHealthRow
+                  href={href(imageHealthUrl)}
+                  name="Image API"
+                  url={imageHealthUrl}
+                  status={toHealthStatus(backendStatuses['Image API']?.status)}
+                  responseTime={backendStatuses['Image API']?.responseTime}
+                  error={backendStatuses['Image API']?.error}
+                  detail={backendStatuses['Image API']?.detail}
+                />
+                <ServiceHealthRow
+                  href={href(proposalsHealthUrl)}
+                  name="Proposals API"
+                  url={proposalsHealthUrl}
+                  status={toHealthStatus(backendStatuses['Proposals API']?.status)}
+                  responseTime={backendStatuses['Proposals API']?.responseTime}
+                  error={backendStatuses['Proposals API']?.error}
+                  detail={backendStatuses['Proposals API']?.detail}
                 />
                 <ServiceHealthRow
                   href={href(mongodbHealthUrl)}

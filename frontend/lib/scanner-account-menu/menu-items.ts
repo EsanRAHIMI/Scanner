@@ -6,6 +6,8 @@ export const LOCAL_SERVICE_URLS: ScannerServiceUrls = {
   hubWeb: 'http://localhost:3003',
   productsWeb: 'http://localhost:3004',
   marketingWeb: 'http://localhost:3005',
+  imageWeb: 'http://localhost:3006',
+  proposalsWeb: 'http://localhost:3007',
 };
 
 export function buildDefaultMenuItems(

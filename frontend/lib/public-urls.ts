@@ -2,13 +2,15 @@
 const DEFAULT_APP_BASE_DOMAIN = 'ehsanrahimi.com';
 const DEFAULT_HUB_SUBDOMAIN = 'dashboard';
 
-export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing';
+export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing' | 'image' | 'proposals';
 
 const SERVICE_URL_ENV: Record<PublicServiceKey, string> = {
   hub: 'NEXT_PUBLIC_HUB_URL',
   trainer: 'NEXT_PUBLIC_TRAINER_URL',
   products: 'NEXT_PUBLIC_PRODUCTS_URL',
   marketing: 'NEXT_PUBLIC_MARKETING_URL',
+  image: 'NEXT_PUBLIC_IMAGE_URL',
+  proposals: 'NEXT_PUBLIC_PROPOSALS_URL',
 };
 
 function trimTrailingSlashes(url: string): string {
