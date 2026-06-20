@@ -3,6 +3,6 @@
 # CPU-only default profile for production hosts without NVIDIA GPU.
 # Keeps Trainer deploy lighter and avoids CUDA wheel downloads.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.5.1+cpu
-torchvision==0.20.1+cpu
+torch==2.12.1
+torchvision==0.27.1
 ultralytics==8.3.0

@@ -6,7 +6,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "next dev --port 3007",
+    "dev": "next dev --webpack --port 3007",
     "build": "next build",
     "start": "next start -p 3007 -H 0.0.0.0",
     "lint": "next lint",

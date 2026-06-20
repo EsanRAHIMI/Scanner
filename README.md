@@ -130,13 +130,10 @@ If the file is missing, the backend returns:
 
 # Local Execution (Without Docker)
 
-A full local setup requires **four terminals** (plus optional terminals for Products and Marketing).
-
 ## Prerequisites
 
-- Node.js (recommended: 20+)
-- Python 3.10+
-- (Optional) Docker + Docker Compose
+- Node.js 20+
+- Python 3.11
 
 ---
 
@@ -144,16 +141,10 @@ A full local setup requires **four terminals** (plus optional terminals for Prod
 
 ```bash
 cd trainer/server
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8010 --reload
-```
-
-Health check:
-
-```bash
-curl http://127.0.0.1:8010/health
 ```
 
 ---
@@ -163,51 +154,20 @@ curl http://127.0.0.1:8010/health
 ```bash
 cd trainer/web
 npm install
-npm run dev -- -p 3010
+npm run dev
 ```
 
-Open:
-
-```
-http://localhost:3010
-```
-
-If the dashboard shows the API as `Offline`:
-
-```bash
-echo "NEXT_PUBLIC_TRAINER_API_BASE=http://localhost:8010" > .env.local
-```
-
-Restart the service.
-
-----
+---
 
 ## Terminal 3 — Backend (YOLO Inference)
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 MODEL_PATH=./models/best.pt uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
-
-Health check:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-> 🟥 **Trainer Server Deployment Note (CPU-only now):**  
-> `trainer/server/requirements.txt` is currently optimized for **non-GPU hosts** (CPU-only PyTorch).  
-> If/when you move Trainer Server to a GPU machine, install with:
->
-> ```bash
-> cd trainer/server
-> pip install -r requirements.gpu.txt
-> ```
->
-> This switches Trainer to CUDA-enabled PyTorch for better YOLO performance.
 
 ---
 
@@ -216,13 +176,7 @@ curl http://127.0.0.1:8000/health
 ```bash
 cd frontend
 npm install
-npm run dev -- -p 3003
-```
-
-Open:
-
-```
-http://localhost:3003/scanner
+npm run dev
 ```
 
 ---
@@ -232,7 +186,7 @@ http://localhost:3003/scanner
 ```bash
 cd products
 npm install
-npm run dev -- -p 3004
+npm run dev
 ```
 
 ---
@@ -242,28 +196,24 @@ npm run dev -- -p 3004
 ```bash
 cd marketing
 npm install
-npm run dev -- -p 3005
-```
-
-Open:
-
-```
-http://localhost:3005
+npm run dev
 ```
 
 ---
 
-## Terminal 7 — Image
+## Terminal 7 — Image Server (API)
 
 ```bash
 cd image/server
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8020 --reload
 ```
 
-In a second terminal:
+---
+
+## Terminal 8 — Image Web (Admin UI)
 
 ```bash
 cd image/web
@@ -271,13 +221,46 @@ npm install
 npm run dev
 ```
 
-Open:
+---
 
-```
-http://localhost:3006
+## Terminal 9 — Proposals Server (API)
+
+```bash
+cd proposals/server
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m playwright install chromium
+cp .env.example .env
+uvicorn app:app --host 127.0.0.1 --port 8030 --reload
 ```
 
-See `image/README.md` for API details and S3/Google Drive configuration.
+---
+
+## Terminal 10 — Proposals Web
+
+```bash
+cd proposals/web
+npm install
+npm run dev
+```
+
+---
+
+## Local URLs
+
+| Service | URL |
+|---|---|
+| Scanner UI | http://localhost:3003/scanner |
+| Inference API | http://127.0.0.1:8000 |
+| Trainer Web | http://localhost:3010 |
+| Trainer API | http://127.0.0.1:8010 |
+| Products | http://localhost:3004 |
+| Marketing | http://localhost:3005 |
+| Image Web | http://localhost:3006 |
+| Image API | http://127.0.0.1:8020 |
+| Proposals Web | http://localhost:3007 |
+| Proposals API | http://127.0.0.1:8030 |
 
 ---
 
