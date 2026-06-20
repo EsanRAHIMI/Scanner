@@ -30,6 +30,7 @@ def render_proposal_html(
     page_index: int | None = None,
     base_url: str = "",
     for_pdf: bool = False,
+    for_embed: bool = False,
 ) -> str:
     """Render the whole proposal (or a single page) as exact-layout HTML.
 
@@ -74,5 +75,6 @@ def render_proposal_html(
         customer=proposal.get("customer") or {},
         project=proposal.get("project") or {},
         for_pdf=for_pdf,
+        for_embed=for_embed,
         total_pages=len(proposal.get("pages") or []),
     )

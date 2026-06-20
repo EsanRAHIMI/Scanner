@@ -6,6 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtMoney, STATUS_STYLES } from '@/lib/api';
 import type { Proposal, ProposalItem, ProposalPage } from '@/lib/types';
 
+import { ProposalPagePreview } from './page-preview';
+import { ProposalPageThumbPreview } from './page-thumb-preview';
+
 type Tab = 'page' | 'products' | 'pricing' | 'details';
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
@@ -259,12 +262,12 @@ export default function ProposalEditorPage() {
     return <div className="py-20 text-center text-sm text-gray-500">Loading proposal…</div>;
   }
 
-  const previewSrc = `/api/proposals/${proposal.id}/render?page=${pageIdx}&v=${previewKey}`;
+  const previewSrc = `/api/proposals/${proposal.id}/render?page=${pageIdx}&embed=1&v=${previewKey}`;
 
   return (
-    <div className="-mx-4 -my-6 flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-brand-medium-gray/30 bg-brand-white px-4 py-2">
         <button className="btn-ghost px-2 text-xs" onClick={() => router.push('/')}>
           ← Proposals
         </button>
@@ -310,7 +313,7 @@ export default function ProposalEditorPage() {
       </div>
 
       {error && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
           {error}{' '}
           <button className="underline" onClick={() => setError('')}>
             dismiss
@@ -318,47 +321,41 @@ export default function ProposalEditorPage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Thumbnails */}
-        <aside className="w-44 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-2">
-          {pages.map((pg, i) => (
-            <ThumbCard
-              key={pg.id}
-              page={pg}
-              index={i}
-              active={i === pageIdx}
-              total={pages.length}
-              onSelect={() => setPageIdx(i)}
-              onUp={() => movePage(i, -1)}
-              onDown={() => movePage(i, 1)}
-              onDuplicate={() => duplicatePage(i)}
-              onRemove={() => removePage(i)}
-            />
-          ))}
-          <button
-            className="mt-2 w-full rounded-lg border border-dashed border-gray-300 py-2 text-xs text-gray-500 hover:border-accent-400 hover:text-brand-burgundy"
-            onClick={addCustomPage}
-          >
-            + Add custom page
-          </button>
+        <aside className="flex w-52 shrink-0 flex-col overflow-hidden border-r border-brand-medium-gray/25 bg-brand-white">
+          <div className="editor-scroll-rail flex-1 p-2">
+            {pages.map((pg, i) => (
+              <ThumbCard
+                key={pg.id}
+                proposalId={proposal.id}
+                previewKey={previewKey}
+                page={pg}
+                index={i}
+                active={i === pageIdx}
+                total={pages.length}
+                onSelect={() => setPageIdx(i)}
+                onUp={() => movePage(i, -1)}
+                onDown={() => movePage(i, 1)}
+                onDuplicate={() => duplicatePage(i)}
+                onRemove={() => removePage(i)}
+              />
+            ))}
+            <button
+              className="mt-2 w-full rounded-lg border border-dashed border-brand-medium-gray/40 py-2 text-xs text-brand-dark-gray hover:border-brand-burgundy/40 hover:text-brand-burgundy"
+              onClick={addCustomPage}
+            >
+              + Add custom page
+            </button>
+          </div>
         </aside>
 
         {/* Preview */}
-        <div className="flex min-w-0 flex-1 items-center justify-center overflow-auto bg-[#2b2b2e] p-6">
-          <div className="aspect-[16/9] w-full max-w-[960px] overflow-hidden rounded shadow-2xl">
-            <iframe
-              key={`${pageIdx}-${previewKey}`}
-              src={previewSrc}
-              className="h-full w-full border-0 bg-white"
-              style={{ aspectRatio: '16/9' }}
-              title="Page preview"
-            />
-          </div>
-        </div>
+        <ProposalPagePreview src={previewSrc} pageKey={`${pageIdx}-${previewKey}`} />
 
         {/* Edit panel */}
-        <aside className="w-[360px] shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
-          <div className="flex border-b border-gray-200 text-xs">
+        <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden border-l border-brand-medium-gray/25 bg-brand-white">
+          <div className="flex shrink-0 border-b border-brand-medium-gray/25 text-xs">
             {(
               [
                 ['page', 'Page'],
@@ -373,7 +370,7 @@ export default function ProposalEditorPage() {
                 className={`flex-1 px-2 py-2.5 font-medium uppercase tracking-wide ${
                   tab === t
                     ? 'border-b-2 border-brand-burgundy text-brand-burgundy'
-                    : 'text-gray-500 hover:text-gray-800'
+                    : 'text-brand-dark-gray hover:text-brand-black'
                 }`}
               >
                 {label}
@@ -381,7 +378,7 @@ export default function ProposalEditorPage() {
             ))}
           </div>
 
-          <div className="space-y-4 p-4">
+          <div className="editor-scroll-rail flex-1 space-y-4 p-4">
             {tab === 'page' && page && (
               <PageEditor
                 page={page}
@@ -478,6 +475,8 @@ export default function ProposalEditorPage() {
 /* ============================ Thumbnail card ============================ */
 
 function ThumbCard(props: {
+  proposalId: string;
+  previewKey: number;
   page: ProposalPage;
   index: number;
   total: number;
@@ -488,40 +487,49 @@ function ThumbCard(props: {
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
-  const { page, index, total, active } = props;
+  const { page, index, total, active, proposalId, previewKey } = props;
+  const typeLabel = PAGE_TYPE_LABELS[page.type] || page.type;
+
   return (
     <div
-      className={`group mb-2 cursor-pointer rounded-lg border p-2 transition ${
-        active ? 'border-brand-burgundy bg-accent-50' : 'border-gray-200 bg-white hover:border-gray-300'
+      className={`group mb-2 cursor-pointer rounded-lg border p-1.5 transition ${
+        active
+          ? 'border-brand-burgundy bg-accent-50 shadow-[0_0_0_1px_rgba(80,15,40,0.15)]'
+          : 'border-brand-medium-gray/25 bg-white hover:border-brand-medium-gray/50'
       }`}
       onClick={props.onSelect}
     >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+      <div className="mb-1 flex items-center justify-between gap-1 px-0.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-dark-gray">
           {index + 1}
         </span>
-        <div className="hidden gap-0.5 group-hover:flex" onClick={(e) => e.stopPropagation()}>
-          <button title="Move up" className="rounded px-1 text-[10px] hover:bg-gray-200" onClick={props.onUp} disabled={index === 0}>
+        <span className="min-w-0 flex-1 truncate text-right text-[9px] uppercase tracking-wide text-brand-medium-gray">
+          {typeLabel}
+        </span>
+        <div className="hidden shrink-0 gap-0.5 group-hover:flex" onClick={(e) => e.stopPropagation()}>
+          <button title="Move up" className="rounded px-1 text-[10px] hover:bg-black/5" onClick={props.onUp} disabled={index === 0}>
             ↑
           </button>
-          <button title="Move down" className="rounded px-1 text-[10px] hover:bg-gray-200" onClick={props.onDown} disabled={index === total - 1}>
+          <button title="Move down" className="rounded px-1 text-[10px] hover:bg-black/5" onClick={props.onDown} disabled={index === total - 1}>
             ↓
           </button>
-          <button title="Duplicate" className="rounded px-1 text-[10px] hover:bg-gray-200" onClick={props.onDuplicate}>
+          <button title="Duplicate" className="rounded px-1 text-[10px] hover:bg-black/5" onClick={props.onDuplicate}>
             ⧉
           </button>
-          <button title="Remove" className="rounded px-1 text-[10px] text-red-500 hover:bg-red-50" onClick={props.onRemove}>
+          <button title="Remove" className="rounded px-1 text-[10px] text-red-600 hover:bg-red-50" onClick={props.onRemove}>
             ✕
           </button>
         </div>
       </div>
-      <div className="flex aspect-[16/9] items-center justify-center rounded bg-gray-100 text-center">
-        <span className="px-1 text-[10px] leading-tight text-gray-500">
-          {PAGE_TYPE_LABELS[page.type] || page.type}
-        </span>
-      </div>
+
+      <ProposalPageThumbPreview
+        proposalId={proposalId}
+        pageIndex={index}
+        previewKey={previewKey}
+      />
+
       {typeof page.data?.title === 'string' && page.data.title ? (
-        <div className="mt-1 truncate text-[10px] text-gray-500">{String(page.data.title)}</div>
+        <div className="mt-1 truncate px-0.5 text-[10px] text-brand-dark-gray">{String(page.data.title)}</div>
       ) : null}
     </div>
   );

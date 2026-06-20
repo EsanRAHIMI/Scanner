@@ -71,17 +71,18 @@ export default function ProposalsListPage() {
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Proposals</h1>
-          <p className="text-sm text-gray-500">
+          <p className="dash-eyebrow">Proposals</p>
+          <h1 className="dash-title">Your proposals</h1>
+          <p className="dash-desc mt-3 max-w-2xl">
             Create, edit and export branded customer proposals.
           </p>
         </div>
-        <Link href="/new" className="btn-primary">
+        <Link href="/new" className="btn-primary shrink-0">
           + New Proposal
         </Link>
-      </div>
+      </header>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
@@ -99,7 +100,7 @@ export default function ProposalsListPage() {
           ))}
         </select>
         {me?.is_admin && (
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+          <label className="flex items-center gap-2 text-sm text-brand-dark-gray">
             <input
               type="checkbox"
               checked={showAll}
@@ -111,23 +112,27 @@ export default function ProposalsListPage() {
       </div>
 
       {error && (
-        <div className="card mb-4 border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div className="dash-panel mb-4 border-red-200 bg-red-50">
+          <div className="dash-panel-body text-sm text-red-700">{error}</div>
+        </div>
       )}
 
       {loading ? (
-        <div className="py-20 text-center text-sm text-gray-500">Loading proposals…</div>
+        <div className="py-20 text-center text-sm text-brand-dark-gray">Loading proposals…</div>
       ) : proposals.length === 0 ? (
-        <div className="card p-12 text-center">
-          <p className="mb-4 text-gray-600">No proposals yet.</p>
-          <Link href="/new" className="btn-primary">
-            Create your first proposal
-          </Link>
+        <div className="dash-panel">
+          <div className="dash-panel-body py-12 text-center">
+            <p className="mb-4 text-brand-dark-gray">No proposals yet.</p>
+            <Link href="/new" className="btn-primary">
+              Create your first proposal
+            </Link>
+          </div>
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <div className="dash-panel overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
+              <tr className="border-b border-brand-medium-gray/20 text-left text-xs uppercase tracking-wide text-brand-dark-gray">
                 <th className="px-4 py-3">Title</th>
                 <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Project</th>
@@ -140,7 +145,7 @@ export default function ProposalsListPage() {
             </thead>
             <tbody>
               {proposals.map((p) => (
-                <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                <tr key={p.id} className="border-b border-brand-medium-gray/10 last:border-0 hover:bg-brand-burgundy/[0.03]">
                   <td className="px-4 py-3">
                     <Link
                       href={`/proposals/${p.id}`}
@@ -169,7 +174,7 @@ export default function ProposalsListPage() {
                       ))}
                     </select>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{fmtDate(p.updated_at)}</td>
+                  <td className="px-4 py-3 text-brand-dark-gray">{fmtDate(p.updated_at)}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end gap-1">
                       <Link href={`/proposals/${p.id}`} className="btn-ghost px-2 py-1 text-xs">

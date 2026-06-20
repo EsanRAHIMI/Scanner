@@ -14,14 +14,13 @@ function getSetCookieHeaders(res: Response): string[] {
 
 async function proxyRequest(
   req: NextRequest,
-  { params }: { params: Promise<{ path: string[] }> }
+  { params }: { params: Promise<{ path?: string[] }> },
 ) {
   const { path } = await params;
   const base = getProposalsApiBase();
-  const pathStr = path.join('/');
-
-  // The API serves everything under /api/proposals/* — mirror the same path.
-  const targetUrl = new URL(`${base}/api/proposals/${pathStr}`);
+  const segments = path ?? [];
+  const suffix = segments.length ? `/${segments.join('/')}` : '';
+  const targetUrl = new URL(`${base}/api/proposals${suffix}`);
   new URL(req.url).searchParams.forEach((v, k) => targetUrl.searchParams.set(k, v));
 
   const method = req.method;

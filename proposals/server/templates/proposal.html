@@ -19,8 +19,11 @@
     --arabic: "Noto Naskh Arabic", serif;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { background: {{ "#ffffff" if for_pdf else "#2b2b2e" }}; }
+  html, body { background: {{ "#ffffff" if for_pdf else ("var(--bg)" if for_embed else "#2b2b2e") }}; }
   body { font-family: var(--sans); color: var(--ink); }
+  {% if for_embed %}
+  html, body { width: var(--page-w); height: var(--page-h); overflow: hidden; margin: 0; padding: 0; }
+  {% endif %}
 
   .page {
     position: relative;
@@ -28,7 +31,7 @@
     height: var(--page-h);
     background: var(--bg);
     overflow: hidden;
-    {% if not for_pdf %}margin: 24px auto; box-shadow: 0 4px 28px rgba(0,0,0,.35);{% endif %}
+    {% if for_pdf %}margin: 0; box-shadow: none;{% elif for_embed %}margin: 0; box-shadow: none;{% else %}margin: 24px auto; box-shadow: 0 4px 28px rgba(0,0,0,.35);{% endif %}
   }
   @media print {
     .page { margin: 0; box-shadow: none; page-break-after: always; }

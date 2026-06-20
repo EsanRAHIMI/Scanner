@@ -628,13 +628,13 @@ async def regenerate(
 # ---------------------------------------------------------------------------
 
 async def _render_html(
-    db: Any, doc: dict[str, Any], *, page_index: int | None, base_url: str, for_pdf: bool
+    db: Any, doc: dict[str, Any], *, page_index: int | None, base_url: str, for_pdf: bool, for_embed: bool = False
 ) -> str:
     template = await db["proposal_templates"].find_one({"_id": doc.get("template_id")})
     if not template:
         template = await db["proposal_templates"].find_one({"slug": "lorenzo-classic"}) or {}
     return render_proposal_html(
-        doc, template, page_index=page_index, base_url=base_url, for_pdf=for_pdf
+        doc, template, page_index=page_index, base_url=base_url, for_pdf=for_pdf, for_embed=for_embed
     )
 
 
@@ -643,10 +643,13 @@ async def render_proposal(
     proposal_id: str,
     user: dict[str, Any] = Depends(require_operator),
     page: int | None = Query(None, ge=0),
+    embed: bool = Query(False),
 ) -> HTMLResponse:
     db = _require_db()
     doc = await _load_proposal(db, proposal_id, user)
-    html = await _render_html(db, doc, page_index=page, base_url="", for_pdf=False)
+    html = await _render_html(
+        db, doc, page_index=page, base_url="", for_pdf=False, for_embed=embed and page is not None
+    )
     return HTMLResponse(html)
 
 
