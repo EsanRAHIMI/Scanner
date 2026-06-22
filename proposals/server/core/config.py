@@ -17,16 +17,17 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # --- Shared platform DB (same as trainer/server) ---
+    # --- Shared platform DB (same Atlas cluster as trainer/server) ---
     mongodb_uri: str | None = None
-    mongodb_db_name: str = "trainer"
+    mongodb_db_name: str = "lorenzodb"
 
     # --- Shared auth (same JWT cookie as trainer/server) ---
     trainer_jwt_secret: str | None = None
     trainer_auth_cookie_name: str = "trainer_auth"
 
-    # --- Storage (S3 if configured, else persistent local volume) ---
+    # --- Object storage (Amazon S3 in production; local disk dev fallback) ---
     proposals_storage_root: str = "./storage"
+    proposals_require_s3: bool = False
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-1"

@@ -11,7 +11,12 @@ _db: Any = None
 
 
 async def connect_db() -> Any:
-    """Connect to the shared platform MongoDB (same Atlas DB as trainer/server)."""
+    """Connect to MongoDB Atlas (same cluster/DB as trainer/server).
+
+    Proposal text, pages, pricing, and metadata live in the `proposals` collection.
+    Related collections: proposal_templates, proposal_assets, proposal_user_profiles,
+    proposal_activity.
+    """
     global _client, _db
     settings = get_settings()
     if not settings.mongodb_uri:
@@ -38,6 +43,7 @@ async def _ensure_indexes(db: Any) -> None:
         await db["proposal_templates"].create_index([("active", 1)])
         await db["proposal_activity"].create_index([("proposal_id", 1), ("timestamp", -1)])
         await db["proposal_assets"].create_index([("kind", 1), ("created_at", -1)])
+        await db["proposal_assets"].create_index([("proposal_id", 1), ("created_at", -1)])
     except Exception as e:  # pragma: no cover
         print(f"⚠  [proposals] ensure_indexes: {e}", flush=True)
 

@@ -13,8 +13,8 @@ in-browser editor, admin-managed templates, share links and full proposal histor
 | Auth | Decodes the **same `trainer_auth` JWT cookie** as trainer/server (`TRAINER_JWT_SECRET` must match). No separate login. |
 | Users/roles | Shared `users` collection; `admin` + `sales` can use the service, admins see/manage everything. |
 | Products | Read-only view over the shared `products` collection (same data the Products app shows). Selected products are **snapshotted** into the proposal, with per-proposal overrides. |
-| Database | Same MongoDB Atlas DB (`MONGODB_URI` / `MONGODB_DB_NAME`, default `trainer`). New collections: `proposals`, `proposal_templates`, `proposal_assets`, `proposal_user_profiles`, `proposal_activity`. |
-| Storage | S3 if `AWS_*` configured (image/server pattern), otherwise persistent local volume (`PROPOSALS_STORAGE_ROOT`, mounted at `/data` in Docker). |
+| Database | **MongoDB Atlas** (`MONGODB_URI` / `MONGODB_DB_NAME`, default `lorenzodb`). All proposal text, pages, pricing, customer/project fields, and metadata are stored in the **`proposals`** collection (plus `proposal_templates`, `proposal_assets`, `proposal_user_profiles`, `proposal_activity`). |
+| Storage | **Amazon S3** when `AWS_*` is set (recommended/required in production via `PROPOSALS_REQUIRE_S3=1`). Local disk under `PROPOSALS_STORAGE_ROOT` is **dev-only fallback** — never rely on the app host or Docker volume for files in production. |
 | PDF | HTML/CSS page templates (1440×810) rendered by headless Chromium (Playwright). The editor previews the **same** HTML, so the export matches the preview exactly. |
 
 ## Pages generated (Lorenzo Classic template)
@@ -35,7 +35,7 @@ cd proposals/server
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python -m playwright install chromium   # one-time, for PDF export
-cp .env.example .env                    # set MONGODB_URI + TRAINER_JWT_SECRET
+cp .env.example .env                    # MONGODB_URI + TRAINER_JWT_SECRET + AWS_* (S3)
 python -m uvicorn app:app --reload --port 8030
 ```
 
@@ -58,15 +58,33 @@ In production, set `TRAINER_COOKIE_DOMAIN` on trainer/server so subdomains share
 
 | Var | Req | Notes |
 |---|---|---|
-| `MONGODB_URI` | REQ | Same value as trainer/server |
-| `MONGODB_DB_NAME` | OPT | default `trainer` |
+| `MONGODB_URI` | REQ | Same MongoDB Atlas URI as trainer/server |
+| `MONGODB_DB_NAME` | OPT | default `lorenzodb` — collection **`proposals`** holds all proposal documents |
 | `TRAINER_JWT_SECRET` | REQ | Must match trainer/server |
 | `TRAINER_AUTH_COOKIE_NAME` | OPT | default `trainer_auth` |
-| `PROPOSALS_STORAGE_ROOT` | OPT | default `./storage`; `/data/storage` in Docker |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` / `AWS_S3_BUCKET` / `AWS_S3_PUBLIC_BASE_URL` | OPT | enable S3 storage |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` / `AWS_S3_BUCKET` | REQ (prod) | Amazon S3 — all images & PDF exports |
+| `AWS_S3_PUBLIC_BASE_URL` | OPT | CDN or bucket public URL (recommended) |
+| `AWS_S3_PROPOSALS_PREFIX` | OPT | default `proposals` — root folder inside the bucket |
+| `PROPOSALS_REQUIRE_S3` | OPT | set `1` in production to disable local disk fallback |
+| `PROPOSALS_STORAGE_ROOT` | OPT | dev-only local fallback (`./storage`) |
 | `PROPOSALS_INTERNAL_BASE` | OPT | default `http://127.0.0.1:8030` (used by Playwright) |
 | `PROPOSALS_PUBLIC_BASE` | OPT | public URL used in share links |
 | `PROPOSALS_CORS_ORIGINS` | OPT | default localhost:3007 |
+
+### S3 folder layout
+
+All binary files use keys under `{AWS_S3_PROPOSALS_PREFIX}/`:
+
+```
+proposals/
+  {proposal_id}/
+    assets/images/{assetId}-{filename}.jpg
+    assets/drawings/...
+    exports/v{version}/{title}.pdf
+  library/{user_id}/{YYYY-MM}/{kind}/{assetId}-{filename}   # global asset library uploads
+```
+
+MongoDB stores the S3 **key** (`pdf_key`, `proposal_assets.key`) and proposal JSON; browsers use `AWS_S3_PUBLIC_BASE_URL` when set.
 
 ### web
 
@@ -89,8 +107,8 @@ Two apps, same pattern as the other services:
 - The web app proxies `/api/proposals/*` and `/api/trainer/*` server-side, so exposing the
   API publicly is optional. If public **share links** should work without the web app,
   route `proposals.{DOMAIN}/api/proposals/*` to the server via Traefik.
-- Mount a persistent volume at `/data` on the server app (or configure S3). Generated PDFs
-  must never live only on the ephemeral container disk.
+- Mount a persistent volume at `/data` on the server app **only for dev/local fallback**, or configure **Amazon S3** (recommended). Set `PROPOSALS_REQUIRE_S3=1` so uploads/PDF exports never touch ephemeral container disk.
+- Required env on Proposals Server: `MONGODB_URI`, `MONGODB_DB_NAME=lorenzodb`, `TRAINER_JWT_SECRET`, `AWS_*`, `PROPOSALS_REQUIRE_S3=1`.
 - The server image is based on `mcr.microsoft.com/playwright/python` (~1.5 GB) — expected,
   it bundles Chromium for the PDF export.
 

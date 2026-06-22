@@ -25,7 +25,8 @@ from core.pdf import html_to_pdf, shutdown_pdf
 from core.products import catalog_page, normalize_product
 from core.render import render_proposal_html
 from core.seed import seed_default_template
-from core.storage import StorageBackend, sanitize_storage_name
+from core.storage import StorageBackend, StorageConfigurationError, sanitize_storage_name
+from core.storage_keys import proposal_asset_key, proposal_export_pdf_key
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -45,6 +46,7 @@ def _new_id() -> str:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    storage.validate_configuration()
     db = await connect_db()
     await seed_default_template(db)
     yield
@@ -108,7 +110,15 @@ async def health() -> dict[str, Any]:
         "ok": True,
         "service": "proposals",
         "mongo": get_db() is not None,
+        "mongodb_db": settings.mongodb_db_name,
         "s3": storage.s3_enabled,
+        "storage_mode": storage.mode,
+        "storage_require_s3": settings.proposals_require_s3,
+        "collections": {
+            "proposals": "proposal documents (text, pages, pricing, metadata)",
+            "proposal_templates": "PDF/HTML templates",
+            "proposal_assets": "uploaded file registry (S3 keys + metadata)",
+        },
     }
 
 
@@ -359,7 +369,10 @@ async def activity(
 # ---------------------------------------------------------------------------
 
 def _proposal_out(doc: dict[str, Any]) -> dict[str, Any]:
-    return {**doc, "id": doc["_id"]}
+    out = {**doc, "id": doc["_id"]}
+    if doc.get("pdf_key"):
+        out["pdf_url"] = storage.public_url(doc["pdf_key"])
+    return out
 
 
 async def _load_proposal(db: Any, proposal_id: str, user: dict[str, Any]) -> dict[str, Any]:
@@ -672,8 +685,16 @@ async def export_pdf(
 
     safe_title = sanitize_storage_name(doc.get("title") or "proposal")
     version = int(doc.get("version") or 1)
-    key = f"{settings.aws_s3_proposals_prefix}/{proposal_id}/{safe_title}-v{version}.pdf"
-    url = storage.put_bytes(key, pdf_bytes, content_type="application/pdf")
+    key = proposal_export_pdf_key(
+        settings.aws_s3_proposals_prefix,
+        proposal_id,
+        version=version,
+        title=safe_title,
+    )
+    try:
+        url = storage.put_bytes(key, pdf_bytes, content_type="application/pdf")
+    except StorageConfigurationError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     await db["proposals"].update_one(
         {"_id": proposal_id},
         {"$set": {"pdf_key": key, "pdf_url": url, "updated_at": _now()}},
@@ -754,24 +775,42 @@ async def shared_pdf(token: str) -> Response:
 async def upload_asset(
     user: dict[str, Any] = Depends(require_operator),
     file: UploadFile = File(...),
-    kind: str = Query("image"),
+    kind: str = Query("images"),
+    proposal_id: str | None = Query(None),
 ) -> dict[str, Any]:
     db = _require_db()
     data = await file.read()
     if len(data) > 25 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="FILE_TOO_LARGE")
+
+    if proposal_id:
+        await _load_proposal(db, proposal_id, user)
+
+    asset_id = _new_id()
     name = sanitize_storage_name(file.filename or "image")
-    key = f"{settings.aws_s3_proposals_prefix}/assets/{_new_id()[:10]}-{name}"
+    key = proposal_asset_key(
+        settings.aws_s3_proposals_prefix,
+        asset_id=asset_id,
+        filename=name,
+        kind=kind,
+        proposal_id=proposal_id,
+        user_id=user["_id"],
+    )
     content_type = file.content_type or StorageBackend.guess_content_type(name)
-    url = storage.put_bytes(key, data, content_type=content_type)
+    try:
+        url = storage.put_bytes(key, data, content_type=content_type)
+    except StorageConfigurationError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
     doc = {
-        "_id": _new_id(),
+        "_id": asset_id,
         "key": key,
         "url": url,
         "kind": kind,
         "filename": name,
         "content_type": content_type,
         "size": len(data),
+        "proposal_id": proposal_id,
         "uploaded_by": user["_id"],
         "created_at": _now(),
     }
@@ -795,13 +834,23 @@ async def delete_asset(
 
 @app.get("/api/proposals/files/{key:path}")
 async def serve_file(key: str) -> Response:
-    """Serves locally-stored files (dev / volume mode). S3 mode uses public URLs."""
+    """Dev-only fallback when S3 is not configured. Production should use S3 public URLs."""
+    if settings.proposals_require_s3:
+        raise HTTPException(
+            status_code=404,
+            detail="FILES_SERVED_FROM_S3",
+        )
     if ".." in key:
         raise HTTPException(status_code=400, detail="INVALID_KEY")
     data = storage.get_bytes(key)
     if data is None:
         raise HTTPException(status_code=404, detail="FILE_NOT_FOUND")
     return Response(content=data, media_type=StorageBackend.guess_content_type(key))
+
+
+@app.exception_handler(StorageConfigurationError)
+async def storage_configuration_handler(_: Request, exc: StorageConfigurationError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)

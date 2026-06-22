@@ -246,7 +246,10 @@ export default function ProposalEditorPage() {
     const form = new FormData();
     form.append('file', file);
     try {
-      const res = await api<{ url: string }>('/assets/upload', { method: 'POST', body: form });
+      const res = await api<{ url: string }>(
+        `/assets/upload?proposal_id=${encodeURIComponent(id)}&kind=images`,
+        { method: 'POST', body: form },
+      );
       return res.url;
     } catch (e) {
       setError(`Upload failed: ${(e as Error).message}`);

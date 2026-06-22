@@ -8,6 +8,10 @@ from pathlib import Path
 from .config import Settings
 
 
+class StorageConfigurationError(RuntimeError):
+    """Raised when production storage requirements are not met."""
+
+
 def sanitize_storage_name(name: str) -> str:
     """Make object keys URL-safe (same approach as image/server)."""
     normalized = unicodedata.normalize("NFKC", name)
@@ -19,12 +23,11 @@ def sanitize_storage_name(name: str) -> str:
 
 
 class StorageBackend:
-    """S3 when configured, otherwise a persistent local volume (image/server pattern)."""
+    """Amazon S3 when configured; local disk only for optional dev fallback."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.local_root = settings.storage_root_path / "files"
-        self.local_root.mkdir(parents=True, exist_ok=True)
         self._s3 = None
         if settings.s3_enabled:
             import boto3  # imported lazily so local dev doesn't require it configured
@@ -40,6 +43,33 @@ class StorageBackend:
     def s3_enabled(self) -> bool:
         return self._s3 is not None
 
+    @property
+    def mode(self) -> str:
+        return "s3" if self.s3_enabled else "local"
+
+    def validate_configuration(self) -> None:
+        if self.settings.proposals_require_s3 and not self.s3_enabled:
+            raise StorageConfigurationError(
+                "PROPOSALS_REQUIRE_S3 is enabled but AWS S3 is not configured "
+                "(set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET)."
+            )
+        if self.s3_enabled:
+            print(
+                f"[proposals] ✓ Object storage: S3 bucket '{self.settings.aws_s3_bucket}' "
+                f"(prefix='{self.settings.aws_s3_proposals_prefix}')",
+                flush=True,
+            )
+        else:
+            print(
+                f"⚠  [proposals] Object storage: LOCAL disk at {self.local_root} "
+                "(dev only — set AWS_* + PROPOSALS_REQUIRE_S3=1 in production)",
+                flush=True,
+            )
+
+    def _assert_writable(self) -> None:
+        if self.settings.proposals_require_s3 and not self.s3_enabled:
+            raise StorageConfigurationError("S3 storage is required for file uploads and exports")
+
     def _local_path(self, key: str) -> Path:
         path = self.local_root / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +77,8 @@ class StorageBackend:
 
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> str:
         """Store bytes; returns a public (S3) or API-served (local) URL path."""
+        if self.settings.proposals_require_s3:
+            self._assert_writable()
         if self._s3:
             extra: dict[str, str] = {}
             if content_type:
@@ -84,13 +116,13 @@ class StorageBackend:
         if self._s3:
             base = self.settings.aws_s3_public_base_url
             if base:
-                return f"{base.rstrip('/')}/{key}"
+                return f"{base.rstrip('/')}/{key.lstrip('/')}"
             return (
                 f"https://{self.settings.aws_s3_bucket}.s3."
-                f"{self.settings.aws_region}.amazonaws.com/{key}"
+                f"{self.settings.aws_region}.amazonaws.com/{key.lstrip('/')}"
             )
-        # Served by this API (same-origin through the web proxy).
-        return f"/api/proposals/files/{key}"
+        # Served by this API (same-origin through the web proxy) — dev fallback only.
+        return f"/api/proposals/files/{key.lstrip('/')}"
 
     @staticmethod
     def guess_content_type(filename: str) -> str:
