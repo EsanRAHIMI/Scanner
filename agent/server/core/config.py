@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     mongodb_uri: str | None = None
     mongodb_db_name: str = "lorenzo_agent"
 
+    # --- Shared platform DB (READ-ONLY) for product/proposal lookups ---
+    platform_db_name: str = "lorenzodb"
+
+    # --- Image service (for read-only status tool) ---
+    image_api_base: str | None = None
+
+    # --- Agent loop ---
+    agent_max_tool_rounds: int = 4
+
     # --- Shared auth (same cookie/secret as trainer & proposals) ---
     trainer_jwt_secret: str | None = None
     trainer_auth_cookie_name: str = "trainer_auth"

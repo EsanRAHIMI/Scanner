@@ -44,6 +44,16 @@ def get_db() -> Any:
     return _db
 
 
+def get_platform_db() -> Any:
+    """READ-ONLY handle to the shared platform DB (lorenzodb) for product/
+    proposal lookups. Same client/cluster, different database. The agent never
+    writes here — only read tools query it."""
+    if _client is None:
+        return None
+    settings = get_settings()
+    return _client[settings.platform_db_name]
+
+
 async def close_db() -> None:
     global _client, _db
     if _client is not None:

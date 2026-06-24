@@ -10,10 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.agent_loop import run_agent
 from core.auth import get_current_user, get_optional_user
 from core.config import get_settings
-from core.db import close_db, connect_db, get_db
-from core.llm import build_system_prompt, stream_reply
+from core.db import close_db, connect_db, get_db, get_platform_db
+from core.llm import build_system_prompt
 from core.memory import (
     get_or_create_conversation,
     get_recent_messages,
@@ -22,6 +23,52 @@ from core.memory import (
     touch_conversation,
 )
 from core.tools import registry
+
+SUGGESTIONS = {
+    "products": [
+        "Find chandeliers under 10,000 AED",
+        "Summarize my selected products",
+        "Which selected products are missing a main image?",
+    ],
+    "proposals": [
+        "Show my recent proposals",
+        "Summarize the current proposal",
+        "What products are in this proposal?",
+    ],
+    "images": [
+        "Is the image service running?",
+        "What does the official compose flow do?",
+    ],
+    "marketing": [
+        "What can you help me with in marketing?",
+        "Show platform status",
+    ],
+    "default": ["What can you do?", "Show platform status", "Show my recent proposals"],
+}
+
+
+def _context_blurb(context: dict[str, Any]) -> str:
+    if not context:
+        return ""
+    parts: list[str] = []
+    if context.get("app"):
+        parts.append(f"app = {context['app']}")
+    if context.get("module"):
+        parts.append(f"module/page = {context['module']}")
+    if context.get("path"):
+        parts.append(f"path = {context['path']}")
+    if context.get("proposal_id"):
+        parts.append(f"current_proposal_id = {context['proposal_id']}")
+    sel = context.get("selected_product_ids") or []
+    if sel:
+        parts.append(f"selected_product_ids = {sel[:20]}")
+    if not parts:
+        return ""
+    return (
+        "Current user context (use it to be specific and to default tool "
+        "arguments — e.g. selected_product_ids, current_proposal_id):\n- "
+        + "\n- ".join(parts)
+    )
 
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
@@ -82,6 +129,7 @@ async def bootstrap(user: dict[str, Any] | None = Depends(get_optional_user)) ->
         "user": {"id": user["id"], "is_admin": user["is_admin"]} if user else None,
         "nav": settings.nav_urls(),
         "llm_provider": settings.resolved_provider(),
+        "suggestions": SUGGESTIONS,
     }
 
 
@@ -143,6 +191,10 @@ async def chat(
     if len(text) > 8000:
         raise HTTPException(status_code=413, detail="MESSAGE_TOO_LONG")
 
+    context = payload.get("context") or {}
+    if not isinstance(context, dict):
+        context = {}
+
     conv = await get_or_create_conversation(
         db, user["id"], payload.get("conversation_id"), text
     )
@@ -151,21 +203,39 @@ async def chat(
     history = await get_recent_messages(db, conv["_id"], settings.short_term_max_messages)
     user_memory = await get_user_memory(db, user["id"])
     system = build_system_prompt(settings, user_memory)
+    blurb = _context_blurb(context)
+    if blurb:
+        system += "\n\n" + blurb
     llm_messages = [
         {"role": m["role"], "content": m["content"]}
         for m in history
         if m["role"] in ("user", "assistant") and m.get("content")
     ]
 
+    runtime = {
+        "user": user,
+        "context": context,
+        "settings": settings,
+        "agent_db": db,
+        "platform_db": get_platform_db(),
+    }
+
     async def gen():
         yield _sse({"type": "meta", "conversation_id": conv["_id"]})
         collected: list[str] = []
         try:
-            async for delta in stream_reply(llm_messages, system, settings):
-                collected.append(delta)
-                yield _sse({"type": "delta", "text": delta})
+            async for ev in run_agent(
+                settings=settings,
+                provider=settings.resolved_provider(),
+                system=system,
+                messages=llm_messages,
+                runtime=runtime,
+            ):
+                if ev.get("type") == "delta":
+                    collected.append(ev.get("text", ""))
+                yield _sse(ev)
         except Exception as e:  # noqa: BLE001
-            print(f"✗  [agent] chat stream error: {e}", flush=True)
+            print(f"✗  [agent] chat error: {e}", flush=True)
             yield _sse({"type": "error", "detail": "LLM_ERROR"})
         assistant = "".join(collected).strip()
         if assistant:

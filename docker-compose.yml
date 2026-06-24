@@ -68,6 +68,8 @@ services:
       context: ./agent/server
     environment:
       - MONGODB_DB_NAME=lorenzo_agent
+      - PLATFORM_DB_NAME=lorenzodb
+      - IMAGE_API_BASE=http://image-server:8020
       # Set MONGODB_URI / TRAINER_JWT_SECRET / LLM keys via Dokploy env, not here.
     expose:
       - "8040"

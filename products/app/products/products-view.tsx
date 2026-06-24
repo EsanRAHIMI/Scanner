@@ -803,6 +803,26 @@ export function ProductsView({
     window.location.href = getProposalsUrl(`/new?products=${encodeURIComponent(ids.join(','))}`);
   }, [selectedIds]);
 
+  /**
+   * Publish the current selection to the global Lorenzo AI agent widget via a
+   * lightweight window hook (read-only; the widget reads it for context). No data
+   * leaves the page except product ids the user already selected.
+   */
+  React.useEffect(() => {
+    const w = window as unknown as { __lorenzoAgentContext?: () => Record<string, unknown> };
+    w.__lorenzoAgentContext = () => ({
+      app: 'products',
+      selected_product_ids: Array.from(selectedIds).slice(0, 50),
+    });
+    return () => {
+      try {
+        delete w.__lorenzoAgentContext;
+      } catch {
+        w.__lorenzoAgentContext = undefined;
+      }
+    };
+  }, [selectedIds]);
+
   const currentIndex = React.useMemo(() => {
     if (previewId) {
       const idx = galleryItems.findIndex((x: any) => x.id === previewId);

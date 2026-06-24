@@ -270,6 +270,7 @@ python -m uvicorn app:app --port 8040
 | Image API | http://127.0.0.1:8020 |
 | Proposals Web | http://localhost:3007 |
 | Proposals API | http://127.0.0.1:8030 |
+| Agent Server |  http://localhost:8040 |
 
 ---
 
