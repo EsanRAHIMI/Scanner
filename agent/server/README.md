@@ -46,12 +46,46 @@ cookie cross-subdomain, the auth cookie domain must be the parent domain
 `agent_conversations`, `agent_messages`, `agent_memory` — isolated from the
 shared `lorenzodb`. Only curated memory is stored (not blanket logging).
 
-## Embedding the widget
+## Embedding the widget (fully env-driven)
 
-Each app loads `<Script src="{NEXT_PUBLIC_AGENT_URL}/static/widget.js" />`. The
-widget renders in a Shadow DOM (`position: fixed`) so it never affects host
-styles or layout. Set `NEXT_PUBLIC_AGENT_URL` per app (e.g.
-`https://agent.{domain}`); defaults to `http://localhost:8040` in dev.
+Each app injects `<Script src="${NEXT_PUBLIC_AGENT_URL}/widget.js" />`. There is
+**no hardcoded domain, no `/server`, and no localhost fallback** in code — if
+`NEXT_PUBLIC_AGENT_URL` is unset, the widget is simply not injected.
+
+The widget derives its API base from **its own script URL**, preserving any base
+path. If it loads from `https://agent.example.com/server/widget.js`, its API base
+is `https://agent.example.com/server` and calls go to
+`https://agent.example.com/server/api/agent/...`.
+
+**Set `NEXT_PUBLIC_AGENT_URL` per app:**
+
+```bash
+# Local
+NEXT_PUBLIC_AGENT_URL=http://localhost:8040
+# Production (agent mounted under /server by the reverse proxy)
+NEXT_PUBLIC_AGENT_URL=https://agent.lorenzohome.ae/server
+# Future client domain (any host + any base path)
+NEXT_PUBLIC_AGENT_URL=https://agent.client-domain.com/server
+```
+
+After changing a `NEXT_PUBLIC_*` value, **redeploy** that app (Next inlines it at
+build time).
+
+### Base path / reverse proxy
+
+The agent serves `/widget.js` and `/api/agent/*` at its **root**. Expose it under
+a public base path by having the proxy route `${BASE_PATH}/*` to this service:
+- If the proxy **strips** the prefix (e.g. Traefik StripPrefix) → leave
+  `AGENT_ROOT_PATH` empty.
+- If the proxy **keeps** the prefix → set `AGENT_ROOT_PATH=/server`.
+
+Either way the widget calls the correct public URL because it reads its base from
+its own script `src`.
+
+### CORS (env-driven)
+
+Set `AGENT_CORS_ORIGINS` to the exact app origins (see `.env.example` for local /
+production / custom-domain examples). Future deployments only change env.
 
 ## Safety
 

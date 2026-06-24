@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     # --- Service ---
     agent_port: int = 8040
+    # Base path this service is mounted under, ONLY if the reverse proxy does NOT
+    # strip it (e.g. "/server"). Leave empty when the proxy strips the prefix.
+    agent_root_path: str = ""
     agent_cors_origins: str = (
         "http://localhost:3003,http://localhost:3004,http://localhost:3005,"
         "http://localhost:3006,http://localhost:3007,http://localhost:3010"

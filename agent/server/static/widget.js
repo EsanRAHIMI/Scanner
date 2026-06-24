@@ -13,9 +13,17 @@
 
   var SELF = document.currentScript;
   function agentBase() {
-    try { if (SELF && SELF.src) return new URL(SELF.src).origin; } catch (e) {}
-    var s = document.querySelector('script[src*="/static/widget.js"]');
-    if (s) { try { return new URL(s.src).origin; } catch (e) {} }
+    // Derive the API base from THIS script's own URL, preserving any base path
+    // (e.g. https://agent.example.com/server). We strip only the trailing widget
+    // filename — never reduce to .origin, which would drop the base path.
+    var src = '';
+    try { if (SELF && SELF.src) src = SELF.src; } catch (e) {}
+    if (!src) { var s = document.querySelector('script[src*="widget.js"]'); if (s) src = s.src; }
+    if (src) {
+      var base = src.replace(/\/(?:static\/)?widget\.js(?:[?#].*)?$/, '');
+      if (base && base !== src) return base.replace(/\/+$/, '');
+    }
+    // Last resort only (same-origin dev): never invent a host.
     return window.location.origin;
   }
   var BASE = agentBase();

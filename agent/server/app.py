@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.agent_loop import run_agent
@@ -81,7 +81,12 @@ async def lifespan(_: FastAPI):
     await close_db()
 
 
-app = FastAPI(title="Lorenzo Agent API", lifespan=lifespan)
+app = FastAPI(
+    title="Lorenzo Agent API",
+    lifespan=lifespan,
+    # Only set when a reverse proxy forwards the base path without stripping it.
+    root_path=settings.agent_root_path or "",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -91,8 +96,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# The embeddable widget bundle is served as a static file.
+# The embeddable widget bundle. Primary URL is `${NEXT_PUBLIC_AGENT_URL}/widget.js`;
+# the /static mount is kept for backward compatibility.
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+@app.get("/widget.js")
+async def widget_js() -> FileResponse:
+    return FileResponse(
+        str(BASE_DIR / "static" / "widget.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 def _require_db() -> Any:

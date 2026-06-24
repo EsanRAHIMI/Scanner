@@ -11,10 +11,11 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-// Global Lorenzo AI / navigation widget (served by the agent service).
-const agentWidgetSrc =
-  (process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8040').replace(/\/+$/, '') +
-  '/static/widget.js';
+// Global Lorenzo AI / navigation widget. Built ONLY from NEXT_PUBLIC_AGENT_URL
+// (which may include a base path, e.g. https://agent.example.com/server).
+// No hardcoded domain or localhost fallback: if unset, the widget is not injected.
+const agentBaseUrl = (process.env.NEXT_PUBLIC_AGENT_URL || '').trim().replace(/\/+$/, '');
+const agentWidgetSrc = agentBaseUrl ? `${agentBaseUrl}/widget.js` : null;
 
 export const metadata: Metadata = {
   title: 'Lorenzo Marketing',
@@ -36,7 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={inter.variable}>
       <body className="min-h-dvh bg-brand-light-gray font-sans text-brand-black antialiased">
         <MarketingShell>{children}</MarketingShell>
-        <Script src={agentWidgetSrc} strategy="afterInteractive" />
+        {agentWidgetSrc ? <Script src={agentWidgetSrc} strategy="afterInteractive" /> : null}
       </body>
     </html>
   );
