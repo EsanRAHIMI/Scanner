@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ProductsRecord } from '@/types/trainer';
+import type { GalleryMediaItem } from '../types/shared-types';
 import {
   extractUrls,
   formatScalar,
@@ -17,6 +18,8 @@ import {
   getCollectionDisplayKey,
   resolveCollectionName,
   resolveCollectionCode,
+  getMainImageRaw,
+  composedMainImageUrl,
 } from '../lib/product-utils';
 
 interface UseProductFiltersProps {
@@ -98,19 +101,28 @@ export function useProductFilters({
       pickColumn(['l', 'L']),
       pickColumn(['w', 'W']),
       'Video',
+      'Main Image',
       'URL',
       'Main',
       pickColumn(['Num']),
     ].filter(Boolean) as string[];
 
     if (columns.length === 0 && loading) {
-      return ['Image', 'CODE NUMBER', 'Collection Name', 'Price', 'Video', 'URL', 'Main', 'Num'];
+      return ['Image', 'CODE NUMBER', 'Collection Name', 'Price', 'Video', 'Main Image', 'URL', 'Main', 'Num'];
     }
 
     const out: string[] = [];
 
     for (const key of ordered) {
-      if (!out.includes(key) && (columns.includes(key) || key === 'Image' || key === 'Video' || key === 'URL' || key === 'Main')) {
+      if (
+        !out.includes(key) &&
+        (columns.includes(key) ||
+          key === 'Image' ||
+          key === 'Video' ||
+          key === 'Main Image' ||
+          key === 'URL' ||
+          key === 'Main')
+      ) {
         out.push(key);
       }
     }
@@ -423,7 +435,7 @@ export function useProductFilters({
     const visibleDam = filterUrlsForGalleryDisplay(damUrls, fields, columns);
     const visibleImage = filterUrlsForGalleryDisplay(imageUrls, fields, columns);
 
-    const allMedia = [...visibleDam, ...visibleImage].map(u => {
+    const allMedia: GalleryMediaItem[] = [...visibleDam, ...visibleImage].map(u => {
       const directUrl = getDriveDirectLink(u);
       return {
         originalUrl: u,
@@ -432,6 +444,14 @@ export function useProductFilters({
         isVideo: isVideoUrl(u)
       };
     });
+
+    // Primary product image: when `Main Image` is set, the first slide shows the
+    // OFFICIAL composed image (cutout on Lorenzo background). Fallback (url) is
+    // left untouched so share/download and compose-failure behavior are unchanged.
+    const mainRaw = getMainImageRaw(fields);
+    if (mainRaw && allMedia.length > 0 && !allMedia[0].isVideo) {
+      allMedia[0] = { ...allMedia[0], composedUrl: composedMainImageUrl(mainRaw) };
+    }
 
     const collectionName = resolveCollectionName(fields);
     const codeNumber =

@@ -13,11 +13,14 @@ import {
   resolveCollectionCode,
   getCollectionDisplayKey,
   readDimensionValue,
+  resolveMainImage,
+  composedMainImageUrl,
   DRIVE_IMAGE_WIDTH_FULL,
   DRIVE_IMAGE_WIDTH_GALLERY,
 } from '../lib/product-utils';
 import { useInView } from '../hooks/use-in-view';
 import { CachedMediaPreview } from './cached-media-preview';
+import { BrandedImageFrame } from './branded-image-frame';
 
 import { GalleryCardProps } from '../types/products-ui';
 
@@ -43,7 +46,9 @@ export function GalleryCard({
     r.fields,
     columns,
   );
-  const rawImg = visibleUrls[0] ?? '';
+  // Main image: the dedicated `Main Image` field when set (→ official compose),
+  // otherwise the first URL-column image (→ plain, no compose).
+  const { url: rawImg, isMain } = resolveMainImage(r.fields, visibleUrls[0] ?? '');
   const thumbSrc = rawImg ? getDriveDirectLink(rawImg, DRIVE_IMAGE_WIDTH_GALLERY) : '';
   const lightboxSrc = rawImg ? getDriveDirectLink(rawImg, DRIVE_IMAGE_WIDTH_FULL) : '';
   const [imageFailed, setImageFailed] = React.useState(false);
@@ -73,15 +78,24 @@ export function GalleryCard({
               onClick={() => openPreviewByUrl?.(lightboxSrc || thumbSrc)}
               title="Click to maximize"
             >
-              <CachedMediaPreview
-                url={rawImg}
-                width={DRIVE_IMAGE_WIDTH_GALLERY}
-                enabled={inView}
-                priority={inView}
-                onBroken={() => setImageFailed(true)}
-                className="absolute inset-0 h-full w-full object-cover"
-                alt="product"
-              />
+              {isMain ? (
+                <BrandedImageFrame
+                  composedSrc={composedMainImageUrl(rawImg)}
+                  cutoutSrc={thumbSrc}
+                  alt="product"
+                  onBroken={() => setImageFailed(true)}
+                />
+              ) : (
+                <CachedMediaPreview
+                  url={rawImg}
+                  width={DRIVE_IMAGE_WIDTH_GALLERY}
+                  enabled={inView}
+                  priority={inView}
+                  onBroken={() => setImageFailed(true)}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  alt="product"
+                />
+              )}
             </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs italic text-black/40 dark:bg-white/5 dark:text-white/40">

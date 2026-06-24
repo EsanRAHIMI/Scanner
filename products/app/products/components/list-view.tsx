@@ -17,7 +17,13 @@ import {
   getCollectionDisplayKey,
   resolveCollectionName,
   resolveCollectionCode,
+  getMainImageRaw,
+  MAIN_IMAGE_FIELD,
+  resolveMainImage,
+  composedMainImageUrl,
+  sameProductMediaUrl,
 } from '../lib/product-utils';
+import { MainImageCell } from './main-image-cell';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import {
   CONTENT_STATUS_OPTIONS,
@@ -50,6 +56,9 @@ function listColumnWidthClass(
   isContentStatus: boolean,
 ): string {
   if (isURL) return 'w-[220px] min-w-[220px] max-w-[220px] ';
+  if (normalizedCol === 'main image' || normalizedCol === 'main product image') {
+    return 'w-[84px] min-w-[84px] max-w-[84px] ';
+  }
   if (normalizedCol === 'variant number') return 'w-[110px] min-w-[110px] max-w-[110px] ';
   if (isCodeNumberColumn(normalizedCol)) {
     return 'max-sm:w-[6.25rem] max-sm:min-w-[6.25rem] max-sm:max-w-[6.25rem] max-sm:box-border ';
@@ -328,7 +337,24 @@ export function ListView({
       const isURL = col === 'url';
       const isDAM = col === 'dam';
       const isVideoCol = col === 'video';
+      const isMainImageCol = col === 'main image' || col === 'main product image';
 
+      if (isMainImageCol) {
+        const recordFields = recordById.get(recordId)?.fields;
+        return (
+          <MainImageCell
+            value={getMainImageRaw(recordFields)}
+            canEdit={Boolean(canEdit)}
+            onSet={(url) => void handleSaveField?.(recordId, MAIN_IMAGE_FIELD, url)}
+            onRemove={() => void handleSaveField?.(recordId, MAIN_IMAGE_FIELD, '')}
+            onPreview={(fullUrl) => openPreviewByUrl?.(fullUrl)}
+            getDroppedUrl={(e) => {
+              const fromData = e.dataTransfer.getData('text/plain');
+              return fromData || draggedUrlInfo?.url || '';
+            }}
+          />
+        );
+      }
 
       const isPhotoCol = col === 'image' || isDAM || isVideoCol;
 
@@ -412,10 +438,24 @@ export function ListView({
           );
         }
 
+        // Primary `Image` column: when a `Main Image` is set, inject the OFFICIAL
+        // composed image as the FIRST item of the EXISTING PhotoDeck (same UI,
+        // same stacked look, same +N badge). The asset that became the main image
+        // is removed from the rest to avoid a duplicate. Other columns unchanged.
+        let deckUrls = urls;
+        if (col === 'image') {
+          const mr = resolveMainImage(recordFields, urls[0]);
+          if (mr.isMain) {
+            const composedFirst = composedMainImageUrl(mr.url);
+            const rest = urls.filter((u) => !sameProductMediaUrl(u, mr.url));
+            deckUrls = [composedFirst, ...rest];
+          }
+        }
+
         return (
           <div className="relative flex min-h-[48px] w-full items-center justify-center transition-all rounded-lg max-sm:min-h-0 max-sm:w-full max-sm:justify-stretch max-sm:overflow-hidden">
-            <PhotoDeck 
-              urls={urls} 
+            <PhotoDeck
+              urls={deckUrls}
               maxItems={4} 
               onOpenPreview={openPreviewByUrl}
               recordId={recordId}

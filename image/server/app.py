@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import logging
 import time
+import urllib.request
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -1450,6 +1452,120 @@ async def get_file(file_path: str) -> Response:
 
     content_type = storage.guess_content_type(key)
     return Response(content=data, media_type=content_type)
+
+
+_COMPOSE_ALLOWED_HOST_SUFFIXES = (
+    "googleusercontent.com",
+    "drive.google.com",
+    "google.com",
+    "lorenzohome.ae",
+    "ehsanrahimi.com",
+)
+
+
+def _compose_allowed_hosts() -> tuple[str, ...]:
+    extra: list[str] = []
+    base = settings.aws_s3_public_base_url
+    if base:
+        try:
+            host = urlparse(base).hostname
+            if host:
+                extra.append(host.lower())
+        except Exception:
+            pass
+    return _COMPOSE_ALLOWED_HOST_SUFFIXES + tuple(extra)
+
+
+def _compose_src_allowed(url: str) -> bool:
+    """SSRF guard: only allow http(s) to known product-image hosts.
+
+    The image service is internal/unauthenticated, so the compose endpoint must
+    never fetch arbitrary or internal URLs.
+    """
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return False
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    return any(host == s or host.endswith("." + s) for s in _compose_allowed_hosts())
+
+
+def _fetch_bytes(url: str, timeout: int = 20) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "LorenzoImage/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (host allow-listed)
+        return resp.read()
+
+
+@app.get("/api/v1/compose")
+async def compose_official(
+    src: str = Query(..., description="Transparent cutout image URL (allow-listed hosts)"),
+    bg: str | None = Query(None, description="Background id; defaults to the official default"),
+) -> Response:
+    """Official Lorenzo composition: place a transparent cutout on the real
+    Lorenzo background using the SAME ImageProcessor.compose_on_background logic
+    as the pipeline (1080×1440, contain-fit @ subject_fill_ratio, centered).
+
+    Read-only with respect to product data. The composed JPEG is cached in
+    object storage under a deterministic key so repeat requests are cheap.
+    """
+    if not _compose_src_allowed(src):
+        raise HTTPException(status_code=400, detail="SRC_NOT_ALLOWED")
+
+    sys_settings = _require_settings_store().get()
+    bg_id = bg or sys_settings.default_background_id
+    fill = float(getattr(sys_settings, "subject_fill_ratio", 0.82) or 0.82)
+
+    cache_key = (
+        "compose/"
+        + hashlib.sha256(f"{src}|{bg_id}|{fill:.3f}".encode("utf-8")).hexdigest()
+        + ".jpg"
+    )
+
+    # Serve cached composition when present.
+    try:
+        cached = storage.get_bytes(cache_key)
+        return Response(
+            content=cached,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except FileNotFoundError:
+        pass
+
+    try:
+        cutout_bytes = await asyncio.to_thread(_fetch_bytes, src)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="CUTOUT_FETCH_FAILED") from exc
+
+    try:
+        bg_bytes = _require_background_store().get_bytes(bg_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="BACKGROUND_NOT_FOUND") from exc
+
+    def _compose() -> bytes:
+        # Fresh processor instance so we never mutate the shared one's fill ratio.
+        proc = ImageProcessor(settings, storage, subject_fill_ratio=fill)
+        return proc.compose_on_background(cutout_bytes, bg_bytes)
+
+    try:
+        composed = await asyncio.to_thread(_compose)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail="COMPOSE_FAILED") from exc
+
+    # Best-effort cache write (display-only derived asset; not product data).
+    try:
+        storage.put_bytes(cache_key, composed, content_type="image/jpeg")
+    except Exception:  # noqa: BLE001
+        pass
+
+    return Response(
+        content=composed,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/api/v1/assets/backgrounds/{background_id}")

@@ -3,6 +3,9 @@ export interface FeedMediaItem {
   url: string;
   driveId: string | null;
   isVideo: boolean;
+  /** Official composed image URL (cutout on the Lorenzo background) for the
+   *  product's primary slide when a `Main Image` is set. Falls back to `url`. */
+  composedUrl?: string;
 }
 
 export interface FeedVariant {

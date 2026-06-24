@@ -17,10 +17,15 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
   const [shouldLoad, setShouldLoad] = useState(false);
   const isVisibleVideo = isActive && isPrimary;
   const [useIframeFallback, setUseIframeFallback] = useState(false);
+  // Official composed image (cutout on Lorenzo background) for the primary slide;
+  // fall back to the raw media url if the compose service is unavailable.
+  const [composedFailed, setComposedFailed] = useState(false);
+  const imageSrc = media.composedUrl && !composedFailed ? media.composedUrl : media.url;
 
   useEffect(() => {
     setUseIframeFallback(false);
-  }, [media.driveId, media.originalUrl, media.url]);
+    setComposedFailed(false);
+  }, [media.driveId, media.originalUrl, media.url, media.composedUrl]);
 
   const driveStreamUrl = media.driveId
     ? `https://drive.google.com/uc?export=download&id=${media.driveId}`
@@ -149,7 +154,7 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
         <>
           {/* eslint-disable-next-line @next/next/no-img-element -- Feed full-bleed: direct origin fetch; cards still use next/image. */}
           <img
-            src={media.url}
+            src={imageSrc}
             alt="Product"
             className="max-h-full w-auto max-w-full object-contain select-none pointer-events-none"
             draggable={false}
@@ -157,6 +162,9 @@ export function FeedMedia({ media, isActive, shouldPreload, isPrimary, onToggleS
             fetchPriority={isActive && isPrimary ? 'high' : shouldPreload ? 'high' : 'low'}
             decoding="async"
             referrerPolicy="no-referrer"
+            onError={() => {
+              if (media.composedUrl && !composedFailed) setComposedFailed(true);
+            }}
             onLoad={() => {
               if (isActive && isPrimary) {
                 markLightboxTrace('media:first-load');

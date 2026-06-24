@@ -42,6 +42,137 @@ export function isImageUrl(url: string | null | undefined): boolean {
 }
 
 /**
+ * Lorenzo branded-frame transparency signal (display-only; no canvas / no CORS probe).
+ *
+ * We cannot pixel-inspect cross-origin Drive/lh3 images, so we use high-precision
+ * signals only and never guess on ambiguous Google Drive photos:
+ *   1. explicit opt-in marker in the URL — `#cutout` / `#transparent`
+ *      (mirrors the existing `#video` convention; works for any host incl. Drive)
+ *   2. image-service transparent renditions — a `/processed/` path, or a `.png` / `.webp`
+ *      file (the branded/opaque pipeline output is always `.jpg`)
+ *
+ * Google Drive / lh3 links require the explicit marker — transparency is never inferred
+ * there, so the common Drive-photo case is left completely unchanged.
+ */
+export const TRANSPARENT_IMAGE_CONFIG = {
+  /** Treat non-Google `.png` / `.webp` URLs as transparent cutouts (opaque output is `.jpg`). */
+  treatPngWebpAsTransparent: true,
+};
+
+export function isLikelyTransparentImage(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const l = url.trim().toLowerCase();
+  if (!l || isVideoUrl(l)) return false;
+
+  // 1) Explicit opt-in marker — safe for any host, including Drive.
+  if (l.includes('#cutout') || l.includes('#transparent')) return true;
+
+  // 2) Google Drive / lh3: no extension in the URL and no safe probe → marker only.
+  const isGoogleHosted =
+    l.includes('drive.google.com') ||
+    l.includes('google.com/file/d/') ||
+    l.includes('googleusercontent.com');
+  if (isGoogleHosted) return false;
+
+  // 3) Image-service transparent renditions / direct PNG/WebP.
+  if (l.includes('/processed/')) return true;
+  if (TRANSPARENT_IMAGE_CONFIG.treatPngWebpAsTransparent) {
+    const path = l.split('?')[0].split('#')[0];
+    if (path.endsWith('.png') || path.endsWith('.webp')) return true;
+  }
+  return false;
+}
+
+/**
+ * URL for the OFFICIAL composed image (transparent cutout placed on the real
+ * Lorenzo background by the Image service). Same-origin Products BFF route that
+ * proxies to the image service — no client-side composition, no invented frame.
+ * `cutoutSrc` should be the original transparent source (not an lh3 width-resized
+ * thumbnail) so alpha is preserved during composition.
+ */
+export function officialComposedImageUrl(cutoutSrc: string, backgroundId?: string): string {
+  const params = new URLSearchParams({ src: cutoutSrc });
+  if (backgroundId) params.set('bg', backgroundId);
+  return `/api/product-image/compose?${params.toString()}`;
+}
+
+/**
+ * A directly-fetchable image-BYTES URL for server-side composition.
+ *
+ * Google Drive *viewer* links (`/file/d/ID/view`) and `lh3` thumbnails are NOT
+ * raw image bytes the Image service can open — the viewer URL returns HTML, and
+ * lh3 can flatten PNG transparency. We convert any Drive/lh3 link to the raw
+ * download form (`uc?export=download&id=ID`), which preserves the original PNG
+ * (alpha intact). Non-Drive URLs (e.g. direct S3 `.png`) pass through unchanged.
+ */
+export function directFetchableImageUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  const u = rewriteLegacyAppDomainInUrl(url.trim());
+  if (!u) return '';
+  let id = '';
+  const lh3 = u.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/);
+  if (lh3 && lh3[1]) id = lh3[1].split('=')[0];
+  if (!id) {
+    const md = u.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{20,})/);
+    if (md && md[1]) id = md[1];
+  }
+  if (!id) {
+    const mq = u.match(/[?&](?:id|fileId|docid|fileid)=([a-zA-Z0-9_-]{20,})/);
+    if (mq && mq[1]) id = mq[1];
+  }
+  if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
+  return u;
+}
+
+/**
+ * Canonical URL for the OFFICIAL composed main image (cutout on the real Lorenzo
+ * background). Single integration point used by card, table and lightbox so the
+ * compose path can never diverge per-component.
+ */
+export function composedMainImageUrl(mainImageUrl: string, backgroundId?: string): string {
+  return officialComposedImageUrl(directFetchableImageUrl(mainImageUrl), backgroundId);
+}
+
+/**
+ * Dedicated "main product image" field. Stored inside the Airtable-style `fields`
+ * object (so no schema/migration), distinct from the `URL` / `Image` / `DAM`
+ * media lists and from the boolean `Main` variant flag.
+ *
+ * When set, this image is the product's main display image AND is treated as the
+ * transparent/cutout that gets the official Lorenzo background (compose flow).
+ */
+export const MAIN_IMAGE_FIELD = 'Main Image';
+const MAIN_IMAGE_KEYS = ['main image', 'main product image', 'mainimage'];
+
+/** Raw main-image URL from `fields["Main Image"]` (first url), or '' if unset. */
+export function getMainImageRaw(fields: Record<string, unknown> | null | undefined): string {
+  if (!fields) return '';
+  const lowerMap = new Map(Object.keys(fields).map((k) => [k.trim().toLowerCase(), k]));
+  for (const key of MAIN_IMAGE_KEYS) {
+    const actual = lowerMap.get(key);
+    if (actual != null) {
+      const urls = extractUrls(fields[actual]);
+      if (urls.length > 0) return urls[0];
+    }
+  }
+  return '';
+}
+
+/**
+ * Resolve the product's main image. If `Main Image` is set → use it and mark
+ * `isMain: true` (compose with the official background). Otherwise fall back to
+ * the first URL-column image with `isMain: false` (rendered plainly, no compose).
+ */
+export function resolveMainImage(
+  fields: Record<string, unknown> | null | undefined,
+  fallbackFirstUrl: string,
+): { url: string; isMain: boolean } {
+  const main = getMainImageRaw(fields);
+  if (main) return { url: main, isMain: true };
+  return { url: fallbackFirstUrl, isMain: false };
+}
+
+/**
  * True when `next/image` can safely optimise this remote URL (configured in next.config remotePatterns).
  * Non‑lh3 URLs keep using `<img>` so arbitrary CDNs and edge cases stay unchanged.
  */

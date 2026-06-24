@@ -39,6 +39,8 @@ export interface GalleryMediaItem {
   url: string;
   driveId: string | null;
   isVideo: boolean;
+  /** Official composed image URL for the primary slide when `Main Image` is set. */
+  composedUrl?: string;
 }
 
 export interface GalleryItem {

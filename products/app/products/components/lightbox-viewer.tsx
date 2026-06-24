@@ -1,7 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { getDriveDirectLink, isVideoUrl } from '../lib/product-utils';
+import {
+  getDriveDirectLink,
+  isVideoUrl,
+  resolveMainImage,
+  composedMainImageUrl,
+} from '../lib/product-utils';
+import { BrandedImageFrame } from './branded-image-frame';
 import { ProductDetailsPanel } from './product-details-panel';
 import type { GalleryItem, SwipeRefState } from '../types/shared-types';
 
@@ -41,7 +47,11 @@ export function LightboxViewer({
   currentCollectionVariants
 }: LightboxViewerProps) {
   const isVideoPreview = isVideoUrl(currentItem.originalUrl);
-  const resolvedStillUrl = isVideoPreview ? '' : getDriveDirectLink(currentItem.url);
+  const mainResolved = resolveMainImage(currentItem.fields, currentItem.originalUrl || currentItem.url);
+  const isMainPreview = !isVideoPreview && mainResolved.isMain;
+  const resolvedStillUrl = isVideoPreview
+    ? ''
+    : getDriveDirectLink(isMainPreview ? mainResolved.url : currentItem.url);
 
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -161,6 +171,18 @@ export function LightboxViewer({
               onPointerDown={(e) => e.stopPropagation()}
             />
           )
+        ) : isMainPreview ? (
+          <div
+            className="relative h-[78vh] max-h-[85vh] w-[78vh] max-w-[92vw] overflow-hidden rounded-2xl shadow-2xl"
+            style={{ touchAction: 'pan-y' }}
+            onPointerDown={onGalleryImgPointerDown}
+          >
+            <BrandedImageFrame
+              composedSrc={composedMainImageUrl(mainResolved.url)}
+              cutoutSrc={resolvedStillUrl}
+              alt={currentItem.title}
+            />
+          </div>
         ) : (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element -- Full-size uses native fetch for faster first paint vs next/image proxy; thumbnails stay optimized. */}
