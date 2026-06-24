@@ -141,3 +141,87 @@ def generate_pages(
     closing.setdefault("tag", cover.get("tag", ""))
     pages.append({"id": _pid(), "type": "closing", "data": closing})
     return pages
+
+
+def generate_item_pages(
+    template: dict[str, Any],
+    proposal: dict[str, Any],
+    new_items: list[dict[str, Any]],
+    existing_pages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build ONLY the pages for newly added items, to be inserted into an
+    existing proposal without rebuilding (and so without destroying) the rest.
+
+    Mirrors the per-product page shapes used by `generate_pages`, but:
+      - never emits cover / intro / pricing / closing pages, and
+      - skips a room_title when the room already has one in `existing_pages`
+        (avoids duplicate room headers), de-duping within the batch too.
+    Used by the "add product" flow so users don't need to manually regenerate.
+    """
+    pricing_defaults = template.get("pricing_defaults") or {}
+    currency = (proposal.get("pricing") or {}).get("currency") or pricing_defaults.get("currency", "AED")
+    proposal_kind = (proposal.get("project") or {}).get("kind") or "Lighting Proposal"
+
+    existing_room_titles: set[str] = set()
+    for page in existing_pages or []:
+        if page.get("type") == "room_title":
+            title = ((page.get("data") or {}).get("title") or "").strip()
+            if title:
+                existing_room_titles.add(title)
+
+    # Group new items by room, preserving first-seen order (same as generate_pages).
+    rooms: dict[str, list[dict[str, Any]]] = {}
+    for item in new_items:
+        room = (item.get("room") or "Proposal").strip() or "Proposal"
+        rooms.setdefault(room, []).append(item)
+
+    pages: list[dict[str, Any]] = []
+    emitted_titles: set[str] = set()
+    for room, room_items in rooms.items():
+        first = room_items[0]
+        title = f"{proposal_kind} : {room}"
+        if title not in existing_room_titles and title not in emitted_titles:
+            pages.append({
+                "id": _pid(),
+                "type": "room_title",
+                "data": {
+                    "title": title,
+                    "image_url": first.get("room_image_url") or first.get("image_url") or "",
+                },
+            })
+            emitted_titles.add(title)
+        for item in room_items:
+            images = item.get("image_urls") or ([item["image_url"]] if item.get("image_url") else [])
+            pages.append({
+                "id": _pid(),
+                "type": "product_visual",
+                "data": {
+                    "item_id": item.get("id"),
+                    "image_url": images[0] if images else "",
+                    "drawing_url": item.get("drawing_url") or (images[1] if len(images) > 1 else ""),
+                },
+            })
+            pages.append({
+                "id": _pid(),
+                "type": "product_spec",
+                "data": {
+                    "item_id": item.get("id"),
+                    "title": item.get("spec_title")
+                    or (
+                        "Customized Chandelier"
+                        if "chandelier" in (item.get("category") or "").lower()
+                        else (item.get("name") or "Product Specification")
+                    ),
+                    "rows": spec_rows_for_item(item, currency),
+                },
+            })
+    return pages
+
+
+def insert_index_before_summary(pages: list[dict[str, Any]]) -> int:
+    """Index at which to insert new product pages: before the first pricing
+    summary / closing page, or at the end if neither exists."""
+    for i, page in enumerate(pages):
+        if page.get("type") in ("pricing_summary", "closing"):
+            return i
+    return len(pages)

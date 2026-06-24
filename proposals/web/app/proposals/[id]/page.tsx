@@ -4,12 +4,29 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, fmtMoney, STATUS_STYLES } from '@/lib/api';
-import type { Proposal, ProposalItem, ProposalPage } from '@/lib/types';
+import { driveDirectLink } from '@/lib/product-image';
+import type { CatalogProduct, Proposal, ProposalItem, ProposalPage } from '@/lib/types';
 
 import { ProposalPagePreview } from './page-preview';
 import { ProposalPageThumbPreview } from './page-thumb-preview';
 
 type Tab = 'page' | 'products' | 'pricing' | 'details';
+
+/** Common Lorenzo rooms — suggestions only (free text is allowed). Mirrors the New-Proposal wizard. */
+const ROOM_SUGGESTIONS = [
+  'Entrance',
+  'Majlis',
+  'Living Room',
+  'Dining Room',
+  'Kitchen Island',
+  'Master Bedroom',
+  'Dressing Room',
+  'Staircase',
+  'Corridor',
+];
+
+/** A product chosen in the Add-Product modal, with its per-item room/qty. */
+type PickedProduct = { product: CatalogProduct; room: string; qty: number };
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
   cover: 'Cover',
@@ -39,6 +56,11 @@ export default function ProposalEditorPage() {
   const [exporting, setExporting] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
   const [shareInfo, setShareInfo] = useState<{ share_url: string; share_pdf_url: string } | null>(null);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  // Shown while the "add products" request inserts new items + pages.
+  const [addBusy, setAddBusy] = useState(false);
+  // True after items are REMOVED — removing leaves stale pages that need a regenerate.
+  const [needsRegen, setNeedsRegen] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---------- load ----------
@@ -194,6 +216,44 @@ export default function ProposalEditorPage() {
       p.items = p.items.filter((it) => it.id !== itemId);
       return p;
     });
+    setNeedsRegen(true);
+  }
+
+  /**
+   * Append catalog products to the proposal via the dedicated additive endpoint,
+   * which also inserts the new products' pages into the existing flow WITHOUT
+   * rebuilding (or destroying) existing pages / manual edits. No manual
+   * "Regenerate" step is needed — the returned proposal already includes the
+   * new items, pages and recomputed pricing.
+   */
+  async function addProducts(picked: PickedProduct[]) {
+    if (!proposal || picked.length === 0) return;
+    setShowAddProduct(false);
+    setAddBusy(true);
+    setError('');
+    try {
+      // Flush any pending manual edits first so the server has them before we
+      // append (the endpoint reads the stored doc, then returns the merged result).
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      if (dirty) await persist(proposal);
+      const saved = await api<Proposal>(`/${proposal.id}/items`, {
+        method: 'POST',
+        body: JSON.stringify({
+          items: picked.map((s) => ({
+            product_id: s.product.id,
+            room: s.room.trim(),
+            qty: Math.max(1, Number(s.qty) || 1),
+          })),
+        }),
+      });
+      setProposal(saved);
+      setDirty(false);
+      setPreviewKey((k) => k + 1);
+    } catch (e) {
+      setError(`Add products failed: ${(e as Error).message}`);
+    } finally {
+      setAddBusy(false);
+    }
   }
 
   // ---------- actions ----------
@@ -209,6 +269,7 @@ export default function ProposalEditorPage() {
       setProposal(saved);
       setPageIdx(0);
       setDirty(false);
+      setNeedsRegen(false);
       setPreviewKey((k) => k + 1);
     } catch (e) {
       setError((e as Error).message);
@@ -285,7 +346,13 @@ export default function ProposalEditorPage() {
           {proposal.status}
         </span>
         <span className="text-xs text-gray-400">
-          {saving ? 'Saving…' : dirty ? 'Unsaved changes' : 'Saved'}
+          {addBusy
+            ? 'Updating proposal pages…'
+            : saving
+              ? 'Saving…'
+              : dirty
+                ? 'Unsaved changes'
+                : 'Saved'}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => void regenerate()}>
@@ -321,6 +388,25 @@ export default function ProposalEditorPage() {
           <button className="underline" onClick={() => setError('')}>
             dismiss
           </button>
+        </div>
+      )}
+
+      {needsRegen && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <span>
+            A product was removed. Its pages may still appear in the proposal until you regenerate.{' '}
+            <span className="text-amber-700/80">
+              (Regenerate rebuilds pages from the template and replaces manual page edits.)
+            </span>
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button className="btn-primary px-3 py-1 text-xs" onClick={() => void regenerate()}>
+              Regenerate pages
+            </button>
+            <button className="underline" onClick={() => setNeedsRegen(false)}>
+              dismiss
+            </button>
+          </div>
         </div>
       )}
 
@@ -397,6 +483,7 @@ export default function ProposalEditorPage() {
                 onChange={setItem}
                 onRemove={removeItem}
                 onUpload={uploadImage}
+                onAddClick={() => setShowAddProduct(true)}
               />
             )}
 
@@ -408,6 +495,18 @@ export default function ProposalEditorPage() {
           </div>
         </aside>
       </div>
+
+      {/* Add-product modal */}
+      {showAddProduct && (
+        <AddProductModal
+          currency={proposal.pricing?.currency || 'AED'}
+          existingProductIds={
+            new Set(proposal.items.map((it) => it.product_id).filter(Boolean) as string[])
+          }
+          onClose={() => setShowAddProduct(false)}
+          onAdd={(picked) => void addProducts(picked)}
+        />
+      )}
 
       {/* Share dialog */}
       {shareInfo && (
@@ -553,7 +652,7 @@ function ImageField(props: {
       {props.value ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={props.value}
+          src={driveDirectLink(props.value)}
           alt=""
           className="mb-2 max-h-28 w-full rounded-lg border border-gray-200 object-cover"
         />
@@ -771,20 +870,26 @@ function ProductsEditor(props: {
   onChange: (id: string, patch: Partial<ProposalItem>) => void;
   onRemove: (id: string) => void;
   onUpload: (f: File) => Promise<string | null>;
+  onAddClick: () => void;
 }) {
-  const { items, currency, onChange, onRemove } = props;
+  const { items, currency, onChange, onRemove, onAddClick } = props;
   const [openId, setOpenId] = useState<string>('');
-
-  if (items.length === 0) {
-    return <p className="text-sm text-gray-500">No products in this proposal.</p>;
-  }
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-gray-400">
-        Edits here override catalog values for this proposal only. Use “Regenerate pages” to
-        rebuild product pages after changes.
-      </p>
+      <button className="btn-primary w-full text-xs" onClick={onAddClick}>
+        + Add product
+      </button>
+      {items.length === 0 ? (
+        <p className="pt-1 text-sm text-gray-500">
+          No products in this proposal yet. Use “Add product” to pick from the catalog.
+        </p>
+      ) : (
+        <p className="text-xs text-gray-400">
+          Edits here override catalog values for this proposal only. Use “Regenerate pages” to
+          rebuild product pages after changes.
+        </p>
+      )}
       {items.map((it) => {
         const open = openId === it.id;
         return (
@@ -867,6 +972,333 @@ function ProductsEditor(props: {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ============================ Add-product modal ============================ */
+
+function AddProductModal(props: {
+  currency: string;
+  existingProductIds: Set<string>;
+  onClose: () => void;
+  onAdd: (picked: PickedProduct[]) => void;
+}) {
+  const { currency, existingProductIds, onClose, onAdd } = props;
+
+  const [catalog, setCatalog] = useState<CatalogProduct[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [err, setErr] = useState('');
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('');
+  const [selected, setSelected] = useState<Map<string, PickedProduct>>(new Map());
+  const [bulkRoom, setBulkRoom] = useState('');
+  // Monotonic request id: only the latest request may write results, so a slow
+  // earlier response (e.g. the initial empty-query load) can never overwrite a
+  // newer search. Fixes "first search shows wrong results" race conditions.
+  const reqIdRef = useRef(0);
+
+  const loadCatalog = useCallback(
+    async (append = false, skip = 0) => {
+      const myId = ++reqIdRef.current;
+      setLoading(true);
+      setErr('');
+      try {
+        const params = new URLSearchParams({ limit: '48', skip: String(skip) });
+        if (search.trim()) params.set('search', search.trim());
+        if (category) params.set('category', category);
+        const res = await api<{ records: CatalogProduct[]; has_more: boolean }>(
+          `/catalog?${params.toString()}`,
+        );
+        if (myId !== reqIdRef.current) return; // a newer request superseded this one
+        setCatalog((prev) => (append ? [...prev, ...res.records] : res.records));
+        setHasMore(res.has_more);
+      } catch (e) {
+        if (myId !== reqIdRef.current) return;
+        setErr((e as Error).message);
+      } finally {
+        if (myId === reqIdRef.current) setLoading(false);
+      }
+    },
+    [search, category],
+  );
+
+  // Debounced search-as-you-type: runs the initial load and re-queries (from
+  // page 0) whenever the search text or category changes. The server searches
+  // name + code + category, so typing either a name or a code works.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void loadCatalog(false, 0);
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, category]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    catalog.forEach((p) => p.category && set.add(p.category));
+    return Array.from(set).sort();
+  }, [catalog]);
+
+  function toggle(p: CatalogProduct) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(p.id)) next.delete(p.id);
+      else next.set(p.id, { product: p, room: bulkRoom, qty: 1 });
+      return next;
+    });
+  }
+
+  function patchSelected(id: string, patch: Partial<PickedProduct>) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(id);
+      if (cur) next.set(id, { ...cur, ...patch });
+      return next;
+    });
+  }
+
+  function applyRoomToAll() {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      for (const [id, v] of next) next.set(id, { ...v, room: bulkRoom });
+      return next;
+    });
+  }
+
+  const selectedList = Array.from(selected.values());
+  const addSubtotal = selectedList.reduce(
+    (sum, s) => sum + (s.product.price ?? 0) * (s.qty || 1),
+    0,
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="card flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden p-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 px-4 py-3">
+          <h3 className="text-sm font-semibold">Add products from catalog</h3>
+          <button className="btn-ghost ml-auto px-2 text-xs" onClick={onClose}>
+            ✕ Close
+          </button>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 lg:flex-row">
+          {/* Catalog */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-3 flex shrink-0 items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  className="input w-full"
+                  placeholder="Search name or code…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void loadCatalog(false, 0)}
+                  autoFocus
+                />
+                {loading && catalog.length > 0 && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                    Searching…
+                  </span>
+                )}
+              </div>
+              <select
+                className="input max-w-[160px]"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                <option value="">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {err && (
+              <div className="mb-2 shrink-0 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                {err}
+              </div>
+            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {loading && catalog.length === 0 ? (
+                <div className="p-12 text-center text-sm text-gray-500">Loading catalog…</div>
+              ) : catalog.length === 0 ? (
+                <div className="p-12 text-center text-sm text-gray-500">
+                  No products match. Try a different search.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {catalog.map((p) => {
+                      const isSel = selected.has(p.id);
+                      const already = p.id ? existingProductIds.has(p.id) : false;
+                      return (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => toggle(p)}
+                          className={`card overflow-hidden text-left transition ${
+                            isSel ? 'ring-2 ring-brand-burgundy' : 'hover:shadow-brand-card-hover'
+                          }`}
+                        >
+                          <div className="relative aspect-square bg-gray-100">
+                            {p.image_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={driveDirectLink(p.image_url)}
+                                alt={p.name}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-gray-400">
+                                No image
+                              </div>
+                            )}
+                            {already && (
+                              <span className="absolute left-2 top-2 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                Added
+                              </span>
+                            )}
+                            <span
+                              className={`absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
+                                isSel
+                                  ? 'border-brand-burgundy bg-brand-burgundy text-white'
+                                  : 'border-gray-300 bg-white text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </span>
+                          </div>
+                          <div className="min-h-[4.25rem] p-2">
+                            <div className="truncate text-sm font-medium">
+                              {p.name || p.code || p.id}
+                            </div>
+                            <div className="truncate text-xs text-gray-500">
+                              {[p.code, p.category].filter(Boolean).join(' · ')}
+                            </div>
+                            <div className="mt-1 text-xs font-medium text-brand-burgundy">
+                              {p.price !== null ? fmtMoney(p.price, currency) : p.price_raw || '—'}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {hasMore && (
+                    <div className="mt-4 text-center">
+                      <button
+                        className="btn-secondary"
+                        disabled={loading}
+                        onClick={() => void loadCatalog(true, catalog.length)}
+                      >
+                        {loading ? 'Loading…' : 'Load more'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Selected panel */}
+          <div className="flex w-full shrink-0 flex-col lg:w-[320px]">
+            <div className="mb-2 flex shrink-0 items-center justify-between">
+              <h4 className="text-sm font-semibold">
+                Selected ({selected.size}) — {fmtMoney(addSubtotal, currency)}
+              </h4>
+            </div>
+            <div className="mb-2 flex shrink-0 gap-2">
+              <input
+                className="input"
+                list="add-room-suggestions"
+                placeholder="Room for all (optional)"
+                value={bulkRoom}
+                onChange={(e) => setBulkRoom(e.target.value)}
+              />
+              <button
+                className="btn-secondary shrink-0 text-xs"
+                disabled={selected.size === 0}
+                onClick={applyRoomToAll}
+              >
+                Apply to all
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {selectedList.length === 0 ? (
+                <p className="text-sm text-gray-500">Tick products on the left to add them.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {selectedList.map((s) => (
+                    <li key={s.product.id} className="rounded-lg border border-gray-200 p-2">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {s.product.name || s.product.code}
+                        </span>
+                        <button
+                          className="text-xs text-red-500 hover:underline"
+                          onClick={() => toggle(s.product)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          className="input"
+                          list="add-room-suggestions"
+                          placeholder="Room / space"
+                          value={s.room}
+                          onChange={(e) => patchSelected(s.product.id, { room: e.target.value })}
+                        />
+                        <input
+                          className="input max-w-[70px]"
+                          type="number"
+                          min={1}
+                          value={s.qty}
+                          onChange={(e) =>
+                            patchSelected(s.product.id, {
+                              qty: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <datalist id="add-room-suggestions">
+              {ROOM_SUGGESTIONS.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-200 px-4 py-3">
+          <button className="btn-secondary text-xs" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary min-w-[150px] text-center text-xs"
+            disabled={selected.size === 0}
+            onClick={() => onAdd(selectedList)}
+          >
+            Add {selected.size > 0 ? `${selected.size} ` : ''}product{selected.size === 1 ? '' : 's'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

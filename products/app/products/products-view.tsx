@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import useSWR from 'swr';
 
 import { apiFetch } from '@/lib/api';
+import { getProposalsUrl } from '@/lib/public-urls';
 import { useProductsCache } from '../products-cache-provider';
 import type { ProductsRecord } from '@/types/trainer';
 import { SocialFeed } from './components/social-feed';
@@ -793,6 +794,14 @@ export function ProductsView({
   React.useEffect(() => {
     if (selectedIds.size === 0 && showSelectedOnly) setShowSelectedOnly(false);
   }, [selectedIds, showSelectedOnly]);
+
+  /** Hand the current product selection off to the Proposals app's New-Proposal wizard. */
+  const createProposalFromSelected = React.useCallback(() => {
+    const ids = Array.from(selectedIds).slice(0, 200);
+    if (ids.length === 0) return;
+    logFrontendEvent('PRODUCT_TO_PROPOSAL', `Create proposal from ${ids.length} products`);
+    window.location.href = getProposalsUrl(`/new?products=${encodeURIComponent(ids.join(','))}`);
+  }, [selectedIds]);
 
   const currentIndex = React.useMemo(() => {
     if (previewId) {
@@ -1609,6 +1618,7 @@ export function ProductsView({
             <SelectionBar
               selectedCount={selectedCount}
               onClear={() => setSelectedIds(new Set())}
+              onCreateProposal={createProposalFromSelected}
               onDownload={() => void downloadSelected()}
               onShare={() => void shareSelected()}
               onToggleView={() => {

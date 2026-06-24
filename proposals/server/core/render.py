@@ -5,6 +5,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from .drive import drive_direct_link
+
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 _env = Environment(
@@ -52,17 +54,23 @@ def render_proposal_html(
             return f"{base_url.rstrip('/')}{url}"
         return url
 
-    branding["logo_url"] = absolutize(branding.get("logo_url"))
-    branding["pattern_url"] = absolutize(branding.get("pattern_url"))
-    branding["pattern2_url"] = absolutize(branding.get("pattern2_url"))
+    def resolve_image(url: str | None) -> str:
+        """Render-only: convert Google Drive links to lh3 direct links (and rewrite
+        the legacy domain) so they display in <img>, then absolutize relative paths.
+        Never persisted — mirrors the Products service display logic."""
+        return absolutize(drive_direct_link(url))
 
-    # Absolutize image URLs inside page data without mutating the stored docs.
+    branding["logo_url"] = resolve_image(branding.get("logo_url"))
+    branding["pattern_url"] = resolve_image(branding.get("pattern_url"))
+    branding["pattern2_url"] = resolve_image(branding.get("pattern2_url"))
+
+    # Resolve image URLs inside page data without mutating the stored docs.
     resolved_pages: list[dict[str, Any]] = []
     for page in pages:
         data = dict(page.get("data") or {})
         for key in ("image_url", "drawing_url"):
             if key in data:
-                data[key] = absolutize(data.get(key))
+                data[key] = resolve_image(data.get(key))
         resolved_pages.append({**page, "data": data})
 
     template = _env.get_template("proposal.html")

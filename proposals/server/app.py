@@ -20,7 +20,12 @@ from core.auth import (
 )
 from core.config import get_settings
 from core.db import close_db, connect_db, get_db
-from core.generator import compute_pricing, generate_pages
+from core.generator import (
+    compute_pricing,
+    generate_item_pages,
+    generate_pages,
+    insert_index_before_summary,
+)
 from core.pdf import html_to_pdf, shutdown_pdf
 from core.products import catalog_page, normalize_product
 from core.render import render_proposal_html
@@ -146,6 +151,26 @@ async def catalog(
         db, search=search, category=category, material=material, color=color,
         limit=limit, skip=skip,
     )
+
+
+@app.get("/api/proposals/catalog/by-ids")
+async def catalog_by_ids(
+    _: dict[str, Any] = Depends(require_operator),
+    ids: str = Query("", description="Comma-separated product ids"),
+) -> dict[str, Any]:
+    """Read-only lookup used by the 'Create proposal from selected products' handoff.
+
+    Returns normalized catalog products for the given ids, in the requested order.
+    Reuses the same normalize_product identity logic as the catalog list — no writes.
+    """
+    db = _require_db()
+    id_list = [s.strip() for s in ids.split(",") if s.strip()][:200]
+    if not id_list:
+        return {"records": []}
+    docs = await db["products"].find({"_id": {"$in": id_list}}).to_list(length=len(id_list))
+    by_id = {d.get("_id"): d for d in docs}
+    records = [normalize_product(by_id[i]) for i in id_list if i in by_id]
+    return {"records": records}
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +538,60 @@ async def create_proposal(
     await db["proposals"].insert_one(doc)
     await log_activity(db, user, "PROPOSAL_CREATE", doc["_id"], f"Created proposal: {doc['title']}")
     return _proposal_out(doc)
+
+
+@app.post("/api/proposals/{proposal_id}/items")
+async def add_items(
+    proposal_id: str,
+    payload: dict[str, Any],
+    user: dict[str, Any] = Depends(require_operator),
+) -> dict[str, Any]:
+    """Append catalog products to an existing proposal AND insert their pages,
+    without rebuilding (or destroying) existing pages / manual edits.
+
+    Additive companion to PATCH: existing items and pages are preserved; only the
+    new items' product pages are inserted (before the pricing/closing block).
+    Pricing is recomputed from the full item list.
+    """
+    db = _require_db()
+    doc = await _load_proposal(db, proposal_id, user)
+
+    raw_items = payload.get("items") or []
+    if not isinstance(raw_items, list) or not raw_items:
+        raise HTTPException(status_code=400, detail="NO_ITEMS")
+
+    new_items = await _resolve_items(db, raw_items)
+    if not new_items:
+        raise HTTPException(status_code=400, detail="NO_VALID_ITEMS")
+
+    existing_items = doc.get("items") or []
+    existing_pages = doc.get("pages") or []
+    all_items = existing_items + new_items
+
+    template = await db["proposal_templates"].find_one({"_id": doc.get("template_id")})
+    if not template:
+        template = await db["proposal_templates"].find_one({"slug": "lorenzo-classic"}) or {}
+
+    new_pages = generate_item_pages(template, doc, new_items, existing_pages)
+    at = insert_index_before_summary(existing_pages)
+    pages = existing_pages[:at] + new_pages + existing_pages[at:]
+
+    pricing = compute_pricing(all_items, doc.get("pricing") or {})
+
+    patch = {
+        "items": all_items,
+        "pages": pages,
+        "pricing": pricing,
+        "version": int(doc.get("version") or 1) + 1,
+        "updated_at": _now(),
+    }
+    await db["proposals"].update_one({"_id": proposal_id}, {"$set": patch})
+    await log_activity(
+        db, user, "PROPOSAL_ADD_ITEMS", proposal_id,
+        f"Added {len(new_items)} product(s)",
+    )
+    updated = await db["proposals"].find_one({"_id": proposal_id})
+    return _proposal_out(updated)
 
 
 @app.get("/api/proposals/{proposal_id}")

@@ -11,6 +11,8 @@ interface SelectionBarProps {
   viewLabel: string;
   isViewActive: boolean;
   theme?: 'light' | 'dark';
+  /** Optional: hand the current selection off to the Proposals app. */
+  onCreateProposal?: () => void;
 }
 
 export function SelectionBar({
@@ -22,6 +24,7 @@ export function SelectionBar({
   viewLabel,
   isViewActive,
   theme = 'light',
+  onCreateProposal,
 }: SelectionBarProps) {
   if (selectedCount === 0) return null;
 
@@ -77,6 +80,16 @@ export function SelectionBar({
           </button>
         </div>
       </div>
+
+      {onCreateProposal && (
+        <button
+          type="button"
+          onClick={onCreateProposal}
+          className="mt-1 h-11 w-full rounded-xl border border-red-500/30 bg-red-600 text-[11px] font-semibold tracking-wide text-white hover:bg-red-700"
+        >
+          <span className="truncate">Create Proposal ({selectedCount})</span>
+        </button>
+      )}
     </div>
   );
 }

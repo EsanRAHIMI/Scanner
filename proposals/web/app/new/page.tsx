@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, fmtMoney } from '@/lib/api';
+import { driveDirectLink } from '@/lib/product-image';
 import type { CatalogProduct, Proposal, Template } from '@/lib/types';
 
 const ROOM_SUGGESTIONS = [
@@ -57,6 +58,8 @@ export default function NewProposalPage() {
   const [vatPct, setVatPct] = useState<number | ''>('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  // Count of products preselected via the "Create proposal from selected" handoff.
+  const [preselectCount, setPreselectCount] = useState(0);
 
   const loadCatalog = useCallback(
     async (append = false, skip = 0) => {
@@ -82,6 +85,43 @@ export default function NewProposalPage() {
   useEffect(() => {
     if (step === 1) void loadCatalog();
   }, [step, loadCatalog]);
+
+  // Handoff from the Products app: /new?products=id1,id2,... preselects those
+  // catalog products. Read-only fetch via the shared catalog identity logic;
+  // unknown/invalid ids are simply ignored so the wizard always still works.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = new URLSearchParams(window.location.search).get('products');
+    if (!raw) return;
+    const ids = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 200);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api<{ records: CatalogProduct[] }>(
+          `/catalog/by-ids?ids=${encodeURIComponent(ids.join(','))}`,
+        );
+        if (cancelled || res.records.length === 0) return;
+        setSelected((prev) => {
+          const next = new Map(prev);
+          for (const p of res.records) {
+            if (!next.has(p.id)) next.set(p.id, { product: p, room: '', qty: 1 });
+          }
+          return next;
+        });
+        setPreselectCount(res.records.length);
+      } catch {
+        // Ignore — the user can still pick products manually.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (step === 2 && templates.length === 0) {
@@ -172,7 +212,7 @@ export default function NewProposalPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-5xl pb-28">
       <h1 className="mb-1 text-xl font-semibold">New Proposal</h1>
       <p className="mb-6 text-sm text-gray-500">
         Generate a branded Lorenzo proposal from the product catalog.
@@ -207,6 +247,15 @@ export default function NewProposalPage() {
 
       {error && (
         <div className="card mb-4 border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      )}
+
+      {preselectCount > 0 && (
+        <div className="card mb-4 border-brand-burgundy/20 bg-brand-burgundy/[0.04] p-3 text-sm text-brand-black">
+          <span className="font-medium">
+            {preselectCount} product{preselectCount === 1 ? '' : 's'} preselected
+          </span>{' '}
+          from the catalog. Review them in the “Select Products” step.
+        </div>
       )}
 
       {/* ---- Step 1: customer & project ---- */}
@@ -260,7 +309,7 @@ export default function NewProposalPage() {
       {/* ---- Step 2: product selection ---- */}
       {step === 1 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
-          <div>
+          <div className="min-h-[55vh]">
             <div className="mb-3 flex gap-2">
               <input
                 className="input"
@@ -301,7 +350,7 @@ export default function NewProposalPage() {
                           {p.image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={p.image_url}
+                              src={driveDirectLink(p.image_url)}
                               alt={p.name}
                               className="h-full w-full object-cover"
                               loading="lazy"
@@ -321,7 +370,7 @@ export default function NewProposalPage() {
                             ✓
                           </span>
                         </div>
-                        <div className="p-2.5">
+                        <div className="min-h-[4.5rem] p-2.5">
                           <div className="truncate text-sm font-medium">{p.name || p.code || p.id}</div>
                           <div className="truncate text-xs text-gray-500">
                             {[p.code, p.category].filter(Boolean).join(' · ')}
@@ -494,24 +543,35 @@ export default function NewProposalPage() {
         </div>
       )}
 
-      {/* Footer nav */}
-      <div className="mt-6 flex items-center justify-between">
-        <button
-          className="btn-secondary"
-          disabled={step === 0 || creating}
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
-        >
-          ← Back
-        </button>
-        {step < STEPS.length - 1 ? (
-          <button className="btn-primary" disabled={!canNext} onClick={() => setStep((s) => s + 1)}>
-            Continue →
+      {/* Fixed bottom action bar — anchored to the viewport so it never moves with
+          content height or search results (content gets matching bottom padding above). */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-brand-medium-gray/30 bg-brand-white/95 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] backdrop-blur supports-[backdrop-filter]:bg-brand-white/80">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <button
+            className="btn-secondary min-w-[110px]"
+            disabled={step === 0 || creating}
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+          >
+            ← Back
           </button>
-        ) : (
-          <button className="btn-primary" disabled={creating} onClick={() => void createProposal()}>
-            {creating ? 'Generating…' : 'Generate Proposal'}
-          </button>
-        )}
+          {step < STEPS.length - 1 ? (
+            <button
+              className="btn-primary min-w-[160px]"
+              disabled={!canNext}
+              onClick={() => setStep((s) => s + 1)}
+            >
+              Continue →
+            </button>
+          ) : (
+            <button
+              className="btn-primary min-w-[160px]"
+              disabled={creating}
+              onClick={() => void createProposal()}
+            >
+              {creating ? 'Generating…' : 'Generate Proposal'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

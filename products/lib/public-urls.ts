@@ -1,13 +1,14 @@
 const DEFAULT_APP_BASE_DOMAIN = 'lorenzohome.ae';
 const DEFAULT_HUB_SUBDOMAIN = 'dashboard';
 
-export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing';
+export type PublicServiceKey = 'hub' | 'trainer' | 'products' | 'marketing' | 'proposals';
 
 const SERVICE_URL_ENV: Record<PublicServiceKey, string> = {
   hub: 'NEXT_PUBLIC_HUB_URL',
   trainer: 'NEXT_PUBLIC_TRAINER_URL',
   products: 'NEXT_PUBLIC_PRODUCTS_URL',
   marketing: 'NEXT_PUBLIC_MARKETING_URL',
+  proposals: 'NEXT_PUBLIC_PROPOSALS_URL',
 };
 
 function trimTrailingSlashes(url: string): string {
@@ -59,6 +60,10 @@ export function getPublicServiceUrl(service: PublicServiceKey, path = ''): strin
 
 export function getTrainerWebUrl(path = ''): string {
   return getPublicServiceUrl('trainer', path);
+}
+
+export function getProposalsUrl(path = ''): string {
+  return getPublicServiceUrl('proposals', path);
 }
 
 export function getDefaultTrainerApiBase(): string {
