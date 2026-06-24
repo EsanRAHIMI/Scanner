@@ -2,10 +2,16 @@ import './globals.css';
 import type { Metadata } from 'next';
 import type { Viewport } from 'next';
 import { Inter } from 'next/font/google';
+import Script from 'next/script';
 
 import { getDefaultScannerUrl, getPublicServiceUrl } from '@/lib/public-urls';
 
 const inter = Inter({ subsets: ['latin'] });
+
+// Global Lorenzo AI / navigation widget (served by the agent service).
+const agentWidgetSrc =
+  (process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8040').replace(/\/+$/, '') +
+  '/static/widget.js';
 
 const siteDescription =
   'Mobile-first live scanning with YOLO detection and bounding boxes on the camera feed.';
@@ -50,7 +56,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <Script src={agentWidgetSrc} strategy="afterInteractive" />
+      </body>
     </html>
   );
 }

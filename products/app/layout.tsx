@@ -3,6 +3,7 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { Inter } from 'next/font/google';
+import Script from 'next/script';
 
 import { withBasePath } from '@/lib/pwa';
 
@@ -10,6 +11,11 @@ import { PwaRegister } from './pwa-register';
 import { ProductsCacheProvider } from './products-cache-provider';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+
+// Global Lorenzo AI / navigation widget (served by the agent service).
+const agentWidgetSrc =
+  (process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8040').replace(/\/+$/, '') +
+  '/static/widget.js';
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -58,6 +64,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>
           </div>
         </ProductsCacheProvider>
+        <Script src={agentWidgetSrc} strategy="afterInteractive" />
       </body>
     </html>
   );

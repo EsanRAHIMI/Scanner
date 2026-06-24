@@ -247,6 +247,15 @@ npm run dev
 
 ---
 
+## Terminal 11 — Agent server
+
+```bash
+cd agent/server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m uvicorn app:app --port 8040
+
 ## Local URLs
 
 | Service | URL |

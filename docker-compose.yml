@@ -62,6 +62,16 @@ services:
     expose:
       - "3007"
 
+  # Central AI agent service (chat + memory + embeddable widget).
+  agent-server:
+    build:
+      context: ./agent/server
+    environment:
+      - MONGODB_DB_NAME=lorenzo_agent
+      # Set MONGODB_URI / TRAINER_JWT_SECRET / LLM keys via Dokploy env, not here.
+    expose:
+      - "8040"
+
 volumes:
   image_data:
   proposals_data:
