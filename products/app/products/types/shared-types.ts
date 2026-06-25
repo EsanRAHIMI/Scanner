@@ -82,6 +82,12 @@ export interface UserSession {
 export interface ProductsCacheContextValue {
   data: ProductsAssetsResponse | null;
   loading: boolean;
+  /** True while an on-demand "load more" page request is in flight. */
+  backgroundLoading: boolean;
+  /** True when the server has more pages beyond what is currently loaded. */
+  hasMore: boolean;
+  /** Fetch the next page on demand (e.g. when scrolling near the end). Single-flight. */
+  loadMore: () => Promise<void>;
   error: string | null;
   /** True when the UI still shows cached/previous snapshot but the latest GET `/api/products/assets` failed (e.g. trainer/Mongo inactive). */
   isStaleOfflineSnapshot: boolean;
@@ -99,4 +105,8 @@ export interface ProductsCacheContextValue {
     updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
   ) => Promise<ProductsAssetsResponse | null>;
   commitOptimisticSnapshot: (optimisticData: ProductsAssetsResponse) => Promise<void>;
+  /** Display-only cache write — no pending tracking, no revalidation (for client-side normalizations). */
+  applyDisplayPatch: (
+    updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
+  ) => Promise<void>;
 }

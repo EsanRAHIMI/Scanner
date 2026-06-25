@@ -111,6 +111,9 @@ export function ProductsView({
   const {
     data,
     loading,
+    backgroundLoading,
+    hasMore,
+    loadMore,
     error,
     isStaleOfflineSnapshot,
     setData,
@@ -119,6 +122,7 @@ export function ProductsView({
     clearPendingDelete,
     clearPendingDeletes,
     applyCacheUpdate,
+    applyDisplayPatch,
     commitOptimisticSnapshot,
   } = useProductsCache();
   const { data: fieldOptionsData } = useSWR('/public/products/field-options', productFieldOptionsFetcher, {
@@ -386,7 +390,9 @@ export function ProductsView({
         return { ...r, fields: { ...r.fields, Main: true } };
       });
       if (changed) {
-        void applyCacheUpdate((prev) => ({
+        // Display-only normalization — must NOT record pending edits or trigger
+        // revalidation (that caused a perpetual limit=200 background loop).
+        void applyDisplayPatch((prev) => ({
           ...prev,
           records: nextRecords,
           columns,
@@ -395,7 +401,7 @@ export function ProductsView({
       }
       hasInitializedMain.current = true;
     }
-  }, [data, loading, records, applyCacheUpdate, columns]);
+  }, [data, loading, records, applyDisplayPatch, columns]);
 
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
   /** Row delete and bulk purge: admin role only (not sales or other roles). */
@@ -650,6 +656,9 @@ export function ProductsView({
   const [isLoadMorePending, startLoadMoreTransition] = React.useTransition();
   const loadMoreSentinelRef = React.useRef<HTMLDivElement | null>(null);
   const loadMoreThrottleRef = React.useRef(0);
+  // Server pages are fetched ONLY after a real user scroll — never from the initial
+  // layout, ResizeObserver, or a sentinel that happens to be visible on first render.
+  const userScrolledRef = React.useRef(false);
 
   React.useEffect(() => {
     if (scrollTargetRecordId) return;
@@ -684,10 +693,35 @@ export function ProductsView({
   const remainingRecordsCount = Math.max(0, listVisibleRecords.length - renderedRecords.length);
 
   const loadMoreRecords = React.useCallback(() => {
-    startLoadMoreTransition(() => {
-      setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, listVisibleRecords.length));
-    });
-  }, [listVisibleRecords.length, startLoadMoreTransition]);
+    // First reveal already-loaded rows (client-side windowing). When those are
+    // exhausted, fetch the NEXT server page — ONLY after a real user scroll, so the
+    // initial layout / resize / first-render sentinel can never auto-fetch.
+    if (remainingRecordsCount > 0) {
+      startLoadMoreTransition(() => {
+        setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, listVisibleRecords.length));
+      });
+    } else if (hasMore && !backgroundLoading && userScrolledRef.current) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Products/loadMore] user-scroll near end → fetch next page', {
+          renderLimit,
+          rendered: renderedRecords.length,
+          filtered: listVisibleRecords.length,
+          hasMore,
+          backgroundLoading,
+        });
+      }
+      void loadMore();
+    }
+  }, [
+    remainingRecordsCount,
+    listVisibleRecords.length,
+    startLoadMoreTransition,
+    hasMore,
+    backgroundLoading,
+    loadMore,
+    renderLimit,
+    renderedRecords.length,
+  ]);
 
   const [scrollNearEnd, setScrollNearEnd] = React.useState(false);
 
@@ -706,14 +740,22 @@ export function ProductsView({
     const onScroll = () => {
       const near = isScrollContainerNearEnd(scrollRoot);
       setScrollNearEnd(near);
-      if (!near || remainingRecordsCount <= 0) return;
+      if (!near) return;
+      // Nothing to reveal locally AND server has no more → do nothing.
+      if (remainingRecordsCount <= 0 && !hasMore) return;
       const now = Date.now();
       if (now - loadMoreThrottleRef.current < 160) return;
       loadMoreThrottleRef.current = now;
       loadMoreRecords();
     };
 
-    scrollRoot.addEventListener('scroll', onScroll, { passive: true });
+    // Only a REAL scroll event marks user intent; the initial onScroll() call and
+    // the ResizeObserver must not enable server fetching.
+    const onUserScroll = () => {
+      userScrolledRef.current = true;
+      onScroll();
+    };
+    scrollRoot.addEventListener('scroll', onUserScroll, { passive: true });
     const resizeObserver = new ResizeObserver(onScroll);
     resizeObserver.observe(scrollRoot);
     const contentEl = scrollRoot.firstElementChild;
@@ -729,6 +771,7 @@ export function ProductsView({
   }, [
     loading,
     remainingRecordsCount,
+    hasMore,
     loadMoreRecords,
     renderLimit,
     viewMode,
@@ -1362,7 +1405,7 @@ export function ProductsView({
       className="flex min-h-0 w-full flex-1 flex-col gap-2 text-black dark:text-white/85 sm:gap-4"
     >
 
-      <TopProgressBar loading={loading} />
+      <TopProgressBar loading={loading || backgroundLoading} />
       <HeaderToolbar
         title={title}
         titleNode={titleNode}

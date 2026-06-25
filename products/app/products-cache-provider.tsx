@@ -124,6 +124,20 @@ function dedupeDimensionColumnNames(columns: string[]): string[] {
   return columns.filter((column) => !drop.has(column)).sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Deterministic business order for ALL Products list loading paths (cold first
+ * page, background pages, warm cache revalidation, full refresh). Matches the
+ * client's default Num sort so the visible rows never jump/reorder. Never mix
+ * `created_at` pagination with `Num` ordering for the Products list.
+ */
+const PRODUCTS_SORT = 'num';
+
+/** Dev-only diagnostics for the single progressive background loader. */
+const PRODUCTS_BG_DEBUG = process.env.NODE_ENV !== 'production';
+function bgLog(...args: unknown[]) {
+  if (PRODUCTS_BG_DEBUG) console.log('[ProductsCache/bg]', ...args);
+}
+
 /** Shared GET for SWR and background revalidation — never leaves raw TypeError uncaught. */
 async function fetchProductsAssets(
   url: string,
@@ -136,10 +150,11 @@ async function fetchProductsAssets(
     );
   }
 
-  // Keep each payload bounded; client aggregates pages into one snapshot for current UI logic.
-  const PAGE_LIMIT = 500;
+  // Background full refresh (post-edit reconcile only). Bounded page size — never
+  // the old heavy 500; matches the progressive background page size.
+  const PAGE_LIMIT = 200;
   // Hard stop to prevent infinite loops on malformed cursor responses.
-  const MAX_PAGES = 200;
+  const MAX_PAGES = 500;
 
   const allRecords: ProductsAssetsResponse['records'] = [];
   let mergedColumns: string[] = [];
@@ -150,6 +165,7 @@ async function fetchProductsAssets(
     pageCount += 1;
     const reqUrl = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
     reqUrl.searchParams.set('limit', String(PAGE_LIMIT));
+    reqUrl.searchParams.set('sort', PRODUCTS_SORT);
     if (cursor) reqUrl.searchParams.set('cursor', cursor);
 
     let res: Response;
@@ -205,12 +221,74 @@ async function fetchProductsAssets(
   );
 }
 
-const swrFetcher = (url: string) => fetchProductsAssets(url);
+/** First paint shows only the first page; further pages load ON DEMAND (scroll). */
+const FIRST_PAGE_LIMIT = 40;
+/** Next-page size for demand-based (scroll) loading — small, one request at a time. */
+const NEXT_PAGE_LIMIT = 80;
+
+/** Fetch a SINGLE page (first page or an on-demand next page). */
+async function fetchProductsPage(
+  url: string,
+  opts: { limit: number; cursor?: string | null; sort?: string; signal?: AbortSignal },
+): Promise<ProductsAssetsResponse> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    throw new ProductsAssetsFetchError('No network connection. Showing cached data.', 'network');
+  }
+  const reqUrl = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+  reqUrl.searchParams.set('limit', String(opts.limit));
+  if (opts.cursor) reqUrl.searchParams.set('cursor', opts.cursor);
+  if (opts.sort) reqUrl.searchParams.set('sort', opts.sort);
+
+  let res: Response;
+  try {
+    res = await fetch(reqUrl.toString(), { cache: 'no-store', signal: opts.signal });
+  } catch (cause) {
+    throw new ProductsAssetsFetchError(formatNetworkFetchMessage(cause), 'network');
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    const formatted = formatTrainerAssetsErrorMessage(text, `HTTP ${res.status}`);
+    throw new ProductsAssetsFetchError(formatted || `Request failed (${res.status})`, 'http', res.status);
+  }
+
+  let parsed: ProductsAssetsResponse;
+  try {
+    parsed = JSON.parse(text) as ProductsAssetsResponse;
+  } catch {
+    throw new ProductsAssetsFetchError('Invalid JSON from products API.', 'parse');
+  }
+  if (!parsed || !Array.isArray(parsed.records)) {
+    throw new ProductsAssetsFetchError('Invalid products payload from server.', 'parse');
+  }
+
+  const nextCursor =
+    typeof parsed.next_cursor === 'string' && parsed.next_cursor.trim() ? parsed.next_cursor : null;
+  const hasMore = Boolean(parsed.has_more && nextCursor);
+  return {
+    ...parsed,
+    columns: mergeProductsColumnNames([], parsed.columns, parsed.records),
+    records: parsed.records,
+    count: parsed.records.length,
+    has_more: hasMore,
+    next_cursor: hasMore ? nextCursor : null,
+  };
+}
 
 /** Delay (ms) before background revalidation after an optimistic update. */
 const REVALIDATION_DELAY_MS = 2500;
 /** Cap exponential backoff when background sync keeps failing (Trainer down, offline). */
 const REVALIDATION_BACKOFF_MAX_MS = 60_000;
+/**
+ * Defensive cap. Optimistic pending field/delete values normally reconcile within a few
+ * revalidations (once the matching PATCH/DELETE lands server-side). If a value is recorded
+ * as pending but is never persisted — e.g. a display-only normalization wrongly marked as a
+ * pending edit — the 'pending' retry would otherwise reschedule `fetchProductsAssets`
+ * (limit=200) forever. After this many consecutive NON-reconciling attempts we stop retrying
+ * and emit a dev warning instead of looping. NOTE: this is hardening only — the real fix is
+ * that such normalizations use `applyDisplayPatch` and never become pending in the first place.
+ */
+const MAX_PENDING_REVALIDATION_RETRIES = 8;
 
 const PENDING_DELETES_STORAGE_KEY = 'products_pending_delete_ids_v1';
 
@@ -247,6 +325,18 @@ function hasAnyPending(
   pendingDeleted: Set<string>
 ) {
   return hasPendingFieldValues(pendingFields) || pendingDeleted.size > 0;
+}
+
+/** Total count of unreconciled pending items — used to detect retry progress vs. a stall. */
+function countPending(
+  pendingFields: PendingFieldValues,
+  pendingDeleted: Set<string>
+) {
+  let total = pendingDeleted.size;
+  for (const fields of Object.values(pendingFields)) {
+    total += Object.keys(fields).length;
+  }
+  return total;
 }
 
 function collectPendingFieldValues(
@@ -380,6 +470,11 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const [pendingDeletedRenderTick, setPendingDeletedRenderTick] = React.useState(0);
   const [pendingFieldsRenderTick, setPendingFieldsRenderTick] = React.useState(0);
 
+  // True while an on-demand "load more" page request is in flight (subtle indicator).
+  const [backgroundLoading, setBackgroundLoading] = React.useState(false);
+  // Mutual-exclusion flag shared with the post-edit revalidation path.
+  const bgRunningRef = React.useRef(false);
+
   React.useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem('products_assets_cache_v1');
@@ -411,17 +506,32 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     }
   }, []);
 
+  /**
+   * ALWAYS fetch only the FIRST page (limit=40, sort=num) for the initial paint —
+   * warm OR cold. The warm cache shows instantly via fallbackData (kept visible by
+   * the no-shrink guard in `data`), and the remaining pages stream in via the SINGLE
+   * throttled background loader. There is no full limit=500/200 foreground loop here.
+   */
+  const swrFetcherLocal = React.useCallback((url: string) => {
+    return fetchProductsPage(url, { limit: FIRST_PAGE_LIMIT, sort: PRODUCTS_SORT });
+  }, []);
+
   const {
     data: swrData,
     error: swrError,
     isLoading,
     mutate: swrMutate,
   } = useSWR<ProductsAssetsResponse>(
-    cacheKey,
-    swrFetcher,
+    // Wait until sessionStorage is read so warm/cold is known before the first fetch.
+    clientStorageReady ? cacheKey : null,
+    swrFetcherLocal,
     {
       revalidateOnFocus: false,
-      revalidateOnReconnect: true,
+      revalidateOnReconnect: false,
+      revalidateIfStale: false,
+      // Warm (a cached snapshot is present) → do NOT auto-refetch on mount: show the
+      // cache instantly with 0 requests and no shrink. Cold → fetch the first page once.
+      revalidateOnMount: clientStorageReady ? !hydratedCache : undefined,
       keepPreviousData: true,
       fallbackData: clientStorageReady ? (hydratedCache ?? undefined) : undefined,
       shouldRetryOnError: true,
@@ -429,6 +539,62 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       dedupingInterval: 2000,
     }
   );
+
+  // ── Demand-based pagination (NO automatic background full-catalog loading) ──
+  // The first page (40, sort=num) is shown immediately. Further pages are fetched
+  // ONLY when the UI calls loadMore() (e.g. the user scrolls near the end). One
+  // request at a time, single-flight, cursor advances from the snapshot — never a
+  // loop. If the user does not scroll, no more assets requests are made.
+  const loadMoreInFlightRef = React.useRef(false);
+  const paginationRef = React.useRef<{ cursor: string | null; hasMore: boolean }>({
+    cursor: null,
+    hasMore: false,
+  });
+
+  React.useEffect(() => {
+    if (!swrData) return;
+    paginationRef.current = {
+      cursor: typeof swrData.next_cursor === 'string' ? swrData.next_cursor : null,
+      hasMore: Boolean(swrData.has_more && swrData.next_cursor),
+    };
+  }, [swrData]);
+
+  const loadMore = React.useCallback(async () => {
+    if (loadMoreInFlightRef.current || bgRunningRef.current) return;
+    const { cursor, hasMore } = paginationRef.current;
+    if (!hasMore || !cursor) return;
+    loadMoreInFlightRef.current = true;
+    setBackgroundLoading(true);
+    bgLog(`loadMore: limit=${NEXT_PAGE_LIMIT} cursor=${cursor}`);
+    try {
+      const page = await fetchProductsPage(cacheKey, {
+        limit: NEXT_PAGE_LIMIT,
+        cursor,
+        sort: PRODUCTS_SORT,
+      });
+      await swrMutate(
+        (prev) => {
+          const base = prev;
+          if (!base) return page;
+          return {
+            ...base,
+            columns: mergeProductsColumnNames(base.columns, page.columns, page.records),
+            records: [...base.records, ...page.records],
+            count: base.records.length + page.records.length,
+            has_more: page.has_more,
+            next_cursor: page.next_cursor,
+          };
+        },
+        { revalidate: false, populateCache: true },
+      );
+      bgLog(`loadMore done: +${page.records.length} has_more=${page.has_more} next=${page.next_cursor}`);
+    } catch (e) {
+      bgLog('loadMore error', e);
+    } finally {
+      loadMoreInFlightRef.current = false;
+      setBackgroundLoading(false);
+    }
+  }, [cacheKey, swrMutate]);
 
   const persistedCacheJsonRef = React.useRef<string>('');
 
@@ -465,6 +631,10 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   const revalidationInFlightRef = React.useRef(false);
   const revalidationBackoffMsRef = React.useRef(REVALIDATION_DELAY_MS);
   const runRevalidationRef = React.useRef<(() => Promise<void>) | null>(null);
+  /** Consecutive non-reconciling 'pending' revalidation attempts (caps the retry loop). */
+  const pendingRevalidationRetriesRef = React.useRef(0);
+  /** Pending count at the previous attempt — a drop means reconciliation is progressing. */
+  const lastPendingCountRef = React.useRef(0);
 
   /** Authoritative full snapshot (localOverride ?? swr). */
   const rawSnapshotRef = React.useRef<ProductsAssetsResponse | null>(null);
@@ -510,6 +680,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   const data = React.useMemo(() => {
     if (!rawData) return null;
+    // loadMore only APPENDS (never shrinks), so a plain merged snapshot is stable.
     return buildMergedSnapshot(
       rawData,
       pendingFieldValuesRef.current,
@@ -536,7 +707,14 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   const runRevalidation = React.useCallback(async () => {
     if (revalidationInFlightRef.current) return;
+    // Single-flight: never run a full revalidation while the progressive background
+    // loader is active — that would create a parallel duplicate loading loop.
+    if (bgRunningRef.current) {
+      scheduleRevalidationRetry('pending');
+      return;
+    }
     revalidationInFlightRef.current = true;
+    bgRunningRef.current = true; // also block the background loop from starting concurrently
 
     const fallback = rawSnapshotRef.current;
     const hasPendingBefore = hasAnyPending(
@@ -581,7 +759,43 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       setLocalOverride(hasPending ? nextData : null);
 
       if (hasPending) {
-        scheduleRevalidationRetry('pending');
+        const pendingCount = countPending(
+          pendingFieldValuesRef.current,
+          pendingDeletedIdsRef.current,
+        );
+        // Reset the cap whenever reconciliation makes real progress (fewer pending items
+        // than the previous attempt). Only a fully STALLED pending set should trip the cap.
+        if (pendingCount < lastPendingCountRef.current) {
+          pendingRevalidationRetriesRef.current = 0;
+        }
+        lastPendingCountRef.current = pendingCount;
+        pendingRevalidationRetriesRef.current += 1;
+
+        if (pendingRevalidationRetriesRef.current > MAX_PENDING_REVALIDATION_RETRIES) {
+          // Defensive stop: pending values are not reconciling. Keep the optimistic
+          // snapshot visible (do NOT discard the user's edits) but stop scheduling further
+          // revalidations so we never loop `fetchProductsAssets` (limit=200) indefinitely.
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `[ProductsCache] ${pendingCount} pending field/delete value(s) did not reconcile ` +
+                `after ${MAX_PENDING_REVALIDATION_RETRIES} revalidation attempts — stopping ` +
+                `retries to avoid an infinite /products/assets loop. This usually means a value ` +
+                `was recorded as a pending edit but never persisted server-side (such ` +
+                `normalizations should use applyDisplayPatch).`,
+              {
+                pendingFields: pendingFieldValuesRef.current,
+                pendingDeletes: Array.from(pendingDeletedIdsRef.current),
+              },
+            );
+          }
+          // Counter stays above the cap, so retries remain stopped until either the pending
+          // set clears (reset below) or a fresh user edit / reconnect resets the counter.
+        } else {
+          scheduleRevalidationRetry('pending');
+        }
+      } else {
+        pendingRevalidationRetriesRef.current = 0;
+        lastPendingCountRef.current = 0;
       }
     } catch (cause) {
       const message = formatNetworkFetchMessage(cause);
@@ -605,6 +819,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       }
     } finally {
       revalidationInFlightRef.current = false;
+      bgRunningRef.current = false;
     }
   }, [
     cacheKey,
@@ -620,6 +835,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   React.useEffect(() => {
     const onOnline = () => {
       revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
+      // Reconnecting may let previously-stalled pending values finally reconcile.
+      pendingRevalidationRetriesRef.current = 0;
+      lastPendingCountRef.current = 0;
       const needsSync =
         localOverride !== null ||
         hasAnyPending(pendingFieldValuesRef.current, pendingDeletedIdsRef.current) ||
@@ -635,10 +853,16 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   const scheduleRevalidation = React.useCallback(() => {
     revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
+    // A fresh user edit is new pending state — allow the retry loop again even if a
+    // previous (now-cleared) stall had tripped the cap.
+    pendingRevalidationRetriesRef.current = 0;
+    lastPendingCountRef.current = 0;
     scheduleRevalidationRetry('pending');
   }, [scheduleRevalidationRetry]);
 
-  const loading = isLoading;
+  // Skeleton shows until sessionStorage is read and the FIRST page resolves — not
+  // until the whole catalog is loaded (that streams in via backgroundLoading).
+  const loading = isLoading || !clientStorageReady;
   const syncErrorMessage = backgroundSyncError?.trim() || null;
   const loadErrorMessage =
     swrError instanceof Error ?
@@ -725,6 +949,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     () => ({
       data,
       loading,
+      backgroundLoading,
+      hasMore: Boolean(swrData?.has_more && swrData?.next_cursor),
+      loadMore,
       error,
       isStaleOfflineSnapshot,
       notePendingDelete,
@@ -733,6 +960,20 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       getRawSnapshot,
       applyCacheUpdate,
       commitOptimisticSnapshot,
+      // Display-only cache write: updates the visible snapshot WITHOUT recording
+      // pending field values or scheduling revalidation. Used for client-side
+      // normalizations (e.g. the Main flag) that must never hit the server or
+      // trigger a background reconcile loop.
+      applyDisplayPatch: async (
+        updater: (prev: ProductsAssetsResponse) => ProductsAssetsResponse,
+      ): Promise<void> => {
+        const prev = getRawSnapshot();
+        if (!prev) return;
+        const next = updater(prev);
+        if (!next) return;
+        rawSnapshotRef.current = next;
+        await swrMutate(next, { revalidate: false, populateCache: true });
+      },
       setData: (updater) => {
         const prev = getRawSnapshot();
         if (!prev) return;
@@ -759,6 +1000,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         setBackgroundSyncError(null);
         revalidationBackoffMsRef.current = REVALIDATION_DELAY_MS;
 
+        // Allow a fresh first-page load (demand-based pagination restarts from page 1).
+        loadMoreInFlightRef.current = false;
+
         const freshData = await swrMutate();
         rawSnapshotRef.current = freshData ?? null;
         setLocalOverride(null);
@@ -769,6 +1013,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       error,
       isStaleOfflineSnapshot,
       loading,
+      backgroundLoading,
+      swrData,
+      loadMore,
       notePendingDelete,
       clearPendingDelete,
       clearPendingDeletes,

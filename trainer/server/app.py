@@ -2673,6 +2673,20 @@ def _decode_products_assets_cursor(cursor: str) -> tuple[str, str]:
   except Exception as exc:
     raise HTTPException(status_code=400, detail="INVALID_CURSOR") from exc
 
+# Offset cursor used by the `sort=num` mode (business order by the Num column).
+def _encode_offset_cursor(offset: int) -> str:
+  raw = json.dumps({"offset": int(offset)}, separators=(",", ":")).encode("utf-8")
+  return base64.urlsafe_b64encode(raw).decode("ascii")
+
+def _decode_offset_cursor(cursor: str) -> int:
+  try:
+    padded = cursor + "=" * (-len(cursor) % 4)
+    decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    parsed = json.loads(decoded)
+    return max(0, int(parsed.get("offset") or 0))
+  except Exception as exc:
+    raise HTTPException(status_code=400, detail="INVALID_CURSOR") from exc
+
 def _build_products_assets_columns(records: list[dict[str, Any]]) -> list[str]:
   columns_set: set[str] = set()
   for r in records:
@@ -2691,8 +2705,43 @@ async def _products_assets_page(
   db: Any,
   limit: int,
   cursor: str | None,
+  sort: str = "recent",
 ) -> dict[str, Any]:
   safe_limit = max(1, min(limit, PRODUCTS_ASSETS_MAX_LIMIT))
+
+  # Business order: sort by the numeric `Num` column (ascending). Non-numeric /
+  # missing Num values sort last. Offset-paginated so progressive pages append in
+  # a stable order (page 1 = lowest 40 Num, page 2 = next, …) — no client reorder.
+  if sort == "num":
+    offset = _decode_offset_cursor(cursor) if cursor else 0
+    big = 1e18
+    pipeline = [
+      {"$addFields": {
+        "_numKey": {"$convert": {"input": "$fields.Num", "to": "double", "onError": big, "onNull": big}},
+      }},
+      {"$sort": {"_numKey": 1, "_id": 1}},
+      {"$skip": offset},
+      {"$limit": safe_limit + 1},
+    ]
+    docs = await db["products"].aggregate(pipeline, allowDiskUse=True).to_list(length=safe_limit + 1)
+    has_more = len(docs) > safe_limit
+    page_docs = docs[:safe_limit]
+    records = [
+      {"id": d.get("_id"), "fields": d.get("fields") or {}, "createdTime": d.get("created_at")}
+      for d in page_docs
+    ]
+    next_cursor = _encode_offset_cursor(offset + safe_limit) if has_more else None
+    columns = _build_products_assets_columns(records)
+    return {
+      "columns": columns,
+      "records": records,
+      "count": len(records),
+      "has_more": has_more,
+      "next_cursor": next_cursor,
+      "page_size": safe_limit,
+      "sort": "num",
+    }
+
   query: dict[str, Any] = {}
 
   if cursor:
@@ -2746,9 +2795,11 @@ async def _products_assets_page(
 async def public_products_assets(
   limit: int = Query(PRODUCTS_ASSETS_DEFAULT_LIMIT, ge=1, le=PRODUCTS_ASSETS_MAX_LIMIT),
   cursor: str | None = Query(None),
+  sort: str = Query("recent"),
   db=Depends(_get_db),
 ):
-  return await _products_assets_page(db, limit=limit, cursor=cursor)
+  sort_mode = "num" if str(sort).strip().lower() == "num" else "recent"
+  return await _products_assets_page(db, limit=limit, cursor=cursor, sort=sort_mode)
 
 
 @api.get("/public/products/field-options")
