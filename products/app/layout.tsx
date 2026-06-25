@@ -58,7 +58,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }}
         />
       </head>
-      <body className="h-dvh overflow-hidden bg-brand-light-gray font-sans text-brand-black antialiased dark:bg-black dark:text-white">
+      <body className="h-dvh overflow-hidden bg-background font-sans text-foreground antialiased">
         <PwaRegister />
         <ProductsCacheProvider>
           <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-4 box-border px-5 py-6">

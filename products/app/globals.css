@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Semantic theme tokens ────────────────────────────────────────────────
+ * RGB channel triplets so Tailwind alpha works (e.g. bg-card/60). Values map to
+ * the existing Lorenzo brand palette so the look is preserved; switching them on
+ * `.dark` gives every semantic class correct light/dark contrast automatically. */
+:root {
+  --background: 244 242 241;        /* page */
+  --foreground: 30 30 30;           /* primary text (brand-black) */
+  --card: 255 255 255;              /* surfaces: cards, panels, dialogs, inputs */
+  --card-foreground: 30 30 30;
+  --muted: 235 232 231;             /* subtle fills */
+  --muted-foreground: 104 96 100;   /* secondary text (readable on light) */
+  --border: 214 209 211;            /* hairlines */
+  --input: 210 205 207;             /* input borders */
+  --primary: 80 15 40;              /* brand burgundy */
+  --primary-foreground: 255 255 255;
+  --ring: 80 15 40;
+}
+
+.dark {
+  --background: 18 16 17;
+  --foreground: 240 236 231;
+  --card: 30 26 28;
+  --card-foreground: 240 236 231;
+  --muted: 42 37 40;
+  --muted-foreground: 178 168 171;  /* readable secondary on dark */
+  --border: 64 58 61;
+  --input: 72 65 68;
+  --primary: 206 107 147;           /* on-brand pink accent used in dark mode */
+  --primary-foreground: 28 8 16;
+  --ring: 206 107 147;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
 /* ─── Lorenzo brand design layer (mirrors the frontend dashboard) ──────── */
 
 @layer components {
