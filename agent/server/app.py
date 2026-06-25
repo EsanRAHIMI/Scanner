@@ -22,6 +22,7 @@ from core.memory import (
     save_message,
     touch_conversation,
 )
+from core.platform import build_user_identity
 from core.tools import registry
 
 SUGGESTIONS = {
@@ -69,6 +70,26 @@ def _context_blurb(context: dict[str, Any]) -> str:
         "arguments — e.g. selected_product_ids, current_proposal_id):\n- "
         + "\n- ".join(parts)
     )
+
+def _identity_blurb(identity: dict[str, Any]) -> str:
+    if not identity or not identity.get("authenticated"):
+        return ""
+    parts: list[str] = []
+    name = identity.get("display_name")
+    if name:
+        parts.append(f"display_name = {name}")
+    if identity.get("email"):
+        parts.append(f"email = {identity['email']}")
+    parts.append(f"user_id = {identity.get('user_id')}")
+    parts.append(f"role = {identity.get('role')}")
+    if identity.get("is_admin"):
+        parts.append("is_admin = true")
+    return (
+        "Authenticated user (verified from the signed-in session — you DO have this "
+        "context; answer identity/account questions like 'what is my name' directly "
+        "from it, and never claim you lack account access):\n- " + "\n- ".join(parts)
+    )
+
 
 BASE_DIR = Path(__file__).resolve().parent
 settings = get_settings()
@@ -138,10 +159,27 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/agent/bootstrap")
 async def bootstrap(user: dict[str, Any] | None = Depends(get_optional_user)) -> dict[str, Any]:
-    """Public: gives the widget its nav URLs and whether the visitor is signed in."""
+    """Public: gives the widget its nav URLs, whether the visitor is signed in, and
+    (read-only) their display name/role for the account header."""
+    user_out: dict[str, Any] | None = None
+    if user:
+        identity = {}
+        try:
+            identity = await build_user_identity(
+                {"user": user, "context": {}, "platform_db": get_platform_db()}
+            )
+        except Exception:  # noqa: BLE001
+            identity = {}
+        user_out = {
+            "id": user["id"],
+            "is_admin": user["is_admin"],
+            "display_name": identity.get("display_name"),
+            "email": identity.get("email"),
+            "role": identity.get("role"),
+        }
     return {
         "authenticated": user is not None,
-        "user": {"id": user["id"], "is_admin": user["is_admin"]} if user else None,
+        "user": user_out,
         "nav": settings.nav_urls(),
         "llm_provider": settings.resolved_provider(),
         "suggestions": SUGGESTIONS,
@@ -215,9 +253,29 @@ async def chat(
     )
     await save_message(db, conv["_id"], user["id"], "user", text)
 
+    platform_db = get_platform_db()
+    runtime = {
+        "user": user,
+        "context": context,
+        "settings": settings,
+        "agent_db": db,
+        "platform_db": platform_db,
+    }
+
     history = await get_recent_messages(db, conv["_id"], settings.short_term_max_messages)
     user_memory = await get_user_memory(db, user["id"])
     system = build_system_prompt(settings, user_memory)
+
+    # Authenticated identity stamp — so the agent can answer "what is my name / who am
+    # I / check my account" directly from verified session context (read-only lookup).
+    try:
+        identity = await build_user_identity(runtime)
+    except Exception:  # noqa: BLE001 — identity must never block the chat
+        identity = {}
+    id_blurb = _identity_blurb(identity)
+    if id_blurb:
+        system += "\n\n" + id_blurb
+
     blurb = _context_blurb(context)
     if blurb:
         system += "\n\n" + blurb
@@ -226,14 +284,6 @@ async def chat(
         for m in history
         if m["role"] in ("user", "assistant") and m.get("content")
     ]
-
-    runtime = {
-        "user": user,
-        "context": context,
-        "settings": settings,
-        "agent_db": db,
-        "platform_db": get_platform_db(),
-    }
 
     async def gen():
         yield _sse({"type": "meta", "conversation_id": conv["_id"]})

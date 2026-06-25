@@ -77,6 +77,18 @@ class ToolRegistry:
 registry = ToolRegistry()
 
 registry.register(Tool(
+    name="get_current_user_context",
+    description=(
+        "Return the CURRENT authenticated user and their on-screen context: display "
+        "name, email, role/permissions, current app, page/module, current proposal id, "
+        "and selected/visible product ids. Use this to answer 'what is my name', 'who am "
+        "I', 'check my account', or to default arguments for other tools. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_current_user_context,
+))
+
+registry.register(Tool(
     name="search_products",
     description="Search the Lorenzo product catalog by name, code, or category. Read-only.",
     input_schema={
@@ -101,6 +113,39 @@ registry.register(Tool(
 ))
 
 registry.register(Tool(
+    name="get_selected_products",
+    description=(
+        "Return full details for the products the user has CURRENTLY selected in the "
+        "Products app (from session context). Use for 'what products are selected', "
+        "'summarize my selection', or which selected products miss a main image. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_selected_products,
+))
+
+registry.register(Tool(
+    name="get_visible_products_context",
+    description=(
+        "Return the products currently visible on the user's screen (the rendered "
+        "rows reported by the page). Use for 'what product is this', 'explain this row', "
+        "or 'what's on screen'. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_visible_products_context,
+))
+
+registry.register(Tool(
+    name="get_product_fields_schema",
+    description=(
+        "Explain the Products table fields (Num, Main Image, URL, Category, Material, "
+        "Price, etc.) — their business meaning and the actual field keys present. Use "
+        "when the user asks what a column means or how the table is structured. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_product_fields_schema,
+))
+
+registry.register(Tool(
     name="get_recent_proposals",
     description="List the user's recent proposals (admins see all). Read-only.",
     input_schema={"type": "object", "properties": {"limit": {"type": "integer"}}},
@@ -112,6 +157,39 @@ registry.register(Tool(
     description="Get one proposal's details by id (ownership enforced). Defaults to the current proposal in context.",
     input_schema={"type": "object", "properties": {"proposal_id": {"type": "string"}}},
     scope="read", required_role="user", handler=P.tool_get_proposal_details,
+))
+
+registry.register(Tool(
+    name="get_current_proposal_context",
+    description=(
+        "Summarize the proposal the user is CURRENTLY viewing (from page context): "
+        "title, status, customer, pricing, item count. Returns a clear 'no proposal "
+        "open' when none is in context. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_current_proposal_context,
+))
+
+registry.register(Tool(
+    name="get_product_image_context",
+    description=(
+        "Report image context for a product (defaults to the selected/first visible "
+        "product): main image, gallery URLs, and whether official composed presentation "
+        "is available. Read-only — never triggers an image render."
+    ),
+    input_schema={"type": "object", "properties": {"product_id": {"type": "string"}}},
+    scope="read", required_role="user", handler=P.tool_get_product_image_context,
+))
+
+registry.register(Tool(
+    name="get_main_image_status",
+    description=(
+        "Report which selected (or on-screen) products have a Main Image set vs missing. "
+        "Use for 'which selected products are missing a main image'. Read-only — does not "
+        "set or compose any image."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_main_image_status,
 ))
 
 registry.register(Tool(
@@ -130,13 +208,21 @@ registry.register(Tool(
 
 registry.register(Tool(
     name="remember_preference",
-    description="Save a useful, durable user preference or work-style note (e.g. preferred currency, summary format). Use sparingly for genuinely reusable context.",
+    description=(
+        "Save ONE durable, reusable user preference — e.g. preferred response language, "
+        "concise vs detailed style, Lorenzo brand tone, a repeated workflow preference, "
+        "or useful project context. Use sparingly; never store transcripts or sensitive "
+        "data (passwords, tokens, card/ID numbers). Per-user."
+    ),
     input_schema={
         "type": "object",
         "properties": {
-            "key": {"type": "string"},
-            "value": {"type": "string"},
-            "kind": {"type": "string", "enum": ["preference", "fact", "context"]},
+            "key": {"type": "string", "description": "Short stable label, e.g. 'response_language'."},
+            "value": {"type": "string", "description": "The preference value, e.g. 'Arabic'."},
+            "kind": {
+                "type": "string",
+                "enum": ["preference", "language", "style", "tone", "workflow", "context"],
+            },
         },
         "required": ["key", "value"],
     },

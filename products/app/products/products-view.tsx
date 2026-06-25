@@ -847,15 +847,27 @@ export function ProductsView({
   }, [selectedIds]);
 
   /**
-   * Publish the current selection to the global Lorenzo AI agent widget via a
-   * lightweight window hook (read-only; the widget reads it for context). No data
-   * leaves the page except product ids the user already selected.
+   * Publish the current selection + on-screen rows to the global Lorenzo AI agent
+   * widget via a lightweight window hook (read-only; the widget reads it lazily for
+   * context). Only product ids the user already selected / are already rendered leave
+   * the page. A ref keeps the published values fresh without re-registering the hook
+   * (and without touching any data-loading logic).
    */
+  const agentContextRef = React.useRef<{ selected: string[]; visible: string[] }>({
+    selected: [],
+    visible: [],
+  });
+  agentContextRef.current = {
+    selected: Array.from(selectedIds).slice(0, 50),
+    visible: renderedRecords.map((r: any) => r.id).filter(Boolean).slice(0, 80),
+  };
   React.useEffect(() => {
     const w = window as unknown as { __lorenzoAgentContext?: () => Record<string, unknown> };
     w.__lorenzoAgentContext = () => ({
       app: 'products',
-      selected_product_ids: Array.from(selectedIds).slice(0, 50),
+      module: 'catalog',
+      selected_product_ids: agentContextRef.current.selected,
+      visible_product_ids: agentContextRef.current.visible,
     });
     return () => {
       try {
@@ -864,7 +876,7 @@ export function ProductsView({
         w.__lorenzoAgentContext = undefined;
       }
     };
-  }, [selectedIds]);
+  }, []);
 
   const currentIndex = React.useMemo(() => {
     if (previewId) {

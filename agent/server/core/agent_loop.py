@@ -23,6 +23,35 @@ Yields event dicts:
 """
 
 
+_UI_PRODUCT_FIELDS = (
+    "id", "name", "code", "category", "material", "color",
+    "price", "price_raw", "main_image", "has_main_image",
+)
+
+
+def _extract_ui_products(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pull a compact, UI-safe product list out of a tool result so the widget can
+    render product cards instead of relying on model markdown. UI-only — does not
+    change what the model receives. Returns [] when the result has no products."""
+    if not isinstance(result, dict) or not result.get("ok"):
+        return []
+    data = result.get("data")
+    raw: list[Any] = []
+    if isinstance(data, dict):
+        if isinstance(data.get("products"), list):
+            raw = data["products"]
+        elif data.get("id") and (data.get("name") or data.get("code")):
+            raw = [data]  # single product (get_product_details)
+    if not raw:
+        return []
+    out: list[dict[str, Any]] = []
+    for p in raw[:24]:
+        if not isinstance(p, dict):
+            continue
+        out.append({k: p.get(k) for k in _UI_PRODUCT_FIELDS})
+    return out
+
+
 def _truncate_result(result: dict[str, Any], limit: int = 6000) -> str:
     try:
         s = json.dumps(result, ensure_ascii=False, default=str)
@@ -130,12 +159,16 @@ async def run_agent(
                     except Exception as e:  # noqa: BLE001
                         result = {"ok": False, "summary": f"Tool error: {e}"}
 
-            yield {
+            tr_event = {
                 "type": "tool_result",
                 "name": name,
                 "ok": bool(result.get("ok")),
                 "summary": result.get("summary", ""),
             }
+            ui_products = _extract_ui_products(result)
+            if ui_products:
+                tr_event["products"] = ui_products
+            yield tr_event
             oai_messages.append(
                 {"role": "tool", "tool_call_id": tc.id, "content": _truncate_result(result)}
             )

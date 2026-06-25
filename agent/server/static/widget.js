@@ -31,6 +31,13 @@
   var BOOT = { nav: {}, suggestions: {}, authenticated: false, llm_provider: '' };
 
   /* --------------------------------------------------- context detection */
+  // Dev port → app map (Next dev servers). Used only for localhost; production
+  // resolves by hostname. The authoritative source remains each app's own
+  // window.__lorenzoAgentContext hook (honored in getContext).
+  var PORT_APP = {
+    '3003': 'scanner', '3004': 'products', '3005': 'marketing',
+    '3006': 'images', '3007': 'proposals', '3010': 'trainer'
+  };
   function detectApp() {
     var h = (location.hostname || '').toLowerCase();
     var p = (location.pathname || '/');
@@ -40,7 +47,12 @@
     if (h.indexOf('marketing') !== -1) return 'marketing';
     if (h.indexOf('trainer') !== -1) return 'trainer';
     if (h.indexOf('dashboard') !== -1) return 'dashboard';
-    // localhost dev: infer from path
+    // localhost dev: map by the Next dev port
+    if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0') {
+      var byPort = PORT_APP[location.port];
+      if (byPort) return byPort;
+    }
+    // path fallback
     if (p.indexOf('/proposals') === 0 || p.indexOf('/new') === 0) return 'proposals';
     if (p.indexOf('/scanner') === 0) return 'scanner';
     return 'unknown';
@@ -62,17 +74,20 @@
       app: app, url: location.href, path: p,
       module: moduleFromPath(app, p),
       title: document.title || '',
-      selected_product_ids: [], proposal_id: null
+      selected_product_ids: [], visible_product_ids: [], proposal_id: null
     };
     // proposal id from URL (/proposals/{id})
     var m = p.match(/\/proposals\/([^\/?#]+)/);
     if (m && m[1] && m[1] !== 'new') ctx.proposal_id = m[1];
-    // optional host-app hook for richer context (e.g. selected product ids)
+    // optional host-app hook for richer context (selected/visible product ids)
     try {
       var hook = window.__lorenzoAgentContext;
       var extra = typeof hook === 'function' ? hook() : hook;
       if (extra && typeof extra === 'object') {
+        // The host app is authoritative for its own identity/page.
+        if (extra.app) ctx.app = extra.app;
         if (Array.isArray(extra.selected_product_ids)) ctx.selected_product_ids = extra.selected_product_ids.slice(0, 50);
+        if (Array.isArray(extra.visible_product_ids)) ctx.visible_product_ids = extra.visible_product_ids.slice(0, 80);
         if (extra.proposal_id) ctx.proposal_id = extra.proposal_id;
         if (extra.module) ctx.module = extra.module;
       }
@@ -154,11 +169,71 @@
           background: rgba(0,0,0,0.03); color:#5a4751; }
   .chip:hover { background: rgba(156,31,69,0.10); }
   .composer { display:flex; gap:8px; padding:11px 12px; border-top:1px solid rgba(0,0,0,0.06); }
-  .composer input { flex:1; border:1px solid rgba(0,0,0,0.12); background: rgba(255,255,255,0.75); border-radius:13px;
-                    padding:10px 12px; font-size:13.5px; outline:none; }
-  .composer input:focus { border-color:#9c1f45; }
+  .composer input { flex:1; border:1px solid rgba(0,0,0,0.18); background:#ffffff; color:#2a1c24;
+                    color-scheme: light; border-radius:13px; padding:10px 12px; font-size:13.5px; outline:none; }
+  .composer input::placeholder { color: rgba(42,28,36,0.5); }
+  .composer input:focus { border-color:#9c1f45; box-shadow: 0 0 0 2px rgba(156,31,69,0.18); }
   .send { border:0; border-radius:13px; padding:0 15px; background:#9c1f45; color:#fff; font-weight:700; cursor:pointer; }
   .send:disabled { opacity:.5; cursor:default; }
+
+  /* ---- product cards ---- */
+  .product-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px;
+                  align-self:stretch; margin:2px 0 4px; }
+  @media (max-width:360px) { .product-grid { grid-template-columns: 1fr; } }
+  .pcard { border:1px solid rgba(120,20,50,0.14); border-radius:14px; overflow:hidden; cursor:pointer;
+           background: rgba(255,255,255,0.6); transition: transform .12s, box-shadow .15s; display:flex; flex-direction:column; }
+  .pcard:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(60,20,35,0.16); }
+  .pcard .pimg { width:100%; aspect-ratio: 4/5; object-fit:cover; background: rgba(0,0,0,0.05); display:block; }
+  .pcard .pbody { padding:7px 9px 9px; display:flex; flex-direction:column; gap:2px; }
+  .pcard .pname { font-size:12px; font-weight:700; line-height:1.25; color:#2a1c24;
+                  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .pcard .pcode { font-size:10.5px; color:#8a6b76; letter-spacing:.02em; }
+  .pcard .pmeta { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:2px; }
+  .pcard .pprice { font-size:12px; font-weight:700; color:#9c1f45; }
+  .pcard .pcat { font-size:10px; color:#7a6068; }
+  .badge { font-size:9px; font-weight:700; padding:2px 6px; border-radius:999px; white-space:nowrap; }
+  .badge.has { background: rgba(31,122,77,0.14); color:#1f7a4d; }
+  .badge.miss { background: rgba(180,48,47,0.14); color:#b4302f; }
+
+  /* ---- product detail overlay (in-panel) ---- */
+  .pdetail { position:absolute; inset:0; background: rgba(252,250,249,0.98); z-index:5;
+             display:flex; flex-direction:column; padding:14px; overflow-y:auto;
+             backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .pdetail .dback { align-self:flex-start; border:0; background: rgba(0,0,0,0.05); border-radius:10px;
+                    padding:6px 11px; font-size:12px; font-weight:700; cursor:pointer; color:#7a2238; margin-bottom:10px; }
+  .pdetail .dimg { width:100%; max-height:240px; object-fit:contain; border-radius:12px; background: rgba(0,0,0,0.05); }
+  .pdetail .dname { font-size:16px; font-weight:800; margin-top:10px; color:#2a1c24; }
+  .pdetail .drow { display:flex; justify-content:space-between; gap:10px; font-size:12.5px;
+                   padding:7px 0; border-bottom:1px solid rgba(0,0,0,0.06); color:#4a2c38; }
+  .pdetail .drow .k { color:#8a6b76; }
+
+  /* ---- minimal markdown ---- */
+  .bubble strong { font-weight:700; }
+  .bubble em { font-style:italic; }
+  .bubble code { font-family: ui-monospace, Menlo, monospace; font-size:12px;
+                 background: rgba(0,0,0,0.06); padding:1px 5px; border-radius:5px; }
+  .bubble ul, .bubble ol { margin:4px 0; padding-inline-start:20px; }
+  .bubble li { margin:2px 0; }
+
+  /* ---- app/system dark mode (class-driven; works even when OS disagrees) ---- */
+  .wrap.dark .bar { background: rgba(26,22,24,0.66); border-color: rgba(255,255,255,0.10); box-shadow: 0 12px 34px rgba(0,0,0,0.55); }
+  .wrap.dark .btn { color:#ece6e1; } .wrap.dark .btn .lbl { color: rgba(236,230,225,0.7); }
+  .wrap.dark .btn.active { background: rgba(156,31,69,0.22); }
+  .wrap.dark .panel { background: rgba(24,20,22,0.94); border-color: rgba(255,255,255,0.10); color:#ece6e1; }
+  .wrap.dark .head, .wrap.dark .h-app { color:#f2ece8; }
+  .wrap.dark .msg.bot .bubble { background: rgba(255,255,255,0.07); color:#ece6e1; }
+  .wrap.dark .bubble code { background: rgba(255,255,255,0.12); }
+  .wrap.dark .chip, .wrap.dark .sugg { background: rgba(255,255,255,0.06); color:#e7ddd9; border-color: rgba(255,255,255,0.10); }
+  .wrap.dark .tool { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.10); color:#d9cfca; }
+  .wrap.dark .empty { color: rgba(255,255,255,0.5); }
+  .wrap.dark .composer input { color:#f6f1ee; background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.18); color-scheme: dark; }
+  .wrap.dark .composer input::placeholder { color: rgba(246,241,238,0.55); }
+  .wrap.dark .composer input:focus { border-color:#d2799a; box-shadow: 0 0 0 2px rgba(210,121,154,0.25); }
+  .wrap.dark .pcard { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.12); }
+  .wrap.dark .pcard .pname { color:#f2ece8; }
+  .wrap.dark .pcard .pcode { color:#c4a9b2; }
+  .wrap.dark .pdetail { background: rgba(24,20,22,0.98); }
+  .wrap.dark .pdetail .dname { color:#f2ece8; } .wrap.dark .pdetail .drow { color:#e7ddd9; }
   `;
 
   function icon(name) {
@@ -230,10 +305,22 @@
   }
 
   var APP_LABEL = { products:'Products', proposals:'Proposals', images:'Images', marketing:'Marketing', trainer:'Trainer', dashboard:'Dashboard', scanner:'Scanner', unknown:'Lorenzo' };
+  function accountName() {
+    var u = BOOT.user || {};
+    return u.display_name || (u.email ? String(u.email).split('@')[0] : '') || '';
+  }
   function refreshPanelContext() {
     var ctx = getContext();
     appEl.textContent = APP_LABEL[ctx.app] || 'Lorenzo';
-    provEl.textContent = BOOT.authenticated ? (BOOT.llm_provider || '') : 'sign in';
+    if (BOOT.authenticated) {
+      var nm = accountName();
+      provEl.textContent = nm || (BOOT.llm_provider || '');
+      var u = BOOT.user || {};
+      provEl.title = (nm ? nm : '') + (u.role ? ' · ' + u.role : '') + (u.email ? ' · ' + u.email : '');
+    } else {
+      provEl.textContent = 'sign in';
+      provEl.title = 'Sign in to your Lorenzo account';
+    }
     // suggested prompts + module chips
     if (!msgsEl.querySelector('.msg')) renderEmptyState(ctx);
     renderChips(ctx);
@@ -253,7 +340,11 @@
   function renderEmptyState(ctx) {
     msgsEl.innerHTML = '';
     var wrapE = document.createElement('div'); wrapE.className = 'empty';
-    wrapE.innerHTML = 'Ask about products, proposals, or the platform.<div class="suggs"></div>';
+    var who = BOOT.authenticated ? accountName() : '';
+    var hello = who
+      ? ('Hi ' + who + ' — I can see you’re in ' + (APP_LABEL[ctx.app] || 'Lorenzo') + '.<br>')
+      : '';
+    wrapE.innerHTML = hello + 'Ask about products, proposals, or the platform.<div class="suggs"></div>';
     var sg = (BOOT.suggestions && (BOOT.suggestions[ctx.app] || BOOT.suggestions.default)) || [];
     var s = wrapE.querySelector('.suggs');
     sg.forEach(function (q) {
@@ -264,11 +355,129 @@
     msgsEl.appendChild(wrapE);
   }
 
+  /* ----------------------------------------------------- RTL detection */
+  // Arabic + Persian (and related) script ranges. If the text contains any such
+  // character, render that element right-to-left. English/Latin stays LTR; each
+  // element is decided independently so mixed conversations read correctly.
+  var RTL_RE = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+  function isRTL(text) { return !!text && RTL_RE.test(text); }
+  function applyDir(el, text) {
+    if (!el) return;
+    var rtl = isRTL(text);
+    el.style.direction = rtl ? 'rtl' : 'ltr';
+    el.style.textAlign = rtl ? 'right' : 'left';
+  }
+
+  /* ------------------------------------------------ safe minimal markdown */
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function inlineMd(s) {
+    // Input is ALREADY HTML-escaped — we only introduce a small set of safe tags.
+    // Drop markdown image/link syntax, keeping just the human text (no raw <img>).
+    s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
+    s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    s = s.replace(/(^|[^_\w])_([^_\n]+)_(?![_\w])/g, '$1<em>$2</em>');
+    return s;
+  }
+  function renderMarkdown(text) {
+    var lines = escapeHtml(text == null ? '' : text).split('\n');
+    var html = '', listType = null;
+    function closeList() { if (listType) { html += '</' + listType + '>'; listType = null; } }
+    lines.forEach(function (ln) {
+      var um = ln.match(/^\s*[-*]\s+(.*)$/);
+      var om = ln.match(/^\s*\d+\.\s+(.*)$/);
+      if (um) { if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; } html += '<li>' + inlineMd(um[1]) + '</li>'; }
+      else if (om) { if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; } html += '<li>' + inlineMd(om[1]) + '</li>'; }
+      else { closeList(); html += (ln.trim() === '' ? '<br>' : inlineMd(ln) + '<br>'); }
+    });
+    closeList();
+    return html.replace(/(<br>)+$/, '');
+  }
+  function setBotHtml(b, raw) {
+    b._raw = raw || '';
+    b.style.whiteSpace = 'normal';
+    b.innerHTML = renderMarkdown(b._raw);
+    applyDir(b, b._raw);
+  }
+
+  /* -------------------------------------------------------- product cards */
+  function driveThumb(url) {
+    if (!url) return '';
+    var m = url.match(/\/file\/d\/([\w-]{20,})/) || url.match(/\/d\/([\w-]{20,})/) || url.match(/[?&]id=([\w-]{20,})/);
+    if (m) return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w400';
+    return url;
+  }
+  function priceText(p) {
+    if (p.price_raw) return String(p.price_raw);
+    if (p.price != null && p.price !== '') { try { return Number(p.price).toLocaleString(); } catch (e) { return String(p.price); } }
+    return '';
+  }
+  function productCard(p) {
+    var card = document.createElement('div'); card.className = 'pcard';
+    var img = document.createElement('img'); img.className = 'pimg'; img.loading = 'lazy';
+    img.alt = p.name || p.code || 'product';
+    var src = driveThumb(p.main_image || '');
+    if (src) img.src = src;
+    img.onerror = function () { img.style.visibility = 'hidden'; };
+    card.appendChild(img);
+    var body = document.createElement('div'); body.className = 'pbody';
+    var name = document.createElement('div'); name.className = 'pname';
+    name.textContent = p.name || p.code || 'Untitled'; applyDir(name, name.textContent);
+    body.appendChild(name);
+    if (p.code) { var c = document.createElement('div'); c.className = 'pcode'; c.textContent = p.code; body.appendChild(c); }
+    var meta = document.createElement('div'); meta.className = 'pmeta';
+    var pr = document.createElement('span'); pr.className = 'pprice'; pr.textContent = priceText(p);
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + (p.has_main_image ? 'has' : 'miss');
+    badge.textContent = p.has_main_image ? 'Main ✓' : 'No main';
+    meta.appendChild(pr); meta.appendChild(badge); body.appendChild(meta);
+    if (p.category) { var cat = document.createElement('div'); cat.className = 'pcat'; cat.textContent = p.category; body.appendChild(cat); }
+    card.appendChild(body);
+    card.onclick = function () { showProductDetail(p); };
+    return card;
+  }
+  function renderProductGrid(products) {
+    var e = msgsEl.querySelector('.empty'); if (e) e.remove();
+    var grid = document.createElement('div'); grid.className = 'product-grid';
+    products.forEach(function (p) { if (p) grid.appendChild(productCard(p)); });
+    msgsEl.appendChild(grid); msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+  function detailRow(k, v) {
+    var r = document.createElement('div'); r.className = 'drow';
+    var kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    var vv = document.createElement('span'); vv.className = 'v'; vv.textContent = v; applyDir(vv, v);
+    r.appendChild(kk); r.appendChild(vv); return r;
+  }
+  function showProductDetail(p) {
+    var d = document.createElement('div'); d.className = 'pdetail';
+    var back = document.createElement('button'); back.className = 'dback'; back.textContent = '‹ Back';
+    back.onclick = function () { d.remove(); };
+    d.appendChild(back);
+    var src = driveThumb(p.main_image || '');
+    if (src) { var im = document.createElement('img'); im.className = 'dimg'; im.src = src;
+      im.onerror = function () { im.style.display = 'none'; }; d.appendChild(im); }
+    var nm = document.createElement('div'); nm.className = 'dname';
+    nm.textContent = p.name || p.code || 'Product'; applyDir(nm, nm.textContent); d.appendChild(nm);
+    if (p.code) d.appendChild(detailRow('Code', p.code));
+    if (priceText(p)) d.appendChild(detailRow('Price', priceText(p)));
+    if (p.category) d.appendChild(detailRow('Category', p.category));
+    if (p.material) d.appendChild(detailRow('Material', p.material));
+    if (p.color) d.appendChild(detailRow('Color', p.color));
+    d.appendChild(detailRow('Main image', p.has_main_image ? 'Available' : 'Missing'));
+    panel.appendChild(d);
+  }
+
   /* ------------------------------------------------------------- chat */
   function addBubble(role, text) {
     var e = msgsEl.querySelector('.empty'); if (e) e.remove();
     var row = document.createElement('div'); row.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
-    var b = document.createElement('div'); b.className = 'bubble'; b.textContent = text;
+    var b = document.createElement('div'); b.className = 'bubble';
+    if (role === 'user') { b.textContent = text; applyDir(b, text); }
+    else { setBotHtml(b, text); }
     row.appendChild(b); msgsEl.appendChild(row); msgsEl.scrollTop = msgsEl.scrollHeight; return b;
   }
   function addToolStrip() {
@@ -276,8 +485,13 @@
     msgsEl.scrollTop = msgsEl.scrollHeight; return s;
   }
   var TOOL_LABEL = {
+    get_current_user_context:'Reading your account context',
     search_products:'Searching products', get_product_details:'Loading product',
+    get_selected_products:'Reading your selection', get_visible_products_context:'Reading on-screen products',
+    get_product_fields_schema:'Reading field schema',
     get_recent_proposals:'Loading proposals', get_proposal_details:'Loading proposal',
+    get_current_proposal_context:'Reading current proposal',
+    get_product_image_context:'Reading product images', get_main_image_status:'Checking main images',
     get_image_service_status:'Checking image service', get_platform_status:'Checking platform',
     remember_preference:'Saving preference'
   };
@@ -315,14 +529,17 @@
             var rows = toolStrip.querySelectorAll('[data-tool="' + obj.name + '"].run');
             var r = rows[rows.length - 1];
             if (r) { r.className = 'tool ' + (obj.ok ? 'ok' : 'fail');
-              r.querySelector('.t').textContent = obj.summary || (obj.ok ? 'done' : 'failed'); }
+              var tEl = r.querySelector('.t'); var sum = obj.summary || (obj.ok ? 'done' : 'failed');
+              tEl.textContent = sum; applyDir(tEl, sum); }
           }
+          // Structured product results → render UI cards (not model markdown).
+          if (Array.isArray(obj.products) && obj.products.length) renderProductGrid(obj.products);
         } else if (obj.type === 'delta') {
           if (!bot) bot = addBubble('bot', '');
-          bot.textContent += obj.text; msgsEl.scrollTop = msgsEl.scrollHeight;
+          setBotHtml(bot, (bot._raw || '') + obj.text); msgsEl.scrollTop = msgsEl.scrollHeight;
         } else if (obj.type === 'error') {
           if (!bot) bot = addBubble('bot', '');
-          bot.textContent += '\n(Sorry — there was a problem answering.)'; setStatus('error');
+          setBotHtml(bot, (bot._raw || '') + '\n(Sorry — there was a problem answering.)'); setStatus('error');
         }
       }
       function pump() {
@@ -350,6 +567,23 @@
   }
   sendEl.onclick = send;
   inputEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') send(); });
+  // Mirror the composer direction to what the user is typing (Persian/Arabic → RTL).
+  inputEl.addEventListener('input', function () { applyDir(inputEl, inputEl.value); });
+
+  /* --------------------------------------------------------- theme sync */
+  // Mirror the host app's dark mode so composer text / cards stay readable even
+  // when the OS color-scheme disagrees with the app's class-based dark toggle.
+  function syncTheme() {
+    var dark = false;
+    try {
+      dark = document.documentElement.classList.contains('dark') ||
+             (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    } catch (e) {}
+    wrap.classList.toggle('dark', !!dark);
+  }
+  syncTheme();
+  try { new MutationObserver(syncTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] }); } catch (e) {}
+  try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme); } catch (e) {}
 
   /* ------------------------------------------------------------- boot */
   buildBar();
