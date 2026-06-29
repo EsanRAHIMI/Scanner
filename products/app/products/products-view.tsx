@@ -790,7 +790,7 @@ export function ProductsView({
     onScroll();
 
     return () => {
-      scrollRoot.removeEventListener('scroll', onScroll);
+      scrollRoot.removeEventListener('scroll', onUserScroll);
       resizeObserver.disconnect();
     };
   }, [
@@ -1664,9 +1664,13 @@ export function ProductsView({
               !loading && listVisibleRecords.length > 0
                 ? {
                     sentinelRef: loadMoreSentinelRef,
-                    pending: isLoadMorePending,
+                    pending: isLoadMorePending || backgroundLoading,
                     remainingCount: remainingRecordsCount,
                     scrollNearEnd,
+                    hasMoreOnServer: hasMore,
+                    serverLoading: backgroundLoading,
+                    loadedCount: listVisibleRecords.length,
+                    visibleCount: renderedRecords.length,
                     onJumpToTop: jumpToTop,
                   }
                 : undefined
@@ -1718,9 +1722,13 @@ export function ProductsView({
         </div>
         {!loading && listVisibleRecords.length > 0 ? (
           <LoadMoreFloatingIndicator
-            pending={isLoadMorePending}
+            pending={isLoadMorePending || backgroundLoading}
             remainingCount={remainingRecordsCount}
-            atEnd={scrollNearEnd && remainingRecordsCount === 0}
+            atEnd={scrollNearEnd && remainingRecordsCount === 0 && !hasMore && !backgroundLoading}
+            hasMoreOnServer={hasMore}
+            serverLoading={backgroundLoading}
+            loadedCount={listVisibleRecords.length}
+            visibleCount={renderedRecords.length}
             onJumpToTop={jumpToTop}
           />
         ) : null}

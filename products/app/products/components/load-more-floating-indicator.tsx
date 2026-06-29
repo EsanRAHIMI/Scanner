@@ -7,6 +7,14 @@ export interface LoadMoreFloatingIndicatorProps {
   remainingCount: number;
   /** User scrolled to the bottom and every row is loaded. */
   atEnd?: boolean;
+  /** True when server has more pages (or we expect more pages). */
+  hasMoreOnServer?: boolean;
+  /** True while a next-page request is in flight. */
+  serverLoading?: boolean;
+  /** Loaded rows in current filtered list. */
+  loadedCount?: number;
+  /** Rows currently rendered in viewport list window. */
+  visibleCount?: number;
   onJumpToTop?: () => void;
   loadingLabel?: string;
 }
@@ -16,12 +24,24 @@ export function LoadMoreFloatingIndicator({
   pending,
   remainingCount,
   atEnd = false,
+  hasMoreOnServer = false,
+  serverLoading = false,
+  loadedCount,
+  visibleCount,
   onJumpToTop,
   loadingLabel = 'Loading…',
 }: LoadMoreFloatingIndicatorProps) {
   const showMore = remainingCount > 0;
+  const showServerMore = hasMoreOnServer || serverLoading;
+  const showingServerLoad = serverLoading && !showMore;
+  const statusText =
+    typeof visibleCount === 'number' && typeof loadedCount === 'number'
+      ? `${visibleCount.toLocaleString()} / ${loadedCount.toLocaleString()}`
+      : typeof loadedCount === 'number'
+        ? `${loadedCount.toLocaleString()} loaded`
+        : null;
 
-  if (!showMore && !atEnd) return null;
+  if (!showMore && !atEnd && !showServerMore) return null;
 
   return (
     <div
@@ -29,13 +49,13 @@ export function LoadMoreFloatingIndicator({
       aria-live="polite"
       aria-busy={pending}
     >
-      {pending ? (
+      {pending || showingServerLoad ? (
         <>
           <span
             className="inline-block h-2.5 w-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-current border-t-transparent opacity-80"
             aria-hidden
           />
-          <span>{loadingLabel}</span>
+          <span>{showingServerLoad ? 'Loading more products…' : loadingLabel}</span>
         </>
       ) : showMore ? (
         <>
@@ -50,6 +70,22 @@ export function LoadMoreFloatingIndicator({
             <path d="M8 3v7M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="tabular-nums">{remainingCount.toLocaleString()} more</span>
+          {statusText ? <span className="opacity-70">({statusText})</span> : null}
+        </>
+      ) : showServerMore ? (
+        <>
+          <svg
+            className="h-3 w-3 shrink-0 opacity-55"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            aria-hidden
+          >
+            <path d="M8 3v7M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>Scroll to load more</span>
+          {statusText ? <span className="opacity-70">({statusText})</span> : null}
         </>
       ) : (
         <>

@@ -47,6 +47,10 @@ export interface ListViewProps {
     pending: boolean;
     remainingCount: number;
     scrollNearEnd: boolean;
+    hasMoreOnServer?: boolean;
+    serverLoading?: boolean;
+    loadedCount?: number;
+    visibleCount?: number;
     onJumpToTop: () => void;
   };
   /** Admin moderation: highlight cells with edit history. */

@@ -851,7 +851,13 @@ export function ListView({
 
   const showLoadMoreSentinel = Boolean(loadMore && loadMore.remainingCount > 0);
   const showScrollFooter = Boolean(
-    loadMore && (loadMore.remainingCount > 0 || loadMore.scrollNearEnd),
+    loadMore &&
+      (
+        loadMore.remainingCount > 0 ||
+        loadMore.scrollNearEnd ||
+        loadMore.hasMoreOnServer ||
+        loadMore.serverLoading
+      ),
   );
 
   return (
@@ -1110,7 +1116,16 @@ export function ListView({
         <LoadMoreFloatingIndicator
           pending={loadMore.pending}
           remainingCount={loadMore.remainingCount}
-          atEnd={loadMore.scrollNearEnd && loadMore.remainingCount === 0}
+          atEnd={
+            loadMore.scrollNearEnd &&
+            loadMore.remainingCount === 0 &&
+            !loadMore.hasMoreOnServer &&
+            !loadMore.serverLoading
+          }
+          hasMoreOnServer={loadMore.hasMoreOnServer}
+          serverLoading={loadMore.serverLoading}
+          loadedCount={loadMore.loadedCount}
+          visibleCount={loadMore.visibleCount}
           onJumpToTop={loadMore.onJumpToTop}
         />
       ) : null}
