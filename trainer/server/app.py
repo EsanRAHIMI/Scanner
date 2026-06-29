@@ -2990,6 +2990,77 @@ async def patch_product_asset(
   return {"id": doc["_id"], "fields": doc["fields"]}
 
 
+def _product_has_identifier(fields: dict[str, Any]) -> bool:
+  name_keys = {"collection name", "colecction name", "name"}
+  code_keys = {"code number", "code no", "code", "factory code", "collection code", "colecction code"}
+  for key, value in fields.items():
+    if not _serialize_field_value(value):
+      continue
+    normalized = str(key).strip().lower()
+    if normalized in name_keys or normalized in code_keys:
+      return True
+  return False
+
+
+@api.post("/products/assets")
+async def create_product_asset(
+  payload: dict[str, Any],
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db: Any = Depends(_get_db),
+):
+  raw_fields = payload.get("fields")
+  if not isinstance(raw_fields, dict):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD_EXPECTED_FIELDS")
+
+  cleaned: dict[str, Any] = {}
+  for key, value in raw_fields.items():
+    if not isinstance(key, str) or "." in key or key.startswith("$"):
+      continue
+    if value is None:
+      continue
+    if isinstance(value, str) and not value.strip():
+      continue
+    cleaned[key] = value
+
+  if not cleaned:
+    raise HTTPException(status_code=400, detail="NO_FIELDS")
+  if not _product_has_identifier(cleaned):
+    raise HTTPException(status_code=400, detail="REQUIRES_COLLECTION_OR_CODE")
+
+  product_id = uuid.uuid4().hex
+  now = _utc_now_iso()
+  doc = {
+    "_id": product_id,
+    "fields": cleaned,
+    "created_at": now,
+    "updated_at": now,
+    "source": "manual",
+  }
+  await db["products"].insert_one(doc)
+
+  item_label = (
+    cleaned.get("Collection Name")
+    or cleaned.get("Colecction Name")
+    or cleaned.get("Name")
+    or cleaned.get("CODE NUMBER")
+    or cleaned.get("Code Number")
+    or product_id
+  )
+  field_changes = _build_field_change_entries_from_create(cleaned)
+  await log_activity(
+    req=req,
+    action="PRODUCT_CREATE",
+    details=f"Created product: {item_label}",
+    resource_id=product_id,
+    user=user,
+    db=db,
+    field_changes=field_changes or None,
+  )
+
+  return {"id": product_id, "fields": cleaned, "createdTime": now}
+
+
 @api.delete("/products/assets/{record_id}")
 async def delete_product_asset(
   record_id: str,

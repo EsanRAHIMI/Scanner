@@ -57,6 +57,7 @@ import { useLightbox } from './hooks/use-lightbox';
 import { markLightboxTrace } from './lib/lightbox-perf';
 
 import { ActivityLogModal } from './components/activity-log-modal';
+import { AddProductForm, buildFieldsFromAddForm, type AddProductFormValues } from './components/add-product-form';
 import { TopProgressBar } from './components/top-progress-bar';
 import { AccountMenu } from './components/account-menu';
 import { ProductFilters } from './components/product-filters';
@@ -406,6 +407,9 @@ export function ProductsView({
   const canEdit = user?.is_admin || user?.role === 'admin' || user?.role === 'sales';
   /** Row delete and bulk purge: admin role only (not sales or other roles). */
   const canDelete = user?.role === 'admin';
+  /** Manual create: platform admin or admin role. */
+  const canCreate = user?.is_admin === true || user?.role === 'admin';
+  const [showAddProduct, setShowAddProduct] = React.useState(false);
   /** Moderation audit UI: platform admin only (not sales or role-based admin without is_admin). */
   const isAdminModerator = user?.is_admin === true;
   const [moderationMode, setModerationMode] = React.useState(false);
@@ -448,6 +452,27 @@ export function ProductsView({
       window.alert('Bulk delete failed. Refresh the page to sync the list if needed.');
     });
   }, [canDelete, columns, mutations, records]);
+
+  const computeNextProductNum = React.useCallback(() => {
+    let max = 0;
+    for (const r of records) {
+      const raw = r.fields?.Num ?? r.fields?.['Num'];
+      const n = Number(raw);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max + 1;
+  }, [records]);
+
+  const handleAddProductSubmit = React.useCallback(
+    async (values: AddProductFormValues) => {
+      const fields = buildFieldsFromAddForm(values, columns, computeNextProductNum());
+      const created = await mutations.handleCreateProduct(fields);
+      if (created?.id) {
+        selection.setSelectedIds(new Set([created.id]));
+      }
+    },
+    [columns, computeNextProductNum, mutations, selection],
+  );
 
   const mediaFieldNames = React.useMemo(() => resolveMediaFieldNames(columns), [columns]);
 
@@ -1362,6 +1387,22 @@ export function ProductsView({
     </button>
   );
 
+  const addProductButton = canCreate ? (
+    <button
+      type="button"
+      onClick={() => setShowAddProduct(true)}
+      title="Add product"
+      className={
+        headerToggleBase +
+        ' border-emerald-500/35 bg-emerald-500/15 text-emerald-800 hover:bg-emerald-500/25 dark:border-emerald-400/30 dark:bg-emerald-500/20 dark:text-emerald-100'
+      }
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
+  ) : null;
+
   const moderationToggleNode = isAdminModerator ? (
     <button
       type="button"
@@ -1435,6 +1476,7 @@ export function ProductsView({
         fetchUserSession={fetchUserSession}
         onActivityLogs={toggleActivityLogs}
         backendDisconnected={isStaleOfflineSnapshot}
+        addProductButton={addProductButton}
       />
 
       <ProductFilters
@@ -1762,6 +1804,13 @@ export function ProductsView({
       />
 
       <ActivityLogModal isOpen={showActivityLogs} onClose={() => setShowActivityLogs(false)} />
+
+      <AddProductForm
+        open={showAddProduct}
+        onClose={() => setShowAddProduct(false)}
+        onSubmit={handleAddProductSubmit}
+        busy={mutations.isSaving}
+      />
 
     </main>
   );

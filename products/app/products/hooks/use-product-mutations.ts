@@ -412,6 +412,47 @@ export function useProductMutations({
 
   const DELETE_CHUNK = 6;
 
+  const handleCreateProduct = React.useCallback(async (fields: Record<string, unknown>) => {
+    if (isSaving) return null;
+    if (Object.keys(fields).length === 0) return null;
+
+    const tempId = `temp-${Date.now()}`;
+    setIsSaving(true);
+    try {
+      const optimisticNext = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: [...prev.records, { id: tempId, fields }],
+        count: prev.count + 1,
+      }));
+      if (!optimisticNext) return null;
+
+      const res = await apiFetch('/products/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(text || `Create failed (${res.status})`);
+      }
+      const serverRecord = JSON.parse(text) as { id: string; fields: Record<string, unknown> };
+      const confirmed = await applyCacheUpdate((prev) => ({
+        ...prev,
+        records: prev.records.map((r) =>
+          r.id === tempId ? { id: serverRecord.id, fields: serverRecord.fields } : r,
+        ),
+      }));
+      if (confirmed) await commitOptimisticSnapshot(confirmed);
+      logFrontendEvent('PRODUCT_CREATE', 'Manual product create', serverRecord.id);
+      return serverRecord;
+    } catch (err) {
+      await mutate();
+      throw err;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, applyCacheUpdate, commitOptimisticSnapshot, mutate]);
+
   const handleBulkDeleteProducts = React.useCallback(async (recordIds: string[]) => {
     const ids = [...new Set(recordIds)].filter(Boolean);
     if (isSaving || ids.length === 0) return;
@@ -473,6 +514,7 @@ export function useProductMutations({
     handleSaveField,
     handleSaveFields,
     handleAddMediaToVariant,
+    handleCreateProduct,
     handleDeleteProduct,
     handleBulkDeleteProducts,
   };

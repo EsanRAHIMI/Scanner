@@ -13,6 +13,7 @@ interface HeaderToolbarProps {
   fetchUserSession: () => void;
   onActivityLogs?: () => void;
   backendDisconnected?: boolean;
+  addProductButton?: React.ReactNode;
 }
 
 function HeaderToggleCluster({
@@ -52,6 +53,7 @@ export function HeaderToolbar({
   fetchUserSession,
   onActivityLogs,
   backendDisconnected = false,
+  addProductButton,
 }: HeaderToolbarProps) {
   const togglesMobile = (
     <HeaderToggleCluster
@@ -81,6 +83,7 @@ export function HeaderToolbar({
         <div className="min-w-0 flex-1 basis-0 self-stretch">{searchGroupNode}</div>
 
         <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto scrollbar-none">
+          {addProductButton}
           {togglesMobile}
         </div>
 
@@ -102,6 +105,7 @@ export function HeaderToolbar({
         <div className="min-w-0 flex-1 basis-0">{searchGroupNode}</div>
 
         <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+          {addProductButton}
           {togglesDesktop}
           <AccountMenu
             onAuthChange={fetchUserSession}
