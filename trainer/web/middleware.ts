@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const PUBLIC_FILE = /\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf|otf|eot)$/i;
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const basePath = req.nextUrl.basePath ?? '';
+
+  if (PUBLIC_FILE.test(pathname)) {
+    return NextResponse.next();
+  }
 
   if (pathname.startsWith('/login') || pathname.startsWith('/register')) {
     return NextResponse.next();

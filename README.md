@@ -27,6 +27,7 @@ This repository is a multi-service monorepo:
 - [User Guide](#user-guide)
 - [Outputs and File Paths](#outputs-and-file-paths)
 - [Useful Links](#useful-links)
+- [Local Dev — One Command (`./dev`)](#local-dev--one-command-dev)
 
 ---
 
@@ -419,6 +420,67 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 - Service status: `/status`
 - Backend docs: `/api/docs`
 - Trainer docs: `/trainer/api/docs`
+
+---
+
+# Local Dev — One Command (`./dev`)
+
+Run **all 11 local services** from the repo root in **one terminal** — with labeled, color-coded logs.
+
+**Prerequisites:** Node.js 20+, Python 3.11 (same as [Local Execution](#local-execution-without-docker)).
+
+## First time
+
+```bash
+./dev setup
+```
+
+Creates Python venvs, installs `pip` / `npm` dependencies, Playwright Chromium (proposals PDF), and copies `.env` from `.env.example` where missing (`proposals/server`, `agent/server`, `image/server`). Edit those `.env` files if you need MongoDB, S3, or API keys.
+
+## Start (logs in this terminal)
+
+```bash
+./dev
+```
+
+Starts every service and streams live logs. **Ctrl+C** stops all of them.
+
+## Stop
+
+```bash
+./dev stop
+```
+
+Use this from **another terminal** while `./dev` is running, or after a crash left ports busy.
+
+## Other commands
+
+| Command | What it does |
+|---|---|
+| `./dev status` | Running/stopped per port + local URLs |
+| `./dev restart` | Stop all, then start all |
+| `./dev up backend frontend` | Start only the services you name |
+| `./dev help` | Short usage summary |
+
+## Services included
+
+| Name | Port | Folder |
+|---|---:|---|
+| backend | 8000 | `backend/` |
+| frontend | 3003 | `frontend/` |
+| trainer-server | 8010 | `trainer/server/` |
+| trainer-web | 3010 | `trainer/web/` |
+| products | 3004 | `products/` |
+| marketing | 3005 | `marketing/` |
+| image-server | 8020 | `image/server/` |
+| image-web | 3006 | `image/web/` |
+| proposals-server | 8030 | `proposals/server/` |
+| proposals-web | 3007 | `proposals/web/` |
+| agent-server | 8040 | `agent/server/` |
+
+**Quick URLs after start:** Scanner `http://localhost:3003/scanner` · Trainer `http://localhost:3010` · Products `http://localhost:3004` · Image `http://localhost:3006` · Proposals `http://localhost:3007`
+
+The per-terminal steps in [Local Execution (Without Docker)](#local-execution-without-docker) are still valid if you prefer to run services separately.
 
 ---
 

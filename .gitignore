@@ -47,6 +47,9 @@ image/server/storage/
 proposals/server/storage/
 image/server/.venv/
 
+# local dev orchestration (./dev)
+.dev/
+
 # logs
 *.log
 

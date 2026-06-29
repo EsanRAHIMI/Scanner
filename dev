@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# Lorenzo monorepo — run all local services in one terminal.
+#
+# Usage:
+#   ./dev              # start all services + live logs (Ctrl+C stops all)
+#   ./dev up           # same as above
+#   ./dev up backend frontend   # start only selected services
+#   ./dev stop         # stop every service
+#   ./dev status       # show which ports are in use
+#   ./dev setup        # create venvs + install Python/Node deps (first time)
+#   ./dev help         # show this help
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+DEV_DIR="$ROOT/.dev"
+
+ALL_SERVICES="backend frontend trainer-server trainer-web products marketing image-server image-web proposals-server proposals-web agent-server"
+
+CONCURRENTLY_COLORS="blue,green,magenta,cyan,yellow,red,white,gray,blueBright,greenBright,magentaBright"
+
+service_port() {
+  case "$1" in
+    backend) echo 8000 ;;
+    frontend) echo 3003 ;;
+    trainer-server) echo 8010 ;;
+    trainer-web) echo 3010 ;;
+    products) echo 3004 ;;
+    marketing) echo 3005 ;;
+    image-server) echo 8020 ;;
+    image-web) echo 3006 ;;
+    proposals-server) echo 8030 ;;
+    proposals-web) echo 3007 ;;
+    agent-server) echo 8040 ;;
+    *) return 1 ;;
+  esac
+}
+
+python_bin() {
+  if command -v python3.11 >/dev/null 2>&1; then
+    echo python3.11
+  else
+    echo python3
+  fi
+}
+
+ensure_venv() {
+  local dir="$1"
+  local venv_path="$2"
+  local py
+  py="$(python_bin)"
+
+  if [[ ! -d "$dir/$venv_path/bin" ]]; then
+    echo "→ creating venv in $dir/$venv_path"
+    (cd "$dir" && "$py" -m venv "$venv_path")
+  fi
+}
+
+run_python_api() {
+  local dir="$1"
+  local venv_rel="$2"
+  local port="$3"
+  shift 3
+  local extra_env="$*"
+
+  local venv_activate="$dir/$venv_rel/bin/activate"
+  if [[ ! -f "$venv_activate" ]]; then
+    echo "error: missing venv in $dir/$venv_rel — run: ./dev setup" >&2
+    exit 1
+  fi
+
+  echo "cd $dir && source $venv_rel/bin/activate && ${extra_env}uvicorn app:app --host 127.0.0.1 --port $port --reload"
+}
+
+run_npm_dev() {
+  local dir="$1"
+  echo "cd $dir && npm run dev"
+}
+
+concurrently_name() {
+  case "$1" in
+    backend) echo backend ;;
+    frontend) echo frontend ;;
+    trainer-server) echo trainer-api ;;
+    trainer-web) echo trainer-web ;;
+    products) echo products ;;
+    marketing) echo marketing ;;
+    image-server) echo image-api ;;
+    image-web) echo image-web ;;
+    proposals-server) echo proposals-api ;;
+    proposals-web) echo proposals-web ;;
+    agent-server) echo agent-api ;;
+  esac
+}
+
+service_cmd() {
+  case "$1" in
+    backend)
+      run_python_api backend venv 8000 "MODEL_PATH=./models/best.pt "
+      ;;
+    frontend)
+      run_npm_dev frontend
+      ;;
+    trainer-server)
+      run_python_api trainer/server .venv 8010
+      ;;
+    trainer-web)
+      run_npm_dev trainer/web
+      ;;
+    products)
+      run_npm_dev products
+      ;;
+    marketing)
+      run_npm_dev marketing
+      ;;
+    image-server)
+      run_python_api image/server .venv 8020
+      ;;
+    image-web)
+      run_npm_dev image/web
+      ;;
+    proposals-server)
+      run_python_api proposals/server .venv 8030
+      ;;
+    proposals-web)
+      run_npm_dev proposals/web
+      ;;
+    agent-server)
+      run_python_api agent/server .venv 8040
+      ;;
+    *)
+      echo "error: unknown service '$1'" >&2
+      echo "available: $ALL_SERVICES" >&2
+      exit 1
+      ;;
+  esac
+}
+
+kill_port() {
+  local port="$1"
+  local pids
+  pids=$(lsof -ti ":$port" 2>/dev/null || true)
+  if [[ -n "$pids" ]]; then
+    echo "$pids" | xargs kill -TERM 2>/dev/null || true
+  fi
+}
+
+cmd_stop() {
+  echo "Stopping local Lorenzo services…"
+  local stopped=0
+  for svc in $ALL_SERVICES; do
+    local port
+    port="$(service_port "$svc")"
+    if lsof -ti ":$port" >/dev/null 2>&1; then
+      kill_port "$port"
+      echo "  stopped $svc (port $port)"
+      stopped=$((stopped + 1))
+    fi
+  done
+  if [[ "$stopped" -eq 0 ]]; then
+    echo "  no services were running"
+  else
+    sleep 0.5
+    for svc in $ALL_SERVICES; do
+      local port
+      port="$(service_port "$svc")"
+      if lsof -ti ":$port" >/dev/null 2>&1; then
+        lsof -ti ":$port" 2>/dev/null | xargs kill -KILL 2>/dev/null || true
+      fi
+    done
+  fi
+  rm -rf "$DEV_DIR"
+}
+
+cmd_status() {
+  printf "%-18s %-6s %s\n" "SERVICE" "PORT" "STATUS"
+  printf "%-18s %-6s %s\n" "-------" "----" "------"
+  for svc in $ALL_SERVICES; do
+    local port
+    port="$(service_port "$svc")"
+    if lsof -ti ":$port" >/dev/null 2>&1; then
+      printf "%-18s %-6s %s\n" "$svc" "$port" "running"
+    else
+      printf "%-18s %-6s %s\n" "$svc" "$port" "stopped"
+    fi
+  done
+  echo
+  echo "URLs:"
+  echo "  Scanner UI       http://localhost:3003/scanner"
+  echo "  Trainer Web      http://localhost:3010"
+  echo "  Products         http://localhost:3004"
+  echo "  Marketing        http://localhost:3005"
+  echo "  Image Web        http://localhost:3006"
+  echo "  Proposals Web    http://localhost:3007"
+  echo "  Backend API      http://127.0.0.1:8000/docs"
+  echo "  Trainer API      http://127.0.0.1:8010/docs"
+  echo "  Image API        http://127.0.0.1:8020/docs"
+  echo "  Proposals API    http://127.0.0.1:8030/docs"
+  echo "  Agent API        http://127.0.0.1:8040/docs"
+}
+
+cmd_setup() {
+  local py
+  py="$(python_bin)"
+  echo "Using Python: $($py --version)"
+
+  for entry in \
+    "backend:venv" \
+    "trainer/server:.venv" \
+    "image/server:.venv" \
+    "proposals/server:.venv" \
+    "agent/server:.venv"
+  do
+    local dir="${entry%%:*}"
+    local venv="${entry##*:}"
+    ensure_venv "$dir" "$venv"
+    echo "→ pip install in $dir"
+    (cd "$dir" && source "$venv/bin/activate" && pip install -q -r requirements.txt)
+  done
+
+  echo "→ playwright chromium (proposals PDF export)"
+  (cd proposals/server && source .venv/bin/activate && python -m playwright install chromium)
+
+  for dir in frontend trainer/web products marketing image/web proposals/web; do
+    if [[ ! -d "$dir/node_modules" ]]; then
+      echo "→ npm install in $dir"
+      (cd "$dir" && npm install)
+    else
+      echo "→ $dir/node_modules already present (skip)"
+    fi
+  done
+
+  for f in proposals/server/.env agent/server/.env image/server/.env; do
+    if [[ ! -f "$f" && -f "${f}.example" ]]; then
+      cp "${f}.example" "$f"
+      echo "→ created $f from example"
+    fi
+  done
+
+  echo
+  echo "Setup complete. Run: ./dev"
+}
+
+cmd_up() {
+  if [[ $# -eq 0 ]]; then
+    set -- $ALL_SERVICES
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "error: Node.js is required (see README: Node 20+)" >&2
+    exit 1
+  fi
+
+  local names=""
+  local -a cmds=()
+  local svc name cmd
+
+  for svc in "$@"; do
+    name="$(concurrently_name "$svc")"
+    cmd="$(service_cmd "$svc")"
+    if [[ -z "$names" ]]; then
+      names="$name"
+    else
+      names="$names,$name"
+    fi
+    cmds+=("$cmd")
+  done
+
+  echo "Starting $# service(s). Press Ctrl+C to stop all."
+  echo
+
+  trap 'echo; echo "Stopping all services…"; cmd_stop; exit 0' INT TERM
+
+  npx --yes concurrently \
+    -n "$names" \
+    -c "$CONCURRENTLY_COLORS" \
+    --kill-others-on-fail \
+    --restart-tries 0 \
+    --prefix "[{name}]" \
+    --prefix-colors "$CONCURRENTLY_COLORS" \
+    "${cmds[@]}"
+}
+
+usage() {
+  sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+main() {
+  local cmd="up"
+  if [[ $# -gt 0 ]]; then
+    cmd="$1"
+    shift
+  fi
+
+  case "$cmd" in
+    up|start)
+      cmd_up "$@"
+      ;;
+    stop|down)
+      cmd_stop
+      ;;
+    restart)
+      cmd_stop
+      cmd_up "$@"
+      ;;
+    status|ps)
+      cmd_status
+      ;;
+    setup|install)
+      cmd_setup
+      ;;
+    help|-h|--help)
+      usage
+      ;;
+    *)
+      echo "error: unknown command '$cmd'" >&2
+      usage
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
