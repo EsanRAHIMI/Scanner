@@ -87,6 +87,48 @@ const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'unmatched', 'empty']
 
 const DEFAULT_SELECTED_ROW_GROUPS: ImportRowMatchStatus[] = ALL_ROW_GROUPS;
 
+const IMPORT_TABLE_COLUMN_ORDER = [
+  'Image1',
+  'Image',
+  'DAM',
+  'Video',
+  'Price',
+  'URL',
+  'Collection Name',
+  'Colecction Name',
+  'Collection Code',
+  'Colecction Code',
+  'Variant Number',
+  'Category',
+  'Space',
+  'Color',
+  'Material',
+  'DIMENSION (mm)',
+  'Note',
+  'Details',
+  'CODE NUMBER',
+  'L000',
+  'Num',
+  'Main',
+  'Content Calendar',
+  'Factory Code',
+];
+
+function collectImportColumnsFromRows(records: ProductImportRow[]): string[] {
+  const present = new Set<string>();
+  for (const row of records) {
+    for (const key of Object.keys(row.fields ?? {})) {
+      if (key !== 'Row') present.add(key);
+    }
+  }
+  return [
+    ...IMPORT_TABLE_COLUMN_ORDER.filter(column => present.has(column)),
+    ...[...present]
+      .filter(column => !IMPORT_TABLE_COLUMN_ORDER.includes(column))
+      .sort((a, b) => a.localeCompare(b)),
+  ];
+}
+
 const COMPACT_SELECT_CLASS =
   'h-8 min-w-0 flex-1 rounded-lg border border-black/10 bg-black/[0.02] px-2 text-xs font-semibold text-black outline-none dark:border-white/10 dark:bg-white/[0.03] dark:text-white sm:max-w-[180px]';
 
@@ -568,7 +610,17 @@ export default function ProductImportsPage() {
     }
   }, [activeImportId, isReprocessing, matchImportColumn, matchProductColumn, mutateRows, previewMatch]);
 
-  const columns = rowsData?.columns ?? [];
+  const importColumns = React.useMemo(
+    () => (rowsData ? collectImportColumnsFromRows(rowsData.records) : []),
+    [rowsData],
+  );
+  const matchImportColumnOptions = React.useMemo(() => {
+    const extra =
+      matchImportColumn && matchImportColumn !== 'Row' && !importColumns.includes(matchImportColumn)
+        ? [matchImportColumn]
+        : [];
+    return ['Row', ...importColumns, ...extra];
+  }, [importColumns, matchImportColumn]);
   const productColumns = React.useMemo(() => {
     const fromCache = productsData?.columns ?? [];
     if (fromCache.length > 0) return fromCache;
@@ -628,48 +680,17 @@ export default function ProductImportsPage() {
       return status ? selectedRowGroups.has(status) : false;
     });
   }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups]);
-  const visibleColumns = React.useMemo(() => {
-    const preferred = [
-      'Row',
-      'Image1',
-      'Image',
-      'DAM',
-      'Video',
-      'Price',
-      'URL',
-      'Collection Name',
-      'Colecction Name',
-      'Collection Code',
-      'Colecction Code',
-      'Variant Number',
-      'Category',
-      'Space',
-      'Color',
-      'Material',
-      'DIMENSION (mm)',
-      'Note',
-      'Details',
-      'CODE NUMBER',
-      'L000',
-      'Num',
-      'Main',
-      'Content Calendar',
-    ];
-    return [
-      ...preferred.filter(column => columns.includes(column)),
-      ...columns.filter(column => !preferred.includes(column)),
-    ];
-  }, [columns]);
+  const visibleColumns = importColumns;
 
   React.useEffect(() => {
-    if (!activeImportId || visibleColumns.length === 0) return;
+    if (!activeImportId || importColumns.length === 0) return;
     if (initializedTransferColumnsForImportRef.current === activeImportId) return;
     initializedTransferColumnsForImportRef.current = activeImportId;
     setSelectedTransferColumns(new Set());
-  }, [activeImportId, visibleColumns]);
+  }, [activeImportId, importColumns]);
 
   React.useEffect(() => {
-    if (!activeImportId || visibleColumns.length === 0 || productColumns.length === 0) return;
+    if (!activeImportId || importColumns.length === 0 || productColumns.length === 0) return;
     if (initializedMatchColumnsForImportRef.current === activeImportId) return;
     initializedMatchColumnsForImportRef.current = activeImportId;
     setMatchImportColumn('');
@@ -677,7 +698,7 @@ export default function ProductImportsPage() {
     setMatchPreview(null);
     setMatchPreviewError(null);
     setSelectedRowGroups(new Set(ALL_ROW_GROUPS));
-  }, [activeImportId, productColumns, visibleColumns]);
+  }, [activeImportId, productColumns, importColumns]);
 
   const toggleRowGroup = React.useCallback((group: ImportRowMatchStatus) => {
     setSelectedRowGroups(prev => {
@@ -811,29 +832,39 @@ export default function ProductImportsPage() {
               <span className="text-[10px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
                 Match
               </span>
-              <select
-                value={matchImportColumn}
-                onChange={(event) => setMatchImportColumn(event.target.value)}
-                className={COMPACT_SELECT_CLASS}
-                aria-label="Import match column"
-              >
-                <option value="">Import column…</option>
-                {visibleColumns.map(column => (
-                  <option key={column} value={column}>{column}</option>
-                ))}
-              </select>
+              <label className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+                  Excel
+                </span>
+                <select
+                  value={matchImportColumn}
+                  onChange={(event) => setMatchImportColumn(event.target.value)}
+                  className={COMPACT_SELECT_CLASS}
+                  aria-label="Excel import match column"
+                >
+                  <option value="">Column…</option>
+                  {matchImportColumnOptions.map(column => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+              </label>
               <span className="text-[10px] font-black text-black/30 dark:text-white/30">→</span>
-              <select
-                value={matchProductColumn}
-                onChange={(event) => setMatchProductColumn(event.target.value)}
-                className={COMPACT_SELECT_CLASS}
-                aria-label="Products match column"
-              >
-                <option value="">Products column…</option>
-                {productColumns.map(column => (
-                  <option key={column} value={column}>{column}</option>
-                ))}
-              </select>
+              <label className="inline-flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-sky-700 dark:text-sky-300">
+                  Products
+                </span>
+                <select
+                  value={matchProductColumn}
+                  onChange={(event) => setMatchProductColumn(event.target.value)}
+                  className={COMPACT_SELECT_CLASS}
+                  aria-label="Products match column"
+                >
+                  <option value="">Column…</option>
+                  {productColumns.map(column => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+              </label>
               {isPreviewingMatch ? (
                 <span className="text-[10px] font-bold text-black/35 dark:text-white/35">Checking…</span>
               ) : null}

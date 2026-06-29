@@ -981,7 +981,7 @@ def _parse_product_import_workbook(content: bytes, filename: str, import_id: str
     raise HTTPException(status_code=400, detail=f"INVALID_EXCEL_FILE: {exc}") from exc
 
   rows_to_insert: list[dict[str, Any]] = []
-  columns_seen: set[str] = set(PRODUCT_IMPORT_CANONICAL_COLUMNS)
+  columns_seen: set[str] = set()
   sheets: list[dict[str, Any]] = []
 
   for worksheet in workbook.worksheets:

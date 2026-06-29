@@ -679,11 +679,24 @@ export function ProductsView({
 
   const [renderLimit, setRenderLimit] = React.useState<number>(GALLERY_INITIAL_RENDER_COUNT);
   const [isLoadMorePending, startLoadMoreTransition] = React.useTransition();
+  const [isPrefetchingAll, setIsPrefetchingAll] = React.useState(false);
+  /** Admin "load all": fetch every server page and render the full list (no scroll windowing). */
+  const [showAllRecords, setShowAllRecords] = React.useState(false);
   const loadMoreSentinelRef = React.useRef<HTMLDivElement | null>(null);
   const loadMoreThrottleRef = React.useRef(0);
   // Server pages are fetched ONLY after a real user scroll — never from the initial
   // layout, ResizeObserver, or a sentinel that happens to be visible on first render.
   const userScrolledRef = React.useRef(false);
+  const hasMoreRef = React.useRef(hasMore);
+  const backgroundLoadingRef = React.useRef(backgroundLoading);
+
+  React.useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  React.useEffect(() => {
+    backgroundLoadingRef.current = backgroundLoading;
+  }, [backgroundLoading]);
 
   React.useEffect(() => {
     if (scrollTargetRecordId) return;
@@ -692,6 +705,8 @@ export function ProductsView({
       suppressListLayoutResetRef.current = false;
       return;
     }
+
+    if (showAllRecords) return;
 
     setRenderLimit(viewMode === 'list' ? LIST_INITIAL_RENDER_COUNT : GALLERY_INITIAL_RENDER_COUNT);
     const scrollEl = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
@@ -709,13 +724,21 @@ export function ProductsView({
     sortKey,
     sortDir,
     scrollTargetRecordId,
+    showAllRecords,
   ]);
 
   const renderedRecords = React.useMemo(
-    () => listVisibleRecords.slice(0, Math.max(1, renderLimit)),
-    [listVisibleRecords, renderLimit]
+    () =>
+      showAllRecords
+        ? listVisibleRecords
+        : listVisibleRecords.slice(0, Math.max(1, renderLimit)),
+    [listVisibleRecords, renderLimit, showAllRecords],
   );
-  const remainingRecordsCount = Math.max(0, listVisibleRecords.length - renderedRecords.length);
+  const remainingRecordsCount = showAllRecords
+    ? 0
+    : Math.max(0, listVisibleRecords.length - renderedRecords.length);
+  const needsAdminFullList =
+    hasMore || listVisibleRecords.length > renderedRecords.length;
 
   const loadMoreRecords = React.useCallback(() => {
     // First reveal already-loaded rows (client-side windowing). When those are
@@ -725,7 +748,11 @@ export function ProductsView({
       startLoadMoreTransition(() => {
         setRenderLimit(prev => Math.min(prev + LOAD_MORE_STEP, listVisibleRecords.length));
       });
-    } else if (hasMore && !backgroundLoading && userScrolledRef.current) {
+    } else if (
+      hasMore &&
+      !backgroundLoading &&
+      (userScrolledRef.current || showAllRecords || isPrefetchingAll)
+    ) {
       if (process.env.NODE_ENV !== 'production') {
         console.log('[Products/loadMore] user-scroll near end → fetch next page', {
           renderLimit,
@@ -746,6 +773,8 @@ export function ProductsView({
     loadMore,
     renderLimit,
     renderedRecords.length,
+    showAllRecords,
+    isPrefetchingAll,
   ]);
 
   const [scrollNearEnd, setScrollNearEnd] = React.useState(false);
@@ -754,6 +783,39 @@ export function ProductsView({
     const scrollRoot = viewMode === 'list' ? listScrollRef.current : galleryScrollRef.current;
     scrollRoot?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [viewMode]);
+
+  const prefetchAllProducts = React.useCallback(async () => {
+    if (isPrefetchingAll || backgroundLoadingRef.current || !needsAdminFullList) return;
+    setShowAllRecords(true);
+    userScrolledRef.current = true;
+    setIsPrefetchingAll(true);
+    const waitForIdle = async () => {
+      const startedAt = Date.now();
+      while (backgroundLoadingRef.current) {
+        if (Date.now() - startedAt > 15000) {
+          throw new Error('Timed out while waiting for next page.');
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 90));
+      }
+      // Let SWR commit has_more / next_cursor before the next iteration.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    };
+    try {
+      let guard = 0;
+      while (hasMoreRef.current && guard < 600) {
+        guard += 1;
+        await loadMore();
+        await waitForIdle();
+      }
+      if (guard >= 600 && hasMoreRef.current) {
+        throw new Error('Reached safety limit while loading all products.');
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to load all products.');
+    } finally {
+      setIsPrefetchingAll(false);
+    }
+  }, [isPrefetchingAll, loadMore, needsAdminFullList]);
 
   /** Track scroll end + load more (vertical position; ignores horizontal scroll). */
   React.useEffect(() => {
@@ -1387,14 +1449,15 @@ export function ProductsView({
     </button>
   );
 
-  const addProductButton = canCreate ? (
+  const canPrefetchAll = user?.is_admin === true || user?.role === 'admin';
+  const addProductButton = canPrefetchAll ? (
     <button
       type="button"
       onClick={() => setShowAddProduct(true)}
       title="Add product"
       className={
         headerToggleBase +
-        ' border-emerald-500/35 bg-emerald-500/15 text-emerald-800 hover:bg-emerald-500/25 dark:border-emerald-400/30 dark:bg-emerald-500/20 dark:text-emerald-100'
+        ' border-black/10 bg-white/70 text-black/70 hover:bg-white hover:text-black dark:border-white/10 dark:bg-black/40 dark:text-white/70 dark:hover:bg-black/60 dark:hover:text-white'
       }
     >
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -1402,6 +1465,37 @@ export function ProductsView({
       </svg>
     </button>
   ) : null;
+  const prefetchAllButton = canPrefetchAll ? (
+    <button
+      type="button"
+      onClick={() => void prefetchAllProducts()}
+      disabled={isPrefetchingAll || backgroundLoading || !needsAdminFullList}
+      title={
+        needsAdminFullList
+          ? 'Load and show all products (admin)'
+          : 'All products are loaded and visible'
+      }
+      className={
+        headerToggleBase +
+        ' border-black/10 bg-white/70 text-black/70 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-45 dark:border-white/10 dark:bg-black/40 dark:text-white/70 dark:hover:bg-black/60 dark:hover:text-white'
+      }
+    >
+      {isPrefetchingAll || backgroundLoading ? (
+        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+      ) : (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 5v14" />
+          <path d="M5 12l7 7 7-7" />
+        </svg>
+      )}
+    </button>
+  ) : null;
+  const headerActionButtons = (
+    <>
+      {addProductButton}
+      {prefetchAllButton}
+    </>
+  );
 
   const moderationToggleNode = isAdminModerator ? (
     <button
@@ -1476,7 +1570,7 @@ export function ProductsView({
         fetchUserSession={fetchUserSession}
         onActivityLogs={toggleActivityLogs}
         backendDisconnected={isStaleOfflineSnapshot}
-        addProductButton={addProductButton}
+        addProductButton={headerActionButtons}
       />
 
       <ProductFilters
@@ -1577,6 +1671,7 @@ export function ProductsView({
         <ProductsExcelExport
           records={exportRecords}
           allColumns={columns}
+          columnOrder={displayedColumns}
           hasActiveRowFilters={hasExportRowFilters}
         />
       ) : null}
