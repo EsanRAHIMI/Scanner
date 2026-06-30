@@ -137,10 +137,11 @@ registry.register(Tool(
 registry.register(Tool(
     name="get_visible_import_context",
     description=(
-        "Return the Excel Imports staging rows currently visible on the user's screen "
-        "(import file name, match stats, columns, and row field snapshots). Use on "
-        "/products/imports when the user asks about the import list, match status, or "
-        "staging rows — NOT get_selected_products. Read-only."
+        "Return Excel Imports staging context: filename, visible row count, match columns "
+        "(Excel → Products), Matched/Unmatched/Empty counts, match_analysis with why_unmatched "
+        "and sample values, plus visible row snapshots. REQUIRED on /products/imports for "
+        "questions about the import table, row counts, or why rows are Unmatched — NOT "
+        "get_selected_products. Read-only."
     ),
     input_schema={"type": "object", "properties": {}},
     scope="read", required_role="user", handler=P.tool_get_visible_import_context,

@@ -74,6 +74,8 @@ export interface GalleryCardProps {
 export interface PhotoDeckProps {
   urls: string[];
   maxItems?: number;
+  /** Official composed main image (narrow/mobile deck). */
+  brandedPrimary?: { composedSrc: string; cutoutSrc: string };
   onOpenPreview?: (url: string, recordId?: string) => void;
   onDragStart?: (url: string) => void;
   onDragEnd?: () => void;

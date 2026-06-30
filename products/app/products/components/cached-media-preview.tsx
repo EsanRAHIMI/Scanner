@@ -51,7 +51,7 @@ export function CachedMediaPreview({
         aria-hidden
         className={
           (className ?? '') +
-          ' block bg-gradient-to-br from-black/[0.06] to-black/[0.12] dark:from-white/[0.05] dark:to-white/[0.10]'
+          ' block h-full w-full min-h-[2.5rem] bg-gradient-to-br from-black/[0.06] to-black/[0.12] dark:from-white/[0.05] dark:to-white/[0.10]'
         }
       />
     );

@@ -208,6 +208,14 @@ async def build_user_identity(rt: dict[str, Any]) -> dict[str, Any]:
         identity["import_staging_filename"] = staging.get("filename")
         identity["import_staging_visible_rows"] = staging.get("visible_rows_count")
         identity["import_staging_total_rows"] = staging.get("total_rows")
+        match = staging.get("match")
+        if isinstance(match, dict) and match.get("configured"):
+            identity["import_match_excel_columns"] = match.get("excel_columns")
+            identity["import_match_products_column"] = match.get("products_column")
+            totals = match.get("totals_in_import") or match
+            identity["import_match_matched"] = totals.get("matched")
+            identity["import_match_unmatched"] = totals.get("unmatched")
+            identity["import_match_empty"] = totals.get("empty")
     return identity
 
 
@@ -346,10 +354,101 @@ async def tool_get_visible_import_context(args: dict[str, Any], rt: dict[str, An
     visible_count = staging.get("visible_rows_count")
     if visible_count is None:
         visible_count = len(rows) if isinstance(rows, list) else 0
+    analysis = _analyze_import_staging(staging)
+    match = staging.get("match") if isinstance(staging.get("match"), dict) else {}
+    summary = f"Excel Imports: {filename} — {visible_count} visible staging row(s) on screen."
+    if analysis.get("configured"):
+        counts = analysis.get("counts") or {}
+        summary += (
+            f" Match ({analysis.get('excel_columns_joined')} → {analysis.get('products_column')}): "
+            f"{counts.get('matched', 0)} matched, {counts.get('unmatched', 0)} unmatched, "
+            f"{counts.get('empty', 0)} empty in this import."
+        )
+        if counts.get("unmatched", 0) > 0:
+            summary += " Unmatched = Excel has a value but no product shares that value in the Products column."
+    elif match.get("hint"):
+        summary += f" {match['hint']}"
+    staging_compact = {k: v for k, v in staging.items() if k != "visible_rows"}
+    if isinstance(rows, list) and rows:
+        staging_compact["visible_rows_sample"] = rows[:20]
     return {
         "ok": True,
-        "summary": f"Excel Imports: {filename} — {visible_count} visible staging row(s) on screen.",
-        "data": {**staging, "has_import_staging": True, "source": "current_viewport"},
+        "summary": summary,
+        "data": {
+            **staging_compact,
+            "has_import_staging": True,
+            "source": "current_viewport",
+            "match_analysis": analysis,
+        },
+    }
+
+
+def _analyze_import_staging(staging: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic explanation of import match status for the LLM."""
+    match = staging.get("match")
+    if not isinstance(match, dict) or not match.get("configured"):
+        hint = (match or {}).get("hint") if isinstance(match, dict) else None
+        return {
+            "configured": False,
+            "summary": hint or "Match columns are not configured yet.",
+        }
+
+    excel_cols = match.get("excel_columns") or []
+    prod_col = match.get("products_column") or "?"
+    excel_joined = " OR ".join(str(c) for c in excel_cols) if excel_cols else "(none)"
+    totals = match.get("totals_in_import") or {}
+    counts = {
+        "matched": int(totals.get("matched") or match.get("matched") or 0),
+        "unmatched": int(totals.get("unmatched") or match.get("unmatched") or 0),
+        "empty": int(totals.get("empty") or match.get("empty") or 0),
+    }
+    meanings = match.get("status_meanings") or {}
+    samples_block = match.get("samples") if isinstance(match.get("samples"), dict) else {}
+    unmatched_samples = samples_block.get("unmatched") or []
+    visible_filter = match.get("visible_filter") if isinstance(match.get("visible_filter"), dict) else {}
+
+    likely_causes = [
+        (
+            f"The import value in {excel_joined} does not match any product's "
+            f"'{prod_col}' value (after trim + lowercase normalization)."
+        ),
+        "Typo or different formatting vs the catalog (spaces, leading zeros, alternate codes).",
+        "Wrong Products column chosen for matching, or the product is not in the catalog yet.",
+        "The Excel column may not contain the identifier you expect (e.g. factory code vs collection code).",
+    ]
+
+    return {
+        "configured": True,
+        "excel_columns": excel_cols,
+        "excel_columns_joined": excel_joined,
+        "products_column": prod_col,
+        "logic": match.get("logic") or "",
+        "counts": counts,
+        "visible_rows_on_screen": staging.get("visible_rows_count"),
+        "visible_filter_groups": visible_filter.get("active_groups") or [],
+        "status_meanings": meanings,
+        "why_matched": meanings.get("matched")
+        or f"Matched when any Excel match column equals a product '{prod_col}' value.",
+        "why_unmatched": meanings.get("unmatched")
+        or (
+            f"Unmatched when the row has a value in {excel_joined} but no product has that "
+            f"value in '{prod_col}'."
+        ),
+        "why_empty": meanings.get("empty")
+        or "Empty when all selected Excel match columns are blank.",
+        "likely_causes_for_unmatched": likely_causes,
+        "unmatched_samples": unmatched_samples[:8],
+        "answer_template_unmatched": (
+            f"These rows are Unmatched because their value in {excel_joined} does not match "
+            f"any existing product '{prod_col}'. Counts in this import: "
+            f"{counts['matched']} matched, {counts['unmatched']} unmatched, {counts['empty']} empty. "
+            f"The screen currently shows {staging.get('visible_rows_count', '?')} row(s)"
+            + (
+                f" filtered to: {', '.join(visible_filter.get('group_labels') or [])}."
+                if visible_filter.get("group_labels")
+                else "."
+            )
+        ),
     }
 
 

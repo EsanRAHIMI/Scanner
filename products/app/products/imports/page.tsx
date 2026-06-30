@@ -6,7 +6,8 @@ import useSWR from 'swr';
 
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../../products-cache-provider';
-import { formatPrice, formatScalar, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
+import { formatPrice, formatScalar, highlightMatches, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
+import { ProductsHeaderSearch } from '../components/products-header-search';
 import {
   detectCrystalCustomLabel,
   getImportRowDisplayLabel,
@@ -198,6 +199,31 @@ function renderCell(value: unknown, column?: string) {
   return formatScalar(value) || '—';
 }
 
+function buildImportRowSearchText(row: ProductImportRow) {
+  const parts = [
+    row.row_label,
+    getImportRowDisplayLabel(row),
+    row.source_sheet,
+    row.source_row_number != null ? String(row.source_row_number) : '',
+    ...(row.warnings ?? []),
+    ...Object.values(row.fields ?? {}).map((value) => formatScalar(value)),
+  ];
+  return parts
+    .map((part) => (part == null ? '' : String(part).trim()))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function importRowMatchesSearch(row: ProductImportRow, query: string, cache?: Map<string, string>) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const text = cache?.get(row.id) ?? buildImportRowSearchText(row);
+  if (text.includes(q)) return true;
+  const words = q.split(/\s+/).filter(Boolean);
+  return words.every((word) => text.includes(word));
+}
+
 function isImageColumn(column: string) {
   const normalized = column.trim().toLowerCase();
   return normalized === 'image1' || normalized === 'image' || normalized.startsWith('image ');
@@ -357,6 +383,47 @@ function summarizeImportRowFieldsForAgent(
   return out;
 }
 
+const IMPORT_MATCH_LOGIC =
+  'OR across selected Excel columns: Matched if ANY Excel match column value equals a product value in the chosen Products column (trim + lowercase). Unmatched = has a value but no product hit. Empty = all match Excel columns blank.';
+
+function collectUnmatchedSamplesForAgent(
+  rows: ProductImportRow[],
+  rowStatusById: Map<string, ImportRowMatchStatus>,
+  importColumns: string[],
+  limit = 8,
+) {
+  const out: Array<{
+    row_id: string;
+    row_label: string;
+    import_value?: string | null;
+    import_values?: Record<string, string>;
+    reason: string;
+    source_sheet?: string | null;
+    source_row_number?: number | null;
+  }> = [];
+  for (const row of rows) {
+    if (rowStatusById.get(row.id) !== 'unmatched') continue;
+    const importValues: Record<string, string> = {};
+    for (const col of importColumns) {
+      const value = trimAgentFieldValue(getEquivalentFieldValue(row.fields ?? {}, col));
+      if (value !== null) importValues[col] = String(value);
+    }
+    const primaryValue =
+      importColumns.map((col) => importValues[col]).find((value) => Boolean(value)) ?? null;
+    out.push({
+      row_id: row.id,
+      row_label: (row.row_label ?? '').trim() || getImportRowDisplayLabel(row),
+      import_value: primaryValue,
+      import_values: Object.keys(importValues).length > 0 ? importValues : undefined,
+      reason: 'no_product_match',
+      source_sheet: row.source_sheet ?? null,
+      source_row_number: row.source_row_number ?? null,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export default function ProductImportsPage() {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [selectedImportId, setSelectedImportId] = React.useState<string | null>(null);
@@ -379,7 +446,11 @@ export default function ProductImportsPage() {
     () => new Set(DEFAULT_SELECTED_ROW_GROUPS),
   );
   const [showHiddenRows, setShowHiddenRows] = React.useState(false);
+  const [isLgScreen, setIsLgScreen] = React.useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const [debouncedSearch, setDebouncedSearch] = React.useState('');
+  const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const initializedTransferColumnsForImportRef = React.useRef<string | null>(null);
   const initializedMatchColumnsForImportRef = React.useRef<string | null>(null);
   const autoLabeledRowIdsRef = React.useRef<Set<string>>(new Set());
@@ -618,10 +689,63 @@ export default function ProductImportsPage() {
 
   React.useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)');
-    const sync = () => setUploadPanelOpen(mq.matches);
+    const sync = () => {
+      const lg = mq.matches;
+      setIsLgScreen(lg);
+      if (!lg) setUploadPanelOpen(false);
+    };
     sync();
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  const uploadPanelExpanded = isLgScreen || uploadPanelOpen;
+
+  React.useEffect(() => {
+    if (isLgScreen) return;
+    if (debouncedSearch.trim() || rowsLoading) {
+      setUploadPanelOpen(false);
+    }
+  }, [debouncedSearch, isLgScreen, rowsLoading]);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 280);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  React.useEffect(() => {
+    setSearch('');
+  }, [activeImportId]);
+
+  React.useEffect(() => {
+    const focusSearchInput = () => {
+      const el = searchInputRef.current;
+      if (!el) return;
+      el.focus();
+      try {
+        el.select();
+      } catch {
+        // ignore
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isInput =
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement ||
+        (event.target as HTMLElement).isContentEditable;
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault();
+        focusSearchInput();
+        return;
+      }
+      if (event.key === '/' && !isInput) {
+        event.preventDefault();
+        focusSearchInput();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   React.useEffect(() => {
@@ -856,6 +980,24 @@ export default function ProductImportsPage() {
 
     return showHiddenRows ? [...activeRows, ...hiddenRows] : activeRows;
   }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups, showHiddenRows]);
+
+  const importRowSearchTextById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    if (!rowsData) return map;
+    for (const row of rowsData.records) {
+      map.set(row.id, buildImportRowSearchText(row));
+    }
+    return map;
+  }, [rowsData]);
+
+  const searchFilteredImportRows = React.useMemo(() => {
+    const q = debouncedSearch.trim();
+    if (!q) return filteredImportRows;
+    return filteredImportRows.filter((row) =>
+      importRowMatchesSearch(row, q, importRowSearchTextById),
+    );
+  }, [debouncedSearch, filteredImportRows, importRowSearchTextById]);
+
   const visibleColumns = importColumns;
 
   React.useEffect(() => {
@@ -934,28 +1076,73 @@ export default function ProductImportsPage() {
   agentContextRef.current = {
     app: 'products',
     module: 'imports',
-    page_summary: 'Excel Imports staging table (not the main Products catalog list)',
+    page_summary: isMatchConfigured
+      ? `Excel Imports staging: ${searchFilteredImportRows.length} visible row(s); match ${matchImportColumns.join(' OR ')} → ${matchProductColumn}; ` +
+        `${rowStatusCounts.matched} matched, ${rowStatusCounts.unmatched} unmatched, ${rowStatusCounts.empty} empty in loaded import` +
+        (debouncedSearch.trim() ? `; search="${debouncedSearch.trim()}"` : '')
+      : 'Excel Imports staging table (not the main Products catalog list)' +
+        (debouncedSearch.trim() ? `; search="${debouncedSearch.trim()}"` : ''),
     selected_product_ids: [],
     visible_product_ids: [],
     import_staging: {
       active_import_id: activeImportId,
       filename: rowsData?.import.filename ?? null,
       total_rows: rowsData?.count ?? 0,
-      visible_rows_count: filteredImportRows.length,
+      visible_rows_count: searchFilteredImportRows.length,
+      search_query: debouncedSearch.trim() || null,
       hidden_rows_count: hiddenRowCount,
       show_hidden_rows: showHiddenRows,
       imports_count: imports.length,
+      transfer_columns_selected: Array.from(selectedTransferColumns),
       match: isMatchConfigured
         ? {
+            configured: true,
             excel_columns: matchImportColumns,
             products_column: matchProductColumn,
+            logic: IMPORT_MATCH_LOGIC,
+            totals_in_import: matchPreview
+              ? {
+                  total_rows: matchPreview.total_rows,
+                  matched: matchPreview.matched_count,
+                  unmatched: matchPreview.unmatched_count,
+                  empty: matchPreview.empty_import_value_count,
+                  source: 'server_preview',
+                }
+              : {
+                  total_rows: matchableRows.length,
+                  matched: rowStatusCounts.matched,
+                  unmatched: rowStatusCounts.unmatched,
+                  empty: rowStatusCounts.empty,
+                  source: 'client_index',
+                },
+            visible_filter: {
+              active_groups: Array.from(selectedRowGroups),
+              group_labels: Array.from(selectedRowGroups).map((g) => ROW_MATCH_STATUS_LABELS[g]),
+            },
+            status_meanings: {
+              matched: `Excel value matches an existing product's "${matchProductColumn}" field`,
+              unmatched: `Excel has a value in match column(s) but no product has that value in "${matchProductColumn}"`,
+              empty: 'All selected Excel match columns are blank for this row',
+            },
+            samples: {
+              unmatched: (
+                matchPreview?.unmatched_samples?.length
+                  ? matchPreview.unmatched_samples
+                  : collectUnmatchedSamplesForAgent(matchableRows, rowStatusById, matchImportColumns)
+              ).slice(0, 8),
+              empty: (matchPreview?.empty_samples ?? []).slice(0, 5),
+              matched: (matchPreview?.matched_samples ?? []).slice(0, 3),
+            },
             matched: rowStatusCounts.matched,
             unmatched: rowStatusCounts.unmatched,
             empty: rowStatusCounts.empty,
           }
-        : null,
+        : {
+            configured: false,
+            hint: 'Select Excel match column(s) and a Products column, then run match preview to classify rows.',
+          },
       columns: importColumns.slice(0, 40),
-      visible_rows: filteredImportRows.slice(0, AGENT_IMPORT_ROW_LIMIT).map((row) => ({
+      visible_rows: searchFilteredImportRows.slice(0, AGENT_IMPORT_ROW_LIMIT).map((row) => ({
         id: row.id,
         row_label: (row.row_label ?? '').trim() || getImportRowDisplayLabel(row),
         match_status: rowStatusById.get(row.id) ?? null,
@@ -994,26 +1181,36 @@ export default function ProductImportsPage() {
         </h1>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-3">
-        <aside className="flex shrink-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card dark:border-white/10 dark:bg-black/25">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-2 lg:grid-cols-[240px_minmax(0,1fr)] lg:grid-rows-none lg:gap-3">
+        <aside
+          className={
+            'flex shrink-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card ' +
+            'dark:border-white/10 dark:bg-black/25 max-lg:min-h-0'
+          }
+        >
           <button
             type="button"
-            onClick={() => setUploadPanelOpen((open) => !open)}
+            onClick={() => {
+              if (!isLgScreen) setUploadPanelOpen((open) => !open);
+            }}
             className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left lg:pointer-events-none lg:cursor-default"
-            aria-expanded={uploadPanelOpen}
+            aria-expanded={uploadPanelExpanded}
           >
             <span className="text-[10px] font-black uppercase tracking-widest text-black/50 dark:text-white/50">
               Upload &amp; imports
             </span>
-            <span className="text-[10px] font-black text-black/35 dark:text-white/35 lg:hidden">
-              {uploadPanelOpen ? '−' : '+'}
-            </span>
+            {!isLgScreen ? (
+              <span className="text-[10px] font-black text-black/35 dark:text-white/35">
+                {uploadPanelOpen ? '−' : '+'}
+              </span>
+            ) : null}
           </button>
 
           <div
             className={
-              (uploadPanelOpen ? 'flex' : 'hidden') +
-              ' min-h-0 flex-col gap-2 border-t border-black/5 px-3 pb-3 pt-2 dark:border-white/5 lg:flex lg:flex-1'
+              (uploadPanelExpanded ? 'flex' : 'hidden') +
+              ' min-h-0 flex-col gap-2 border-t border-black/5 px-3 pb-3 pt-2 dark:border-white/5 ' +
+              'max-lg:max-h-[min(38vh,320px)] max-lg:overflow-hidden lg:flex-1'
             }
           >
           <input
@@ -1039,8 +1236,8 @@ export default function ProductImportsPage() {
             </div>
           ) : null}
 
-          <div className="min-h-0 max-h-[34vh] overflow-y-auto scrollbar-minimal lg:max-h-none lg:flex-1">
-            <div className="mb-1.5 flex items-center justify-between">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="mb-1.5 flex shrink-0 items-center justify-between">
               <h2 className="text-[10px] font-black uppercase tracking-widest text-black/60 dark:text-white/60">
                 Imports
               </h2>
@@ -1062,7 +1259,7 @@ export default function ProductImportsPage() {
                 No files uploaded yet.
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto scrollbar-minimal">
                 {imports.map(item => {
                   const active = item.id === activeImportId;
                   return (
@@ -1094,6 +1291,22 @@ export default function ProductImportsPage() {
 
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card dark:border-white/10 dark:bg-black/25">
           <div className="space-y-1 border-b border-black/10 px-2 py-1.5 dark:border-white/10">
+            <div className="pb-0.5">
+              <ProductsHeaderSearch
+                search={search}
+                onSearchChange={setSearch}
+                searchInputRef={searchInputRef}
+                hasActiveFilters={search.trim().length > 0}
+                onClearSearch={() => {
+                  setSearch('');
+                  searchInputRef.current?.focus();
+                }}
+                onClearAllFilters={() => {
+                  setSearch('');
+                  searchInputRef.current?.focus();
+                }}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-lg border border-black/10 bg-black/[0.02] px-1.5 py-1 dark:border-white/10 dark:bg-white/[0.03]">
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-black/35 dark:text-white/35">
@@ -1216,7 +1429,8 @@ export default function ProductImportsPage() {
 
             <p className="truncate text-[9px] font-medium text-black/45 dark:text-white/45" title={rowsData?.import.filename}>
               {rowsData
-                ? `${rowsData.import.filename} · ${filteredImportRows.length}/${rowsData.count} shown` +
+                ? `${rowsData.import.filename} · ${searchFilteredImportRows.length}/${rowsData.count} shown` +
+                  (debouncedSearch.trim() ? ` · search “${debouncedSearch.trim()}”` : '') +
                   (hiddenRowCount > 0 ? ` · ${hiddenRowCount} hidden (Crystal/custom/−)` : '') +
                   ` · ${selectedTransferColumns.size} transfer cols` +
                   (selectedRowGroups.size === 0 && !showHiddenRows ? ' · tick a group' : '')
@@ -1289,21 +1503,23 @@ export default function ProductImportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredImportRows.length === 0 ? (
+                  {searchFilteredImportRows.length === 0 ? (
                     <tr>
                       <td
                         colSpan={visibleColumns.length + 5}
                         className="border-b border-black/5 px-3 py-10 text-center text-xs font-bold text-black/40 dark:border-white/5 dark:text-white/40"
                       >
-                        {selectedRowGroups.size === 0 && !showHiddenRows
-                          ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
-                          : selectedRowGroups.size === 0 && showHiddenRows && hiddenRowCount === 0
-                            ? 'No hidden rows in this import.'
-                            : 'No rows in the selected groups.'}
+                        {debouncedSearch.trim() && filteredImportRows.length > 0
+                          ? 'No rows match your search.'
+                          : selectedRowGroups.size === 0 && !showHiddenRows
+                            ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
+                            : selectedRowGroups.size === 0 && showHiddenRows && hiddenRowCount === 0
+                              ? 'No hidden rows in this import.'
+                              : 'No rows in the selected groups.'}
                       </td>
                     </tr>
                   ) : null}
-                  {filteredImportRows.map(row => {
+                  {searchFilteredImportRows.map(row => {
                     const rowStatus = rowStatusById.get(row.id);
                     const rowHidden = isHiddenImportRow(row);
                     const rowTone = rowHidden
@@ -1438,7 +1654,11 @@ export default function ProductImportsPage() {
                                       </span>
                                     </span>
                                   ) : (
-                                    <span className="line-clamp-3 whitespace-pre-line">{renderCell(row.fields[column], column)}</span>
+                                    <span className="line-clamp-3 whitespace-pre-line">
+                                      {search.trim()
+                                        ? highlightMatches(renderCell(row.fields[column], column), search)
+                                        : renderCell(row.fields[column], column)}
+                                    </span>
                                   )}
                                 </button>
                               )}

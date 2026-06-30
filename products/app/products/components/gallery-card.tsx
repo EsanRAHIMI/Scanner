@@ -70,7 +70,7 @@ export function GalleryCard({
   return (
     <div className="group/card overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card transition-all duration-300 hover:-translate-y-0.5 hover:border-brand-burgundy/40 hover:shadow-brand-card-hover dark:border-white/10 dark:bg-black/20 dark:hover:border-emerald-400/40">
       <div className="block w-full">
-        <div ref={inViewRef} className="relative aspect-square w-full bg-black/5 dark:bg-white/5">
+        <div ref={inViewRef} className="relative aspect-[3/4] w-full bg-black/[0.04] dark:bg-white/[0.06]">
           {thumbSrc && !imageFailed ? (
             <button
               type="button"
@@ -92,7 +92,7 @@ export function GalleryCard({
                   enabled={inView}
                   priority={inView}
                   onBroken={() => setImageFailed(true)}
-                  className="absolute inset-0 h-full w-full object-cover"
+                  className="absolute inset-0 h-full w-full object-contain"
                   alt="product"
                 />
               )}

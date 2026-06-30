@@ -13,6 +13,7 @@ import {
   getImageColumnDisplayUrls,
   isGalleryMediaHidden,
   DRIVE_IMAGE_WIDTH_HOVER,
+  DRIVE_IMAGE_WIDTH_LIST,
   getCollectionKey,
   getCollectionDisplayKey,
   resolveCollectionName,
@@ -65,7 +66,7 @@ function listColumnWidthClass(
     return 'max-sm:w-[6.25rem] max-sm:min-w-[6.25rem] max-sm:max-w-[6.25rem] max-sm:box-border ';
   }
   if (normalizedCol === 'image') {
-    return 'max-sm:w-[6.5rem] max-sm:min-w-[6.5rem] max-sm:max-w-[6.5rem] max-sm:overflow-hidden ';
+    return 'max-sm:w-[7.25rem] max-sm:min-w-[7.25rem] max-sm:max-w-[7.25rem] max-sm:overflow-hidden ';
   }
   if (isContentStatus) return 'w-[148px] min-w-[148px] max-w-[180px] ';
   return '';
@@ -472,12 +473,17 @@ export function ListView({
         // same stacked look, same +N badge). The asset that became the main image
         // is removed from the rest to avoid a duplicate. Other columns unchanged.
         let deckUrls = urls;
+        let brandedPrimary: { composedSrc: string; cutoutSrc: string } | undefined;
         if (col === 'image') {
           const mr = resolveMainImage(recordFields, urls[0]);
           if (mr.isMain) {
             const composedFirst = composedMainImageUrl(mr.url);
             const rest = urls.filter((u) => !sameProductMediaUrl(u, mr.url));
             deckUrls = [composedFirst, ...rest];
+            brandedPrimary = {
+              composedSrc: composedFirst,
+              cutoutSrc: getDriveDirectLink(mr.url, DRIVE_IMAGE_WIDTH_LIST),
+            };
           }
         }
 
@@ -485,7 +491,8 @@ export function ListView({
           <div className="relative flex min-h-[48px] w-full items-center justify-center transition-all rounded-lg max-sm:min-h-0 max-sm:w-full max-sm:justify-stretch max-sm:overflow-hidden">
             <PhotoDeck
               urls={deckUrls}
-              maxItems={4} 
+              maxItems={4}
+              brandedPrimary={brandedPrimary}
               onOpenPreview={openPreviewByUrl}
               recordId={recordId}
               column={column}
@@ -978,7 +985,7 @@ export function ListView({
                   key={r.id}
                   data-product-row-id={r.id}
                   className={
-                    'align-middle transition-colors max-sm:[contain-intrinsic-size:auto_7rem] max-sm:[content-visibility:auto] max-sm:transition-none ' +
+                    'align-middle transition-colors max-sm:[contain-intrinsic-size:auto_9.75rem] max-sm:[content-visibility:auto] max-sm:transition-none ' +
                     (isGroupStart ? `border-t-2 ${groupBorderClass} ` : 
                      isInGroup ? 'border-t-0 ' : 
                      'border-t border-black/10 dark:border-white/10 ') +

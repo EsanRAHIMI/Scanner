@@ -11,12 +11,17 @@ import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { useInView } from '../hooks/use-in-view';
 import { useNarrowViewport } from '../hooks/use-narrow-viewport';
 import { CachedMediaPreview } from './cached-media-preview';
+import { BrandedImageFrame } from './branded-image-frame';
 
 import { PhotoDeckProps } from '../types/products-ui';
+
+const PRODUCT_FRAME_ASPECT = 'aspect-[3/4]';
+const PRODUCT_FRAME_BG = 'bg-black/[0.04] dark:bg-white/[0.06]';
 
 const PhotoDeck = React.memo(({
   urls,
   maxItems = 4,
+  brandedPrimary,
   onOpenPreview,
   onDragStart,
   onDragEnd,
@@ -68,7 +73,7 @@ const PhotoDeck = React.memo(({
           }}
           onDragEnd={() => onDragEnd?.()}
         >
-          <div className="relative aspect-square w-full overflow-hidden">
+          <div className={`relative ${PRODUCT_FRAME_ASPECT} w-full overflow-hidden ${PRODUCT_FRAME_BG}`}>
             {primaryIsVideo ? (
               <div className="flex h-full w-full items-center justify-center bg-black/10 dark:bg-white/10">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/30 shadow-lg backdrop-blur-sm">
@@ -77,13 +82,19 @@ const PhotoDeck = React.memo(({
                   </svg>
                 </div>
               </div>
+            ) : brandedPrimary ? (
+              <BrandedImageFrame
+                composedSrc={brandedPrimary.composedSrc}
+                cutoutSrc={brandedPrimary.cutoutSrc}
+                alt="Product image"
+              />
             ) : (
               <CachedMediaPreview
                 url={primaryUrl}
                 width={previewWidth}
                 enabled={inView}
                 priority={inView}
-                className="block h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-contain"
                 alt="Product image"
               />
             )}

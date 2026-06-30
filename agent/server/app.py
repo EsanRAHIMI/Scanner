@@ -70,9 +70,26 @@ def _context_blurb(context: dict[str, Any]) -> str:
                 parts.append(f"visible_staging_rows = {staging['visible_rows_count']}")
             if staging.get("total_rows") is not None:
                 parts.append(f"import_total_rows = {staging['total_rows']}")
+            match = staging.get("match")
+            if isinstance(match, dict) and match.get("configured"):
+                excel = match.get("excel_columns") or []
+                prod = match.get("products_column") or "?"
+                totals = match.get("totals_in_import") or match
+                parts.append(
+                    f"import_match = {' OR '.join(str(c) for c in excel)} → {prod}"
+                )
+                parts.append(
+                    "import_match_counts = "
+                    f"matched {totals.get('matched', 0)}, "
+                    f"unmatched {totals.get('unmatched', 0)}, "
+                    f"empty {totals.get('empty', 0)}"
+                )
+                meanings = match.get("status_meanings") or {}
+                if meanings.get("unmatched"):
+                    parts.append(f"unmatched_means = {meanings['unmatched']}")
         parts.append(
-            "For questions about this list, call get_visible_import_context — "
-            "do NOT use get_selected_products on this page."
+            "For ANY question about this import list (counts, match status, why Unmatched), "
+            "call get_visible_import_context — do NOT use get_selected_products."
         )
     sel = context.get("selected_product_ids") or []
     if sel:
