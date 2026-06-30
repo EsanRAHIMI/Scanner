@@ -60,6 +60,20 @@ def _context_blurb(context: dict[str, Any]) -> str:
         parts.append(f"path = {context['path']}")
     if context.get("proposal_id"):
         parts.append(f"current_proposal_id = {context['proposal_id']}")
+    staging = context.get("import_staging")
+    if context.get("module") == "imports" or isinstance(staging, dict):
+        parts.append("page = Excel Imports staging (NOT the main Products catalog)")
+        if isinstance(staging, dict):
+            if staging.get("filename"):
+                parts.append(f"import_file = {staging['filename']}")
+            if staging.get("visible_rows_count") is not None:
+                parts.append(f"visible_staging_rows = {staging['visible_rows_count']}")
+            if staging.get("total_rows") is not None:
+                parts.append(f"import_total_rows = {staging['total_rows']}")
+        parts.append(
+            "For questions about this list, call get_visible_import_context — "
+            "do NOT use get_selected_products on this page."
+        )
     sel = context.get("selected_product_ids") or []
     if sel:
         parts.append(f"selected_product_ids = {sel[:20]}")
@@ -193,7 +207,7 @@ async def bootstrap(user: dict[str, Any] | None = Depends(get_optional_user)) ->
 @app.get("/api/agent/conversations")
 async def list_conversations(
     user: dict[str, Any] = Depends(get_current_user),
-    limit: int = Query(30, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=200),
 ) -> dict[str, Any]:
     db = _require_db()
     docs = (
@@ -203,13 +217,23 @@ async def list_conversations(
         .limit(limit)
         .to_list(length=limit)
     )
-    return {"conversations": [{**d, "id": d["_id"]} for d in docs]}
+    conversations = []
+    for doc in docs:
+        conversations.append({
+            "id": doc.get("_id"),
+            "title": doc.get("title") or "Conversation",
+            "created_at": doc.get("created_at"),
+            "updated_at": doc.get("updated_at"),
+            "last_message_at": doc.get("last_message_at") or doc.get("updated_at"),
+        })
+    return {"conversations": conversations}
 
 
 @app.get("/api/agent/conversations/{conversation_id}/messages")
 async def conversation_messages(
     conversation_id: str,
     user: dict[str, Any] = Depends(get_current_user),
+    limit: int = Query(200, ge=1, le=500),
 ) -> dict[str, Any]:
     db = _require_db()
     conv = await db["agent_conversations"].find_one(
@@ -217,8 +241,17 @@ async def conversation_messages(
     )
     if not conv:
         raise HTTPException(status_code=404, detail="CONVERSATION_NOT_FOUND")
-    msgs = await get_recent_messages(db, conversation_id, settings.short_term_max_messages)
-    return {"messages": [{"role": m["role"], "content": m["content"]} for m in msgs]}
+    msgs = await get_recent_messages(db, conversation_id, limit)
+    return {
+        "conversation": {
+            "id": conv.get("_id"),
+            "title": conv.get("title") or "Conversation",
+            "created_at": conv.get("created_at"),
+            "updated_at": conv.get("updated_at"),
+            "last_message_at": conv.get("last_message_at") or conv.get("updated_at"),
+        },
+        "messages": [{"role": m["role"], "content": m["content"], "created_at": m.get("created_at")} for m in msgs],
+    }
 
 
 @app.get("/api/agent/memory")

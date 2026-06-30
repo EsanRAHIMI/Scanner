@@ -65,6 +65,10 @@
       if (seg[0] === 'templates') return 'templates';
       return 'proposals-list';
     }
+    if (app === 'products') {
+      if (p.indexOf('/imports') !== -1 || (seg[0] === 'products' && seg[1] === 'imports')) return 'imports';
+      return 'catalog';
+    }
     return seg[0] || 'home';
   }
   function getContext() {
@@ -74,7 +78,8 @@
       app: app, url: location.href, path: p,
       module: moduleFromPath(app, p),
       title: document.title || '',
-      selected_product_ids: [], visible_product_ids: [], proposal_id: null
+      selected_product_ids: [], visible_product_ids: [], proposal_id: null,
+      import_staging: null, page_summary: ''
     };
     // proposal id from URL (/proposals/{id})
     var m = p.match(/\/proposals\/([^\/?#]+)/);
@@ -90,6 +95,10 @@
         if (Array.isArray(extra.visible_product_ids)) ctx.visible_product_ids = extra.visible_product_ids.slice(0, 80);
         if (extra.proposal_id) ctx.proposal_id = extra.proposal_id;
         if (extra.module) ctx.module = extra.module;
+        if (typeof extra.page_summary === 'string') ctx.page_summary = extra.page_summary;
+        if (extra.import_staging && typeof extra.import_staging === 'object') {
+          ctx.import_staging = extra.import_staging;
+        }
       }
     } catch (e) {}
     return ctx;
@@ -145,8 +154,13 @@
   .h-title { font-weight:800; font-size:14px; letter-spacing:.01em; }
   .h-app { margin-left:8px; font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:999px;
            background: rgba(156,31,69,0.12); color:#9c1f45; }
-  .h-prov { margin-left:auto; font-size:10px; opacity:.5; }
-  .close { border:0; background:transparent; cursor:pointer; font-size:20px; line-height:1; opacity:.55; margin-left:6px; }
+  .h-prov { font-size:10px; opacity:.5; }
+  .head-actions { margin-left:auto; display:flex; align-items:center; gap:2px; }
+  .icon-btn { border:0; background:transparent; cursor:pointer; font-size:17px; line-height:1; opacity:.55;
+              padding:4px 7px; border-radius:9px; color:inherit; display:flex; align-items:center; justify-content:center; }
+  .icon-btn:hover { opacity:1; background: rgba(0,0,0,0.06); }
+  .icon-btn svg { width:17px; height:17px; display:block; }
+  .close { border:0; background:transparent; cursor:pointer; font-size:20px; line-height:1; opacity:.55; padding:2px 6px; }
   .msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
   .msg { display:flex; } .msg.user { justify-content:flex-end; }
   .bubble { max-width:86%; padding:9px 12px; border-radius:15px; font-size:13.5px; line-height:1.46; white-space:pre-wrap; word-wrap:break-word; }
@@ -234,6 +248,37 @@
   .wrap.dark .pcard .pcode { color:#c4a9b2; }
   .wrap.dark .pdetail { background: rgba(24,20,22,0.98); }
   .wrap.dark .pdetail .dname { color:#f2ece8; } .wrap.dark .pdetail .drow { color:#e7ddd9; }
+  .wrap.dark .icon-btn:hover { background: rgba(255,255,255,0.08); }
+
+  /* ---- conversation archive (daily history) ---- */
+  .archive { position:absolute; inset:0; z-index:6; display:flex; flex-direction:column;
+             background: rgba(252,250,249,0.98); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .archive[hidden] { display:none !important; }
+  .arch-head { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid rgba(0,0,0,0.06); }
+  .arch-title { font-weight:800; font-size:14px; flex:1; }
+  .arch-back { border:0; background: rgba(0,0,0,0.05); border-radius:10px; padding:6px 11px;
+               font-size:12px; font-weight:700; cursor:pointer; color:#7a2238; }
+  .arch-new { border:0; background: rgba(156,31,69,0.12); border-radius:10px; padding:6px 11px;
+              font-size:12px; font-weight:700; cursor:pointer; color:#9c1f45; }
+  .arch-body { flex:1; overflow-y:auto; padding:8px 12px 16px; }
+  .arch-day { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+              color:#8a6b76; padding:12px 4px 6px; }
+  .arch-day:first-child { padding-top:4px; }
+  .arch-item { display:flex; flex-direction:column; gap:2px; width:100%; text-align:left;
+               border:1px solid rgba(0,0,0,0.06); background: rgba(0,0,0,0.02); border-radius:12px;
+               padding:10px 11px; margin-bottom:6px; cursor:pointer; transition: background .15s, border-color .15s; color:inherit; }
+  .arch-item:hover { background: rgba(156,31,69,0.08); border-color: rgba(156,31,69,0.2); }
+  .arch-item.active { background: rgba(156,31,69,0.12); border-color: rgba(156,31,69,0.35); }
+  .arch-item .t { font-size:13px; font-weight:600; line-height:1.3;
+                   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .arch-item .m { font-size:10.5px; opacity:.55; }
+  .arch-loading, .arch-empty { text-align:center; padding:28px 12px; font-size:13px; opacity:.55; line-height:1.5; }
+  .wrap.dark .archive { background: rgba(24,20,22,0.98); }
+  .wrap.dark .arch-back { background: rgba(255,255,255,0.06); color:#e7ddd9; }
+  .wrap.dark .arch-new { background: rgba(156,31,69,0.22); color:#f2c4d4; }
+  .wrap.dark .arch-day { color:#c4a9b2; }
+  .wrap.dark .arch-item { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); }
+  .wrap.dark .arch-item:hover { background: rgba(156,31,69,0.18); }
   `;
 
   function icon(name) {
@@ -243,7 +288,8 @@
       images: '<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="9.5" r="1.6" fill="currentColor"/><path d="M5 18l4.5-4.5 3 3L17 11l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
       marketing: '<path d="M4 13V9a1 1 0 011-1h3l7-4v14l-7-4H5a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M18 9a3 3 0 010 6" fill="none" stroke="currentColor" stroke-width="1.8"/>',
       ai: '<rect x="5" y="6" width="14" height="12" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 3v3M8.5 11.5h.01M15.5 11.5h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9 15c1 .8 5 .8 6 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
-      gear: '<circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+      gear: '<circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+      history: '<path d="M3 12a9 9 0 101.8-5.8M3 4v5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
     };
     return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (p[name] || '') + '</svg>';
   }
@@ -259,20 +305,40 @@
   var panel = document.createElement('div'); panel.className = 'panel';
   panel.innerHTML =
     '<div class="head"><span class="h-title">Lorenzo AI</span><span class="h-app" data-app></span>' +
-    '<span class="h-prov" data-prov></span><button class="close" title="Close">×</button></div>' +
+    '<span class="h-prov" data-prov></span>' +
+    '<div class="head-actions">' +
+    '<button class="icon-btn hist-btn" data-hist title="Chat history" hidden>' + icon('history') + '</button>' +
+    '<button class="icon-btn new-btn" data-new title="New chat" hidden>+</button>' +
+    '<button class="close" title="Close">×</button></div></div>' +
     '<div class="msgs"></div>' +
     '<div class="chips" data-chips></div>' +
     '<div class="composer"><input type="text" placeholder="Ask or run a command…" /><button class="send">Send</button></div>';
   wrap.appendChild(panel);
 
-  var dot, aiBtn, navButtons = {},
+  var archiveEl = document.createElement('div');
+  archiveEl.className = 'archive';
+  archiveEl.hidden = true;
+  archiveEl.innerHTML =
+    '<div class="arch-head"><button type="button" class="arch-back">← Back</button>' +
+    '<span class="arch-title">Chat history</span>' +
+    '<button type="button" class="arch-new">New chat</button></div>' +
+    '<div class="arch-body"></div>';
+  panel.appendChild(archiveEl);
+
+  var dot, aiBtn, navButtons = {}, archiveOpen = false,
       msgsEl = panel.querySelector('.msgs'),
       inputEl = panel.querySelector('input'),
       sendEl = panel.querySelector('.send'),
       appEl = panel.querySelector('[data-app]'),
       provEl = panel.querySelector('[data-prov]'),
-      chipsEl = panel.querySelector('[data-chips]');
-  panel.querySelector('.close').onclick = function () { panel.classList.remove('open'); };
+      chipsEl = panel.querySelector('[data-chips]'),
+      histBtn = panel.querySelector('[data-hist]'),
+      newBtn = panel.querySelector('[data-new]');
+  panel.querySelector('.close').onclick = function () { panel.classList.remove('open'); closeArchive(); };
+  archiveEl.querySelector('.arch-back').onclick = closeArchive;
+  archiveEl.querySelector('.arch-new').onclick = startNewConversation;
+  if (histBtn) histBtn.onclick = openArchive;
+  if (newBtn) newBtn.onclick = startNewConversation;
 
   function setStatus(s) { if (dot) dot.className = 'dot' + (s ? ' ' + s : ''); }
 
@@ -292,7 +358,19 @@
     aiBtn.innerHTML = icon('ai') + '<span class="dot"></span>'; dot = aiBtn.querySelector('.dot');
     aiBtn.onclick = function () {
       panel.classList.toggle('open');
-      if (panel.classList.contains('open')) { refreshPanelContext(); setTimeout(function(){ inputEl.focus(); }, 80); }
+      if (panel.classList.contains('open')) {
+        updateArchiveButtons();
+        var convId = null;
+        try { convId = localStorage.getItem(CONV_KEY); } catch (e) {}
+        if (BOOT.authenticated && convId && !msgsEl.querySelector('.msg')) {
+          loadConversation(convId, { silent: true });
+        } else {
+          refreshPanelContext();
+        }
+        setTimeout(function () { if (!archiveOpen) inputEl.focus(); }, 80);
+      } else {
+        closeArchive();
+      }
     };
     bar.appendChild(aiBtn);
     bar.appendChild(navBtn('images', 'Images', 'images', nav.images));
@@ -304,6 +382,142 @@
     Object.keys(navButtons).forEach(function (k) { navButtons[k].classList.toggle('active', k === app); });
   }
 
+  function updateArchiveButtons() {
+    var show = !!BOOT.authenticated;
+    if (histBtn) histBtn.hidden = !show;
+    if (newBtn) newBtn.hidden = !show;
+  }
+  function dayLabel(iso) {
+    if (!iso) return 'Earlier';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return 'Earlier';
+    var now = new Date();
+    var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var diffDays = Math.round((todayStart - dayStart) / 86400000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    try {
+      return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return d.toISOString().slice(0, 10); }
+  }
+  function formatTime(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    try { return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+  function groupConversationsByDay(convs) {
+    var order = [], map = {};
+    convs.forEach(function (c) {
+      var label = dayLabel(c.last_message_at || c.updated_at || c.created_at);
+      if (!map[label]) { map[label] = []; order.push(label); }
+      map[label].push(c);
+    });
+    return order.map(function (label) { return { label: label, items: map[label] }; });
+  }
+  function renderArchiveList(convs) {
+    var body = archiveEl.querySelector('.arch-body');
+    body.innerHTML = '';
+    if (!convs.length) {
+      body.innerHTML = '<div class="arch-empty">No conversations yet.<br>Start chatting and they will appear here, grouped by day.</div>';
+      return;
+    }
+    var currentId = null;
+    try { currentId = localStorage.getItem(CONV_KEY); } catch (e) {}
+    groupConversationsByDay(convs).forEach(function (g) {
+      var day = document.createElement('div');
+      day.className = 'arch-day';
+      day.textContent = g.label;
+      body.appendChild(day);
+      g.items.forEach(function (c) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'arch-item' + (c.id === currentId ? ' active' : '');
+        var title = document.createElement('div');
+        title.className = 't';
+        title.textContent = c.title || 'Conversation';
+        applyDir(title, title.textContent);
+        var meta = document.createElement('div');
+        meta.className = 'm';
+        meta.textContent = formatTime(c.last_message_at || c.updated_at || c.created_at);
+        btn.appendChild(title);
+        btn.appendChild(meta);
+        btn.onclick = function () { loadConversation(c.id); };
+        body.appendChild(btn);
+      });
+    });
+  }
+  function fetchAndRenderArchive() {
+    var body = archiveEl.querySelector('.arch-body');
+    body.innerHTML = '<div class="arch-loading">Loading history…</div>';
+    fetch(BASE + '/api/agent/conversations?limit=100', { credentials: 'include' })
+      .then(function (r) {
+        if (r.status === 401) throw new Error('unauth');
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(function (data) { renderArchiveList(data.conversations || []); })
+      .catch(function () {
+        body.innerHTML = '<div class="arch-empty">Could not load chat history.<br>Please try again.</div>';
+      });
+  }
+  function openArchive() {
+    if (!BOOT.authenticated) return;
+    archiveOpen = true;
+    archiveEl.hidden = false;
+    fetchAndRenderArchive();
+  }
+  function closeArchive() {
+    archiveOpen = false;
+    archiveEl.hidden = true;
+  }
+  function startNewConversation() {
+    try { localStorage.removeItem(CONV_KEY); } catch (e) {}
+    closeArchive();
+    msgsEl.innerHTML = '';
+    refreshPanelContext();
+    inputEl.focus();
+  }
+  function loadConversation(convId, opts) {
+    opts = opts || {};
+    if (!convId) return;
+    if (!opts.silent) closeArchive();
+    msgsEl.innerHTML = '';
+    if (!opts.silent) {
+      var loading = document.createElement('div');
+      loading.className = 'empty';
+      loading.textContent = 'Loading conversation…';
+      msgsEl.appendChild(loading);
+    }
+    fetch(BASE + '/api/agent/conversations/' + encodeURIComponent(convId) + '/messages?limit=200', { credentials: 'include' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        try { localStorage.setItem(CONV_KEY, convId); } catch (e) {}
+        msgsEl.innerHTML = '';
+        var msgs = data.messages || [];
+        if (!msgs.length) renderEmptyState(getContext());
+        else msgs.forEach(function (m) {
+          if (m.role === 'user' || m.role === 'assistant')
+            addBubble(m.role === 'user' ? 'user' : 'bot', m.content || '');
+        });
+        refreshPanelContext();
+        msgsEl.scrollTop = msgsEl.scrollHeight;
+        if (!opts.silent) inputEl.focus();
+      })
+      .catch(function () {
+        msgsEl.innerHTML = '';
+        var err = document.createElement('div');
+        err.className = 'empty';
+        err.textContent = 'Could not load this conversation.';
+        msgsEl.appendChild(err);
+      });
+  }
+
   var APP_LABEL = { products:'Products', proposals:'Proposals', images:'Images', marketing:'Marketing', trainer:'Trainer', dashboard:'Dashboard', scanner:'Scanner', unknown:'Lorenzo' };
   function accountName() {
     var u = BOOT.user || {};
@@ -312,6 +526,7 @@
   function refreshPanelContext() {
     var ctx = getContext();
     appEl.textContent = APP_LABEL[ctx.app] || 'Lorenzo';
+    updateArchiveButtons();
     if (BOOT.authenticated) {
       var nm = accountName();
       provEl.textContent = nm || (BOOT.llm_provider || '');
@@ -321,8 +536,11 @@
       provEl.textContent = 'sign in';
       provEl.title = 'Sign in to your Lorenzo account';
     }
-    // suggested prompts + module chips
-    if (!msgsEl.querySelector('.msg')) renderEmptyState(ctx);
+    if (!msgsEl.querySelector('.msg')) {
+      var convId = null;
+      try { convId = localStorage.getItem(CONV_KEY); } catch (e) {}
+      if (!convId || !BOOT.authenticated) renderEmptyState(ctx);
+    }
     renderChips(ctx);
   }
   function renderChips(ctx) {
@@ -331,6 +549,9 @@
     if (ctx.selected_product_ids && ctx.selected_product_ids.length)
       quick.push('Summarize my ' + ctx.selected_product_ids.length + ' selected product(s)');
     if (ctx.proposal_id) quick.push('Summarize the current proposal');
+    if (ctx.module === 'imports' || (ctx.import_staging && ctx.import_staging.visible_rows_count)) {
+      quick.push('Summarize the Excel import rows on screen');
+    }
     quick.forEach(function (q) {
       var c = document.createElement('button'); c.className = 'chip'; c.textContent = q;
       c.onclick = function () { inputEl.value = q; send(); };
@@ -488,6 +709,7 @@
     get_current_user_context:'Reading your account context',
     search_products:'Searching products', get_product_details:'Loading product',
     get_selected_products:'Reading your selection', get_visible_products_context:'Reading on-screen products',
+    get_visible_import_context:'Reading Excel import staging',
     get_product_fields_schema:'Reading field schema',
     get_recent_proposals:'Loading proposals', get_proposal_details:'Loading proposal',
     get_current_proposal_context:'Reading current proposal',
@@ -589,7 +811,7 @@
   buildBar();
   fetch(BASE + '/api/agent/bootstrap', { credentials: 'include' })
     .then(function (r) { return r.json(); })
-    .then(function (d) { BOOT = d || BOOT; buildBar(); refreshPanelContext(); })
+    .then(function (d) { BOOT = d || BOOT; buildBar(); updateArchiveButtons(); refreshPanelContext(); })
     .catch(function () {});
   // keep active-app highlight fresh on SPA navigation
   setInterval(highlightActive, 1500);

@@ -320,6 +320,43 @@ function buildRowStatusMap(
   return map;
 }
 
+const AGENT_IMPORT_ROW_LIMIT = 80;
+const AGENT_IMPORT_FIELD_LIMIT = 12;
+
+function trimAgentFieldValue(value: unknown, max = 80): string | number | boolean | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function summarizeImportRowFieldsForAgent(
+  fields: Record<string, unknown>,
+  priorityColumns: string[],
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  const seen = new Set<string>();
+  const keys = [
+    ...priorityColumns,
+    ...Object.keys(fields).filter((key) => !priorityColumns.includes(key)),
+  ];
+  for (const key of keys) {
+    if (key === 'Row' || seen.has(key)) continue;
+    seen.add(key);
+    const trimmed = trimAgentFieldValue(fields[key]);
+    if (trimmed === null) continue;
+    out[key] = trimmed;
+    if (Object.keys(out).length >= AGENT_IMPORT_FIELD_LIMIT) break;
+  }
+  return out;
+}
+
 export default function ProductImportsPage() {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [selectedImportId, setSelectedImportId] = React.useState<string | null>(null);
@@ -878,6 +915,67 @@ export default function ProductImportsPage() {
 
   const removeMatchImportColumn = React.useCallback((column: string) => {
     setMatchImportColumns((prev) => prev.filter((item) => item !== column));
+  }, []);
+
+  const agentContextRef = React.useRef<Record<string, unknown>>({});
+  const agentFieldPriority = React.useMemo(
+    () => [
+      ...matchImportColumns,
+      'CODE NUMBER',
+      'Code Number',
+      'default_code',
+      'Default Code',
+      'Colecction Name',
+      'Collection Name',
+      matchProductColumn,
+    ].filter(Boolean) as string[],
+    [matchImportColumns, matchProductColumn],
+  );
+  agentContextRef.current = {
+    app: 'products',
+    module: 'imports',
+    page_summary: 'Excel Imports staging table (not the main Products catalog list)',
+    selected_product_ids: [],
+    visible_product_ids: [],
+    import_staging: {
+      active_import_id: activeImportId,
+      filename: rowsData?.import.filename ?? null,
+      total_rows: rowsData?.count ?? 0,
+      visible_rows_count: filteredImportRows.length,
+      hidden_rows_count: hiddenRowCount,
+      show_hidden_rows: showHiddenRows,
+      imports_count: imports.length,
+      match: isMatchConfigured
+        ? {
+            excel_columns: matchImportColumns,
+            products_column: matchProductColumn,
+            matched: rowStatusCounts.matched,
+            unmatched: rowStatusCounts.unmatched,
+            empty: rowStatusCounts.empty,
+          }
+        : null,
+      columns: importColumns.slice(0, 40),
+      visible_rows: filteredImportRows.slice(0, AGENT_IMPORT_ROW_LIMIT).map((row) => ({
+        id: row.id,
+        row_label: (row.row_label ?? '').trim() || getImportRowDisplayLabel(row),
+        match_status: rowStatusById.get(row.id) ?? null,
+        source_sheet: row.source_sheet ?? null,
+        source_row_number: row.source_row_number ?? null,
+        fields: summarizeImportRowFieldsForAgent(row.fields ?? {}, agentFieldPriority),
+      })),
+    },
+  };
+
+  React.useEffect(() => {
+    const w = window as unknown as { __lorenzoAgentContext?: () => Record<string, unknown> };
+    w.__lorenzoAgentContext = () => agentContextRef.current;
+    return () => {
+      try {
+        delete w.__lorenzoAgentContext;
+      } catch {
+        w.__lorenzoAgentContext = undefined;
+      }
+    };
   }, []);
 
   return (

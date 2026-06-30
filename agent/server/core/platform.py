@@ -181,7 +181,7 @@ async def build_user_identity(rt: dict[str, Any]) -> dict[str, Any]:
         permissions = user.get("permissions") or []
     selected = context.get("selected_product_ids") or []
     visible = context.get("visible_product_ids") or []
-    return {
+    identity: dict[str, Any] = {
         "authenticated": bool(user.get("id")),
         "user_id": user.get("id"),
         "display_name": _display_name(profile, user),
@@ -202,6 +202,13 @@ async def build_user_identity(rt: dict[str, Any]) -> dict[str, Any]:
         "visible_product_ids": visible[:80] if isinstance(visible, list) else [],
         "visible_count": len(visible) if isinstance(visible, list) else 0,
     }
+    staging = context.get("import_staging")
+    if isinstance(staging, dict) and staging:
+        identity["current_module"] = context.get("module") or "imports"
+        identity["import_staging_filename"] = staging.get("filename")
+        identity["import_staging_visible_rows"] = staging.get("visible_rows_count")
+        identity["import_staging_total_rows"] = staging.get("total_rows")
+    return identity
 
 
 async def tool_get_current_user_context(args: dict[str, Any], rt: dict[str, Any]) -> dict[str, Any]:
@@ -275,6 +282,13 @@ async def tool_get_selected_products(args: dict[str, Any], rt: dict[str, Any]) -
     db = rt.get("platform_db")
     if db is None:
         return {"ok": False, "summary": "Platform DB not available."}
+    ctx = rt.get("context") or {}
+    if ctx.get("module") == "imports" or ctx.get("import_staging"):
+        return {
+            "ok": True,
+            "summary": "You are on Excel Imports — there is no product selection on this page.",
+            "data": {"count": 0, "products": [], "source": "imports_page"},
+        }
     ids = (rt.get("context") or {}).get("selected_product_ids") or []
     if not isinstance(ids, list) or not ids:
         return {"ok": True, "summary": "No products are selected right now.",
@@ -292,6 +306,12 @@ async def tool_get_visible_products_context(args: dict[str, Any], rt: dict[str, 
     if db is None:
         return {"ok": False, "summary": "Platform DB not available."}
     ctx = rt.get("context") or {}
+    if ctx.get("module") == "imports" or ctx.get("import_staging"):
+        return {
+            "ok": True,
+            "summary": "You are on Excel Imports — use get_visible_import_context for the staging table.",
+            "data": {"count": 0, "products": [], "app": ctx.get("app"), "redirect": "imports"},
+        }
     ids = ctx.get("visible_product_ids") or []
     if not isinstance(ids, list) or not ids:
         return {"ok": True,
@@ -302,6 +322,34 @@ async def tool_get_visible_products_context(args: dict[str, Any], rt: dict[str, 
         "ok": True,
         "summary": f"{len(products)} product(s) currently visible on screen.",
         "data": {"count": len(products), "products": products, "source": "current_viewport"},
+    }
+
+
+async def tool_get_visible_import_context(args: dict[str, Any], rt: dict[str, Any]) -> dict[str, Any]:
+    """Return the Excel Imports staging rows currently loaded on the user's screen."""
+    ctx = rt.get("context") or {}
+    staging = ctx.get("import_staging")
+    if not isinstance(staging, dict) or not staging:
+        if ctx.get("module") == "imports":
+            return {
+                "ok": True,
+                "summary": "On Excel Imports, but no staging rows were reported by the page yet.",
+                "data": {"has_import_staging": False, "app": ctx.get("app"), "module": "imports"},
+            }
+        return {
+            "ok": True,
+            "summary": "Not on the Excel Imports page.",
+            "data": {"has_import_staging": False, "app": ctx.get("app")},
+        }
+    rows = staging.get("visible_rows") or []
+    filename = staging.get("filename") or "import"
+    visible_count = staging.get("visible_rows_count")
+    if visible_count is None:
+        visible_count = len(rows) if isinstance(rows, list) else 0
+    return {
+        "ok": True,
+        "summary": f"Excel Imports: {filename} — {visible_count} visible staging row(s) on screen.",
+        "data": {**staging, "has_import_staging": True, "source": "current_viewport"},
     }
 
 

@@ -135,6 +135,18 @@ registry.register(Tool(
 ))
 
 registry.register(Tool(
+    name="get_visible_import_context",
+    description=(
+        "Return the Excel Imports staging rows currently visible on the user's screen "
+        "(import file name, match stats, columns, and row field snapshots). Use on "
+        "/products/imports when the user asks about the import list, match status, or "
+        "staging rows — NOT get_selected_products. Read-only."
+    ),
+    input_schema={"type": "object", "properties": {}},
+    scope="read", required_role="user", handler=P.tool_get_visible_import_context,
+))
+
+registry.register(Tool(
     name="get_product_fields_schema",
     description=(
         "Explain the Products table fields (Num, Main Image, URL, Category, Material, "
