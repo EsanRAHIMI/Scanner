@@ -1714,6 +1714,7 @@ export function ProductsView({
           moderationMode={isAdminModerator && moderationMode}
           changeAudit={changeAudit}
           canEditField={canEditFieldForUser}
+          showColumnFillCounts={canDelete}
         />
       ) : viewMode === 'list' ? (
         <>
@@ -1755,6 +1756,7 @@ export function ProductsView({
             moderationMode={isAdminModerator && moderationMode}
             changeAudit={changeAudit}
             canEditField={canEditFieldForUser}
+            showColumnFillCounts={canDelete}
             loadMore={
               !loading && listVisibleRecords.length > 0
                 ? {

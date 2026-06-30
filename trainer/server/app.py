@@ -13,7 +13,7 @@ import uuid
 import base64
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 from urllib.parse import urlencode
 from urllib.request import Request
 
@@ -597,16 +597,17 @@ def _product_match_keys(fields: dict[str, Any]) -> list[str]:
 
 def _canonical_product_field_value(fields: dict[str, Any], field_name: str) -> Any:
   aliases: dict[str, list[str]] = {
-    "colecction name": ["Colecction Name", "Collection Name", "Name"],
-    "collection name": ["Colecction Name", "Collection Name", "Name"],
-    "name": ["Colecction Name", "Collection Name", "Name"],
+    # Import reality: product keys can be split across Colecction Name/default_code/CODE NUMBER.
+    "colecction name": ["Colecction Name", "Collection Name", "Name", "default_code", "Default Code", "CODE NUMBER", "Code Number", "Code No"],
+    "collection name": ["Colecction Name", "Collection Name", "Name", "default_code", "Default Code", "CODE NUMBER", "Code Number", "Code No"],
+    "name": ["Colecction Name", "Collection Name", "Name", "default_code", "Default Code", "CODE NUMBER", "Code Number", "Code No"],
     "colecction code": ["Colecction Code", "Collection Code", "Code"],
     "collection code": ["Colecction Code", "Collection Code", "Code"],
     "code": ["Colecction Code", "Collection Code", "Code"],
     "variant number": ["Variant Number", "Variant", "Num"],
     "variant": ["Variant Number", "Variant", "Num"],
     "num": ["Num", "Variant Number", "Variant"],
-    "code number": ["CODE NUMBER", "Code Number", "Code No"],
+    "code number": ["CODE NUMBER", "Code Number", "Code No", "default_code", "Default Code", "Colecction Name", "Collection Name", "Name"],
     "dimension (mm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION (cm)", "Dimension (cm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
     "dimension (cm)": ["DIMENSION (mm)", "Dimension (mm)", "DIMENSION (cm)", "Dimension (cm)", "DIMENSION", "Dimension", "Dimensions", "Size"],
   }
@@ -662,47 +663,93 @@ async def _build_product_index_by_column(db: Any, product_column: str) -> dict[s
   return index
 
 
+def _iter_import_match_keys(row_fields: dict[str, Any], import_columns: list[str]) -> Iterable[str]:
+  seen: set[str] = set()
+  for import_column in import_columns:
+    raw_value = _import_row_field_value(row_fields, import_column)
+    key = _product_compare_value(raw_value)
+    if not key or key in seen:
+      continue
+    seen.add(key)
+    yield key
+
+
 def _find_matching_product_by_column(
   row_fields: dict[str, Any],
   product_index: dict[str, dict[str, Any]],
-  import_column: str,
+  import_columns: list[str],
 ) -> dict[str, Any] | None:
-  raw_value = _import_row_field_value(row_fields, import_column)
-  key = _product_compare_value(raw_value)
-  if not key:
-    return None
-  return product_index.get(key)
+  for key in _iter_import_match_keys(row_fields, import_columns):
+    product = product_index.get(key)
+    if product:
+      return product
+  return None
 
 
-def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[str, str] | None:
+def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[str], str] | None:
   if not isinstance(payload, dict):
     return None
   match = payload.get("match")
   if not isinstance(match, dict):
     return None
+  import_columns = match.get("import_columns")
+  if isinstance(import_columns, list):
+    parsed_import_columns = [
+      _validate_import_match_column(item)
+      for item in import_columns
+      if isinstance(item, str) and item.strip()
+    ]
+  else:
+    parsed_import_columns = []
   import_column = match.get("import_column")
+  if not parsed_import_columns and isinstance(import_column, str):
+    parsed_import_columns = [_validate_import_match_column(import_column)]
   product_column = match.get("product_column")
-  if not isinstance(import_column, str) or not isinstance(product_column, str):
+  if not parsed_import_columns or not isinstance(product_column, str):
     return None
-  return _validate_import_match_column(import_column), _validate_import_match_column(product_column)
+  return parsed_import_columns, _validate_import_match_column(product_column)
 
 
 PRODUCT_IMPORT_ROW_MATCH_STATUSES = frozenset({"matched", "unmatched", "empty"})
+HIDDEN_IMPORT_ROW_LABELS = frozenset({"-", "crystal", "custom"})
+
+
+def _import_fields_contain_crystal_or_custom(fields: dict[str, Any]) -> bool:
+  if not isinstance(fields, dict):
+    return False
+  for key, value in fields.items():
+    if key == "Row":
+      continue
+    text = _import_value_to_text(value).casefold()
+    if "crystal" in text or "custom" in text:
+      return True
+  return False
+
+
+def _is_hidden_import_row(row: dict[str, Any]) -> bool:
+  raw_label = str(row.get("row_label") or "").strip()
+  label = raw_label.casefold()
+  if label in HIDDEN_IMPORT_ROW_LABELS:
+    return True
+  if raw_label:
+    return False
+  fields = row.get("fields") or {}
+  return _import_fields_contain_crystal_or_custom(fields) if isinstance(fields, dict) else False
 
 
 def _classify_import_row_match_status(
   row_fields: dict[str, Any],
   product_index: dict[str, dict[str, Any]],
-  import_column: str,
+  import_columns: list[str],
 ) -> str:
   if not isinstance(row_fields, dict):
     return "empty"
-  import_value = _import_row_field_value(row_fields, import_column)
-  import_key = _product_compare_value(import_value)
-  if not import_key:
+  import_keys = list(_iter_import_match_keys(row_fields, import_columns))
+  if not import_keys:
     return "empty"
-  if product_index.get(import_key):
-    return "matched"
+  for import_key in import_keys:
+    if product_index.get(import_key):
+      return "matched"
   return "unmatched"
 
 
@@ -3339,6 +3386,7 @@ async def admin_get_product_import_rows(
       fields = {"Row": doc.get("source_row_number")}
     records.append({
       "id": str(doc.get("_id")),
+      "row_label": str(doc.get("row_label") or "").strip(),
       "fields": fields,
       "raw_fields": doc.get("raw_fields") or {},
       "warnings": doc.get("warnings") or [],
@@ -3414,6 +3462,47 @@ async def admin_update_product_import_row(
   user: dict[str, Any] = Depends(_require_admin),
   db: Any = Depends(_get_db),
 ):
+  row = await db[PRODUCT_IMPORT_ROWS_COLLECTION].find_one({"_id": row_id, "import_id": import_id})
+  if not row:
+    raise HTTPException(status_code=404, detail="IMPORT_ROW_NOT_FOUND")
+
+  # Staging-only admin label — never transferred to Products on apply.
+  if "row_label" in payload and payload.get("field") is None:
+    raw_label = payload.get("row_label")
+    if raw_label is None:
+      label = ""
+    elif isinstance(raw_label, str):
+      label = raw_label.strip()[:240]
+    else:
+      label = str(raw_label).strip()[:240]
+
+    now = _utc_now_iso()
+    await db[PRODUCT_IMPORT_ROWS_COLLECTION].update_one(
+      {"_id": row_id, "import_id": import_id},
+      {"$set": {"row_label": label, "updated_at": now}},
+    )
+
+    await log_activity(
+      req,
+      "PRODUCT_IMPORT_ROW_LABEL",
+      details="Updated staged import row label",
+      resource_id=row_id,
+      user=user,
+      db=db,
+    )
+
+    fields = row.get("fields") or {}
+    return {
+      "id": row_id,
+      "row_label": label,
+      "fields": fields if isinstance(fields, dict) else {},
+      "raw_fields": row.get("raw_fields") or {},
+      "warnings": row.get("warnings") or [],
+      "status": row.get("status") or "staged",
+      "source_sheet": row.get("source_sheet"),
+      "source_row_number": row.get("source_row_number"),
+    }
+
   field_name = payload.get("field")
   if not isinstance(field_name, str) or not field_name.strip():
     raise HTTPException(status_code=400, detail="INVALID_FIELD")
@@ -3421,10 +3510,6 @@ async def admin_update_product_import_row(
   field_name = field_name.strip()
   if "." in field_name or field_name.startswith("$"):
     raise HTTPException(status_code=400, detail="INVALID_FIELD")
-
-  row = await db[PRODUCT_IMPORT_ROWS_COLLECTION].find_one({"_id": row_id, "import_id": import_id})
-  if not row:
-    raise HTTPException(status_code=404, detail="IMPORT_ROW_NOT_FOUND")
 
   fields = dict(row.get("fields") or {})
   raw_fields = dict(row.get("raw_fields") or {})
@@ -3466,6 +3551,7 @@ async def admin_update_product_import_row(
 
   return {
     "id": row_id,
+    "row_label": str(row.get("row_label") or "").strip(),
     "fields": fields,
     "raw_fields": raw_fields,
     "warnings": warnings,
@@ -3489,11 +3575,12 @@ async def admin_preview_product_import_match(
   match_config = _parse_import_match_payload(payload)
   if not match_config:
     raise HTTPException(status_code=400, detail="INVALID_MATCH_PAYLOAD")
-  import_column, product_column = match_config
+  import_columns, product_column = match_config
 
   batch_columns = batch.get("columns") or []
-  if import_column != "Row" and import_column not in batch_columns:
-    raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
+  for import_column in import_columns:
+    if import_column != "Row" and import_column not in batch_columns:
+      raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
 
   product_index = await _build_product_index_by_column(db, product_column)
   matched_count = 0
@@ -3507,14 +3594,17 @@ async def admin_preview_product_import_match(
 
   cursor = db[PRODUCT_IMPORT_ROWS_COLLECTION].find({"import_id": import_id})
   async for row in cursor:
+    if _is_hidden_import_row(row):
+      continue
     row_id = str(row.get("_id"))
     fields = row.get("fields") or {}
     if not isinstance(fields, dict):
       fields = {}
 
-    status = _classify_import_row_match_status(fields, product_index, import_column)
+    status = _classify_import_row_match_status(fields, product_index, import_columns)
     row_statuses[row_id] = status
-    import_value = _import_row_field_value(fields, import_column)
+    preview_import_column = import_columns[0] if import_columns else "Row"
+    import_value = _import_row_field_value(fields, preview_import_column)
 
     if status == "empty":
       empty_import_value_count += 1
@@ -3530,7 +3620,7 @@ async def admin_preview_product_import_match(
 
     if status == "matched":
       matched_count += 1
-      product = product_index.get(_product_compare_value(import_value))
+      product = _find_matching_product_by_column(fields, product_index, import_columns)
       if len(matched_samples) < sample_limit and product:
         product_fields = product.get("fields") or {}
         product_value = _canonical_product_field_value(product_fields, product_column)
@@ -3558,7 +3648,7 @@ async def admin_preview_product_import_match(
   return {
     "ok": True,
     "match": {
-      "import_column": import_column,
+      "import_columns": import_columns,
       "product_column": product_column,
     },
     "total_rows": total_rows,
@@ -3606,12 +3696,13 @@ async def admin_apply_product_import(
 
   match_config = _parse_import_match_payload(payload)
   if match_config:
-    import_match_column, product_match_column = match_config
-    if import_match_column != "Row" and import_match_column not in batch_columns:
-      raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
+    import_match_columns, product_match_column = match_config
+    for import_match_column in import_match_columns:
+      if import_match_column != "Row" and import_match_column not in batch_columns:
+        raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
     product_index = await _build_product_index_by_column(db, product_match_column)
   else:
-    import_match_column = None
+    import_match_columns: list[str] = []
     product_match_column = None
     product_index = await _build_product_match_index(db)
 
@@ -3639,6 +3730,9 @@ async def admin_apply_product_import(
 
   async for row in cursor:
     row_id = str(row.get("_id"))
+    if _is_hidden_import_row(row):
+      skipped_count += 1
+      continue
     staged_fields = row.get("fields") or {}
     if not isinstance(staged_fields, dict) or not staged_fields:
       unchanged_count += 1
@@ -3649,13 +3743,13 @@ async def admin_apply_product_import(
       product_staged_fields["Row"] = source_row_number
 
     if match_config:
-      row_match_status = _classify_import_row_match_status(staged_fields, product_index, import_match_column)
+      row_match_status = _classify_import_row_match_status(staged_fields, product_index, import_match_columns)
       if row_match_status not in apply_row_groups:
         skipped_count += 1
         rows_skipped_by_group[row_match_status] = rows_skipped_by_group.get(row_match_status, 0) + 1
         continue
       rows_processed_by_group[row_match_status] = rows_processed_by_group.get(row_match_status, 0) + 1
-      existing_product = _find_matching_product_by_column(staged_fields, product_index, import_match_column)
+      existing_product = _find_matching_product_by_column(staged_fields, product_index, import_match_columns)
     else:
       existing_product = _find_matching_product(staged_fields, product_index)
     if existing_product:
@@ -3761,7 +3855,7 @@ async def admin_apply_product_import(
           "selected_columns": sorted(selected_columns),
           "match": (
             {
-              "import_column": import_match_column,
+              "import_columns": import_match_columns,
               "product_column": product_match_column,
             }
             if match_config

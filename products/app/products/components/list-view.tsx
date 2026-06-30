@@ -22,6 +22,7 @@ import {
   resolveMainImage,
   composedMainImageUrl,
   sameProductMediaUrl,
+  isEmptyProductValue,
 } from '../lib/product-utils';
 import { MainImageCell } from './main-image-cell';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
@@ -196,6 +197,7 @@ export function ListView({
   loadMore,
   moderationMode = false,
   changeAudit,
+  showColumnFillCounts = false,
 }: ListViewProps) {
   const [listScrollRoot, setListScrollRoot] = React.useState<HTMLElement | null>(null);
   const assignScrollContainerRef = React.useCallback(
@@ -276,6 +278,33 @@ export function ListView({
     if (normalized === 'content status') return 'Content Status';
     return column;
   }, []);
+
+  const COUNTED_HEADER_COLUMNS = React.useMemo(
+    () =>
+      new Set([
+        'id',
+        'pieces',
+        'product_template_variant_value_ids',
+        'product_tmpl_id/id',
+        'product_tmpl_id/name',
+      ]),
+    [],
+  );
+
+  const filledCountByColumn = React.useMemo(() => {
+    if (!showColumnFillCounts) return new Map<string, number>();
+    const counts = new Map<string, number>();
+    for (const column of displayedColumns) {
+      if (!COUNTED_HEADER_COLUMNS.has(column.trim().toLowerCase())) continue;
+      let filled = 0;
+      for (const row of records) {
+        const value = row.fields?.[column];
+        if (!isEmptyProductValue(value)) filled += 1;
+      }
+      counts.set(column, filled);
+    }
+    return counts;
+  }, [COUNTED_HEADER_COLUMNS, displayedColumns, records, showColumnFillCounts]);
 
   const isInlineEditableColumn = React.useCallback((column: string) => {
     const normalized = getColumnLabel(column).trim().toLowerCase();
@@ -907,7 +936,12 @@ export function ListView({
                         <span className="hidden sm:inline">Code Number</span>
                       </>
                     ) : (
-                      <span>{getColumnLabel(c)}</span>
+                      <span>
+                        {getColumnLabel(c)}
+                        {showColumnFillCounts && filledCountByColumn.has(c)
+                          ? ` (${filledCountByColumn.get(c) ?? 0})`
+                          : ''}
+                      </span>
                     )}
                     {sortKey === c ? (
                       <span className="text-[10px] text-black/40 dark:text-white/35">{sortDir === 'asc' ? '▲' : '▼'}</span>

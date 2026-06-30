@@ -7,6 +7,11 @@ import useSWR from 'swr';
 import { apiFetch } from '@/lib/api';
 import { useProductsCache } from '../../products-cache-provider';
 import { formatPrice, formatScalar, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
+import {
+  detectCrystalCustomLabel,
+  getImportRowDisplayLabel,
+  isHiddenImportRow,
+} from './lib/import-row-visibility';
 import type { ProductsRecord } from '@/types/trainer';
 
 type ProductImportBatch = {
@@ -22,6 +27,8 @@ type ProductImportBatch = {
 
 type ProductImportRow = {
   id: string;
+  /** Staging-only note; stays on this import row and is not applied to Products. */
+  row_label?: string;
   fields: Record<string, unknown>;
   warnings: string[];
   status: string;
@@ -72,7 +79,7 @@ type MatchPreviewSample = {
 
 type MatchPreviewResponse = {
   ok: boolean;
-  match: { import_column: string; product_column: string };
+  match: { import_columns: string[]; product_column: string };
   total_rows: number;
   matched_count: number;
   unmatched_count: number;
@@ -233,16 +240,17 @@ function getFirstField(fields: Record<string, unknown>, names: string[]) {
 function getEquivalentFieldValue(fields: Record<string, unknown>, column: string) {
   const lower = column.trim().toLowerCase();
   const aliases: Record<string, string[]> = {
-    'colecction name': ['Collection Name', 'Colecction Name', 'Name'],
-    'collection name': ['Collection Name', 'Colecction Name', 'Name'],
-    name: ['Collection Name', 'Colecction Name', 'Name'],
+    // Match backend aliases so preview/apply and UI badges stay consistent.
+    'colecction name': ['Collection Name', 'Colecction Name', 'Name', 'default_code', 'Default Code', 'CODE NUMBER', 'Code Number', 'Code No'],
+    'collection name': ['Collection Name', 'Colecction Name', 'Name', 'default_code', 'Default Code', 'CODE NUMBER', 'Code Number', 'Code No'],
+    name: ['Collection Name', 'Colecction Name', 'Name', 'default_code', 'Default Code', 'CODE NUMBER', 'Code Number', 'Code No'],
     'colecction code': ['Collection Code', 'Colecction Code', 'Code'],
     'collection code': ['Collection Code', 'Colecction Code', 'Code'],
     code: ['Collection Code', 'Colecction Code', 'Code'],
     'variant number': ['Variant Number', 'Variant', 'Num'],
     variant: ['Variant Number', 'Variant', 'Num'],
     num: ['Num', 'Variant Number', 'Variant'],
-    'code number': ['CODE NUMBER', 'Code Number', 'Code No'],
+    'code number': ['CODE NUMBER', 'Code Number', 'Code No', 'default_code', 'Default Code', 'Collection Name', 'Colecction Name', 'Name'],
     'dimension (cm)': ['DIMENSION (cm)', 'Dimension (cm)', 'DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension', 'Dimensions', 'Size'],
     'dimension (mm)': ['DIMENSION (cm)', 'Dimension (cm)', 'DIMENSION (mm)', 'Dimension (mm)', 'DIMENSION', 'Dimension', 'Dimensions', 'Size'],
   };
@@ -261,11 +269,15 @@ function buildProductIndexByColumn(records: ProductsRecord[], productColumn: str
 function findExistingProductByColumn(
   row: ProductImportRow,
   index: Map<string, ProductsRecord>,
-  importColumn: string,
+  importColumns: string[],
 ) {
-  const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
-  if (!value) return null;
-  return index.get(value) ?? null;
+  for (const importColumn of importColumns) {
+    const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+    if (!value) continue;
+    const hit = index.get(value);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, unknown>, column: string) {
@@ -278,18 +290,23 @@ function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, 
 function classifyImportRowMatchStatus(
   row: ProductImportRow,
   productIndex: Map<string, ProductsRecord>,
-  importColumn: string,
+  importColumns: string[],
 ): ImportRowMatchStatus {
-  const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
-  if (!value) return 'empty';
-  if (productIndex.has(value)) return 'matched';
+  let hasValue = false;
+  for (const importColumn of importColumns) {
+    const value = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+    if (!value) continue;
+    hasValue = true;
+    if (productIndex.has(value)) return 'matched';
+  }
+  if (!hasValue) return 'empty';
   return 'unmatched';
 }
 
 function buildRowStatusMap(
   rows: ProductImportRow[],
   productIndex: Map<string, ProductsRecord>,
-  importColumn: string,
+  importColumns: string[],
   previewStatuses?: Record<string, ImportRowMatchStatus>,
 ) {
   const map = new Map<string, ImportRowMatchStatus>();
@@ -297,7 +314,7 @@ function buildRowStatusMap(
     const fromPreview = previewStatuses?.[row.id];
     map.set(
       row.id,
-      fromPreview ?? classifyImportRowMatchStatus(row, productIndex, importColumn),
+      fromPreview ?? classifyImportRowMatchStatus(row, productIndex, importColumns),
     );
   }
   return map;
@@ -311,10 +328,12 @@ export default function ProductImportsPage() {
   const [message, setMessage] = React.useState<string | null>(null);
   const [editingCell, setEditingCell] = React.useState<EditingCell | null>(null);
   const [savingCellKey, setSavingCellKey] = React.useState<string | null>(null);
+  const [savingLabelRowId, setSavingLabelRowId] = React.useState<string | null>(null);
   const [isApplying, setIsApplying] = React.useState(false);
   const [isReprocessing, setIsReprocessing] = React.useState(false);
   const [selectedTransferColumns, setSelectedTransferColumns] = React.useState<Set<string>>(new Set());
-  const [matchImportColumn, setMatchImportColumn] = React.useState('');
+  const [matchImportColumns, setMatchImportColumns] = React.useState<string[]>([]);
+  const [matchImportColumnDraft, setMatchImportColumnDraft] = React.useState('');
   const [matchProductColumn, setMatchProductColumn] = React.useState('');
   const [matchPreview, setMatchPreview] = React.useState<MatchPreviewResponse | null>(null);
   const [matchPreviewError, setMatchPreviewError] = React.useState<string | null>(null);
@@ -322,8 +341,11 @@ export default function ProductImportsPage() {
   const [selectedRowGroups, setSelectedRowGroups] = React.useState<Set<ImportRowMatchStatus>>(
     () => new Set(DEFAULT_SELECTED_ROW_GROUPS),
   );
+  const [showHiddenRows, setShowHiddenRows] = React.useState(false);
+  const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false);
   const initializedTransferColumnsForImportRef = React.useRef<string | null>(null);
   const initializedMatchColumnsForImportRef = React.useRef<string | null>(null);
+  const autoLabeledRowIdsRef = React.useRef<Set<string>>(new Set());
   const saveInFlightRef = React.useRef(false);
   const { data: productsData, mutate: mutateProducts } = useProductsCache();
 
@@ -418,7 +440,7 @@ export default function ProductImportsPage() {
   }, []);
 
   const previewMatch = React.useCallback(async () => {
-    if (!activeImportId || !matchImportColumn || !matchProductColumn) return;
+    if (!activeImportId || matchImportColumns.length === 0 || !matchProductColumn) return;
     setIsPreviewingMatch(true);
     setMatchPreviewError(null);
     try {
@@ -427,7 +449,7 @@ export default function ProductImportsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           match: {
-            import_column: matchImportColumn,
+            import_columns: matchImportColumns,
             product_column: matchProductColumn,
           },
         }),
@@ -441,7 +463,7 @@ export default function ProductImportsPage() {
     } finally {
       setIsPreviewingMatch(false);
     }
-  }, [activeImportId, matchImportColumn, matchProductColumn]);
+  }, [activeImportId, matchImportColumns, matchProductColumn]);
 
   const saveEditingCell = React.useCallback(async () => {
     if (!editingCell || !activeImportId || saveInFlightRef.current) return;
@@ -483,7 +505,7 @@ export default function ProductImportsPage() {
           records: current.records.map(row => row.id === rowId ? updatedRow : row),
         };
       }, { revalidate: false });
-      if (matchImportColumn && matchProductColumn) {
+      if (matchImportColumns.length > 0 && matchProductColumn) {
         void previewMatch();
       }
     } catch (err) {
@@ -493,12 +515,104 @@ export default function ProductImportsPage() {
       setSavingCellKey(null);
       saveInFlightRef.current = false;
     }
-  }, [activeImportId, editingCell, matchImportColumn, matchProductColumn, mutateRows, previewMatch, rowsData]);
+  }, [activeImportId, editingCell, matchImportColumns, matchProductColumn, mutateRows, previewMatch, rowsData]);
+
+  const saveRowLabel = React.useCallback(
+    async (rowId: string, label: string) => {
+      if (!activeImportId || saveInFlightRef.current) return;
+
+      const trimmed = label.trim();
+      const previousData = rowsData;
+      const previousLabel =
+        previousData?.records.find((row) => row.id === rowId)?.row_label?.trim() ?? '';
+      if (trimmed === previousLabel) return;
+
+      saveInFlightRef.current = true;
+      setSavingLabelRowId(rowId);
+
+      await mutateRows(
+        (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            records: current.records.map((row) =>
+              row.id === rowId ? { ...row, row_label: trimmed } : row,
+            ),
+          };
+        },
+        { revalidate: false },
+      );
+
+      try {
+        const res = await apiFetch(`/admin/products/imports/${activeImportId}/rows/${rowId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ row_label: trimmed }),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || 'Label update failed');
+        const updatedRow = JSON.parse(text) as ProductImportRow;
+
+        await mutateRows(
+          (current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              records: current.records.map((row) => (row.id === rowId ? updatedRow : row)),
+            };
+          },
+          { revalidate: false },
+        );
+      } catch (err) {
+        await mutateRows(previousData, { revalidate: false });
+        setMessage(err instanceof Error ? err.message : 'Label update failed');
+      } finally {
+        setSavingLabelRowId(null);
+        saveInFlightRef.current = false;
+      }
+    },
+    [activeImportId, mutateRows, rowsData],
+  );
+
+  React.useEffect(() => {
+    autoLabeledRowIdsRef.current = new Set();
+    setShowHiddenRows(false);
+  }, [activeImportId]);
+
+  React.useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setUploadPanelOpen(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
+  React.useEffect(() => {
+    if (!rowsData || !activeImportId) return;
+    for (const row of rowsData.records) {
+      if (autoLabeledRowIdsRef.current.has(row.id)) continue;
+      if ((row.row_label ?? '').trim()) continue;
+      const detected = detectCrystalCustomLabel(row.fields);
+      if (!detected) continue;
+      autoLabeledRowIdsRef.current.add(row.id);
+      void saveRowLabel(row.id, detected);
+    }
+  }, [activeImportId, rowsData, saveRowLabel]);
+
+  const hiddenRowCount = React.useMemo(
+    () => rowsData?.records.filter((row) => isHiddenImportRow(row)).length ?? 0,
+    [rowsData],
+  );
+
+  const matchableRows = React.useMemo(
+    () => rowsData?.records.filter((row) => !isHiddenImportRow(row)) ?? [],
+    [rowsData],
+  );
 
   const applyImportToProducts = React.useCallback(async () => {
     if (!activeImportId || isApplying) return;
-    if (!matchImportColumn || !matchProductColumn) {
-      setMessage('Choose import and product columns to match rows before applying.');
+    if (matchImportColumns.length === 0 || !matchProductColumn) {
+      setMessage('Choose one or more Excel columns and a Products column before applying.');
       return;
     }
     const selectedColumns = Array.from(selectedTransferColumns);
@@ -524,7 +638,7 @@ export default function ProductImportsPage() {
       : null;
     const ok = window.confirm(
       `Apply this import to the main Products table?\n\n` +
-        `Match: "${matchImportColumn}" → "${matchProductColumn}"\n` +
+        `Match: "${matchImportColumns.join(' OR ')}" → "${matchProductColumn}"\n` +
         `Apply only: ${groupLabels}\n` +
         (rowsToApply !== null
           ? `Rows to process: ${rowsToApply.toLocaleString('en-US')}` +
@@ -544,7 +658,7 @@ export default function ProductImportsPage() {
         body: JSON.stringify({
           columns: selectedColumns,
           match: {
-            import_column: matchImportColumn,
+            import_columns: matchImportColumns,
             product_column: matchProductColumn,
           },
           apply_row_groups: Array.from(selectedRowGroups),
@@ -577,7 +691,7 @@ export default function ProductImportsPage() {
   }, [
     activeImportId,
     isApplying,
-    matchImportColumn,
+    matchImportColumns,
     selectedRowGroups,
     matchPreview,
     matchProductColumn,
@@ -599,7 +713,7 @@ export default function ProductImportsPage() {
       if (!res.ok) throw new Error(text || 'Refresh formulas failed');
       const result = JSON.parse(text) as ReprocessImportResponse;
       await mutateRows();
-      if (matchImportColumn && matchProductColumn) {
+      if (matchImportColumns.length > 0 && matchProductColumn) {
         void previewMatch();
       }
       setMessage(`Formulas rechecked: ${result.changed_count} of ${result.processed_count} row(s) updated.`);
@@ -608,19 +722,16 @@ export default function ProductImportsPage() {
     } finally {
       setIsReprocessing(false);
     }
-  }, [activeImportId, isReprocessing, matchImportColumn, matchProductColumn, mutateRows, previewMatch]);
+  }, [activeImportId, isReprocessing, matchImportColumns, matchProductColumn, mutateRows, previewMatch]);
 
   const importColumns = React.useMemo(
     () => (rowsData ? collectImportColumnsFromRows(rowsData.records) : []),
     [rowsData],
   );
   const matchImportColumnOptions = React.useMemo(() => {
-    const extra =
-      matchImportColumn && matchImportColumn !== 'Row' && !importColumns.includes(matchImportColumn)
-        ? [matchImportColumn]
-        : [];
-    return ['Row', ...importColumns, ...extra];
-  }, [importColumns, matchImportColumn]);
+    const extras = matchImportColumns.filter((column) => column !== 'Row' && !importColumns.includes(column));
+    return ['Row', ...importColumns, ...extras];
+  }, [importColumns, matchImportColumns]);
   const productColumns = React.useMemo(() => {
     const fromCache = productsData?.columns ?? [];
     if (fromCache.length > 0) return fromCache;
@@ -651,16 +762,32 @@ export default function ProductImportsPage() {
     return buildProductIndexByColumn(productsData?.records ?? [], matchProductColumn);
   }, [matchProductColumn, productsData?.records]);
   const rowStatusById = React.useMemo(() => {
-    if (!rowsData || !matchImportColumn || !matchProductColumn) {
+    if (!rowsData || matchImportColumns.length === 0 || !matchProductColumn) {
       return new Map<string, ImportRowMatchStatus>();
     }
+    const previewStatuses = matchPreview?.row_statuses;
+    const filteredPreview = previewStatuses
+      ? Object.fromEntries(
+          Object.entries(previewStatuses).filter(([rowId]) => {
+            const row = rowsData.records.find((item) => item.id === rowId);
+            return row ? !isHiddenImportRow(row) : true;
+          }),
+        )
+      : undefined;
     return buildRowStatusMap(
-      rowsData.records,
+      matchableRows,
       existingProductIndex,
-      matchImportColumn,
-      matchPreview?.row_statuses,
+      matchImportColumns,
+      filteredPreview,
     );
-  }, [existingProductIndex, matchImportColumn, matchPreview?.row_statuses, matchProductColumn, rowsData]);
+  }, [
+    existingProductIndex,
+    matchImportColumns,
+    matchPreview?.row_statuses,
+    matchProductColumn,
+    matchableRows,
+    rowsData,
+  ]);
 
   const rowStatusCounts = React.useMemo(() => {
     const counts = { matched: 0, unmatched: 0, empty: 0 };
@@ -670,16 +797,28 @@ export default function ProductImportsPage() {
     return counts;
   }, [rowStatusById]);
 
-  const isMatchConfigured = Boolean(matchImportColumn && matchProductColumn);
+  const isMatchConfigured = matchImportColumns.length > 0 && Boolean(matchProductColumn);
 
   const filteredImportRows = React.useMemo(() => {
-    if (!rowsData || selectedRowGroups.size === 0) return [];
-    if (!isMatchConfigured) return rowsData.records;
-    return rowsData.records.filter(row => {
+    if (!rowsData) return [];
+
+    const hiddenRows = showHiddenRows
+      ? rowsData.records.filter((row) => isHiddenImportRow(row))
+      : [];
+    const visibleRows = rowsData.records.filter((row) => !isHiddenImportRow(row));
+
+    if (selectedRowGroups.size === 0) {
+      return showHiddenRows ? hiddenRows : [];
+    }
+
+    const activeRows = visibleRows.filter((row) => {
+      if (!isMatchConfigured) return true;
       const status = rowStatusById.get(row.id);
       return status ? selectedRowGroups.has(status) : false;
     });
-  }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups]);
+
+    return showHiddenRows ? [...activeRows, ...hiddenRows] : activeRows;
+  }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups, showHiddenRows]);
   const visibleColumns = importColumns;
 
   React.useEffect(() => {
@@ -693,7 +832,8 @@ export default function ProductImportsPage() {
     if (!activeImportId || importColumns.length === 0 || productColumns.length === 0) return;
     if (initializedMatchColumnsForImportRef.current === activeImportId) return;
     initializedMatchColumnsForImportRef.current = activeImportId;
-    setMatchImportColumn('');
+    setMatchImportColumns([]);
+    setMatchImportColumnDraft('');
     setMatchProductColumn('');
     setMatchPreview(null);
     setMatchPreviewError(null);
@@ -710,7 +850,7 @@ export default function ProductImportsPage() {
   }, []);
 
   React.useEffect(() => {
-    if (!matchImportColumn || !matchProductColumn || !activeImportId) {
+    if (matchImportColumns.length === 0 || !matchProductColumn || !activeImportId) {
       setMatchPreview(null);
       return;
     }
@@ -718,7 +858,7 @@ export default function ProductImportsPage() {
       void previewMatch();
     }, 400);
     return () => clearTimeout(timer);
-  }, [activeImportId, matchImportColumn, matchProductColumn, previewMatch, rowsData?.count]);
+  }, [activeImportId, matchImportColumns, matchProductColumn, previewMatch, rowsData?.count]);
 
   const toggleTransferColumn = React.useCallback((column: string) => {
     setSelectedTransferColumns(prev => {
@@ -727,6 +867,17 @@ export default function ProductImportsPage() {
       else next.add(column);
       return next;
     });
+  }, []);
+
+  const addMatchImportColumn = React.useCallback(() => {
+    const column = matchImportColumnDraft.trim();
+    if (!column) return;
+    setMatchImportColumns((prev) => (prev.includes(column) ? prev : [...prev, column]));
+    setMatchImportColumnDraft('');
+  }, [matchImportColumnDraft]);
+
+  const removeMatchImportColumn = React.useCallback((column: string) => {
+    setMatchImportColumns((prev) => prev.filter((item) => item !== column));
   }, []);
 
   return (
@@ -745,59 +896,75 @@ export default function ProductImportsPage() {
         </h1>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col gap-3 rounded-2xl border border-brand-medium-gray/30 bg-brand-white p-3 shadow-brand-card dark:border-white/10 dark:bg-black/25">
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-black/50 dark:text-white/50">
-            Upload
-          </h2>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-3">
+        <aside className="flex shrink-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card dark:border-white/10 dark:bg-black/25">
+          <button
+            type="button"
+            onClick={() => setUploadPanelOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left lg:pointer-events-none lg:cursor-default"
+            aria-expanded={uploadPanelOpen}
+          >
+            <span className="text-[10px] font-black uppercase tracking-widest text-black/50 dark:text-white/50">
+              Upload &amp; imports
+            </span>
+            <span className="text-[10px] font-black text-black/35 dark:text-white/35 lg:hidden">
+              {uploadPanelOpen ? '−' : '+'}
+            </span>
+          </button>
 
+          <div
+            className={
+              (uploadPanelOpen ? 'flex' : 'hidden') +
+              ' min-h-0 flex-col gap-2 border-t border-black/5 px-3 pb-3 pt-2 dark:border-white/5 lg:flex lg:flex-1'
+            }
+          >
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.xlsm,.numbers,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/x-iwork-numbers-sffnumbers"
             onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-            className="block w-full rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 text-xs font-medium text-black outline-none file:mr-3 file:rounded-full file:border-0 file:bg-black file:px-3 file:py-1.5 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:text-white dark:border-white/10 dark:bg-white/[0.03] dark:text-white dark:file:bg-white dark:file:text-black"
+            className="block w-full rounded-lg border border-black/10 bg-black/[0.02] px-2 py-1.5 text-[11px] font-medium text-black outline-none file:mr-2 file:rounded-full file:border-0 file:bg-black file:px-2.5 file:py-1 file:text-[9px] file:font-black file:uppercase file:tracking-widest file:text-white dark:border-white/10 dark:bg-white/[0.03] dark:text-white dark:file:bg-white dark:file:text-black"
           />
 
           <button
             type="button"
             onClick={() => void uploadFile()}
             disabled={!selectedFile || isUploading}
-            className="rounded-full bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full bg-emerald-600 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isUploading ? 'Uploading...' : 'Upload'}
           </button>
 
           {message ? (
-            <div className="rounded-xl border border-black/10 bg-black/[0.02] p-3 text-xs font-bold text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
+            <div className="rounded-lg border border-black/10 bg-black/[0.02] p-2 text-[11px] font-bold text-black/65 dark:border-white/10 dark:bg-white/[0.03] dark:text-white/65">
               {message}
             </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-minimal">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-black uppercase tracking-widest text-black/60 dark:text-white/60">
+          <div className="min-h-0 max-h-[34vh] overflow-y-auto scrollbar-minimal lg:max-h-none lg:flex-1">
+            <div className="mb-1.5 flex items-center justify-between">
+              <h2 className="text-[10px] font-black uppercase tracking-widest text-black/60 dark:text-white/60">
                 Imports
               </h2>
-              <span className="text-[10px] font-black text-black/30 dark:text-white/30">
+              <span className="text-[9px] font-black text-black/30 dark:text-white/30">
                 {imports.length}
               </span>
             </div>
 
             {importsLoading ? (
-              <div className="rounded-xl bg-black/[0.03] p-4 text-xs font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
+              <div className="rounded-lg bg-black/[0.03] p-3 text-[11px] font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
                 Loading imports...
               </div>
             ) : importsError ? (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-xs font-bold text-red-500">
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-[11px] font-bold text-red-500">
                 Cannot access or connect to imports.
               </div>
             ) : imports.length === 0 ? (
-              <div className="rounded-xl bg-black/[0.03] p-4 text-xs font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
+              <div className="rounded-lg bg-black/[0.03] p-3 text-[11px] font-bold text-black/40 dark:bg-white/[0.04] dark:text-white/40">
                 No files uploaded yet.
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 {imports.map(item => {
                   const active = item.id === activeImportId;
                   return (
@@ -806,75 +973,121 @@ export default function ProductImportsPage() {
                       type="button"
                       onClick={() => setSelectedImportId(item.id)}
                       className={
-                        'rounded-xl border p-3 text-left transition ' +
+                        'rounded-lg border p-2 text-left transition ' +
                         (active
                           ? 'border-emerald-500/40 bg-emerald-500/10'
                           : 'border-black/5 bg-black/[0.02] hover:bg-black/[0.04] dark:border-white/5 dark:bg-white/[0.03] dark:hover:bg-white/[0.06]')
                       }
                     >
-                      <div className="truncate text-xs font-black text-black dark:text-white">{item.filename}</div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] font-bold text-black/40 dark:text-white/40">
+                      <div className="truncate text-[11px] font-black text-black dark:text-white">{item.filename}</div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2 text-[9px] font-bold text-black/40 dark:text-white/40">
                         <span>{item.row_count} rows</span>
-                        <span>{item.warnings_count} warnings</span>
+                        <span>{item.warnings_count} warn</span>
                       </div>
-                      <div className="mt-1 text-[10px] font-medium text-black/35 dark:text-white/35">{formatDate(item.created_at)}</div>
+                      <div className="mt-0.5 text-[9px] font-medium text-black/35 dark:text-white/35">{formatDate(item.created_at)}</div>
                     </button>
                   );
                 })}
               </div>
             )}
           </div>
+          </div>
         </aside>
 
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-brand-medium-gray/30 bg-brand-white shadow-brand-card dark:border-white/10 dark:bg-black/25">
-          <div className="space-y-2 border-b border-black/10 px-3 py-2 dark:border-white/10">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">
-                Match
-              </span>
-              <label className="inline-flex min-w-0 items-center gap-1.5">
-                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
-                  Excel
+          <div className="space-y-1 border-b border-black/10 px-2 py-1.5 dark:border-white/10">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 rounded-lg border border-black/10 bg-black/[0.02] px-1.5 py-1 dark:border-white/10 dark:bg-white/[0.03]">
+                <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-black/35 dark:text-white/35">
+                  Match
                 </span>
-                <select
-                  value={matchImportColumn}
-                  onChange={(event) => setMatchImportColumn(event.target.value)}
-                  className={COMPACT_SELECT_CLASS}
-                  aria-label="Excel import match column"
-                >
-                  <option value="">Column…</option>
-                  {matchImportColumnOptions.map(column => (
-                    <option key={column} value={column}>{column}</option>
+                <div className="inline-flex min-w-0 flex-wrap items-center gap-1">
+                  <span className="shrink-0 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">Excel</span>
+                  <select
+                    value={matchImportColumnDraft}
+                    onChange={(event) => setMatchImportColumnDraft(event.target.value)}
+                    className="h-7 min-w-0 max-w-[120px] rounded-md border border-black/10 bg-white px-1.5 text-[10px] font-semibold text-black outline-none dark:border-white/10 dark:bg-black/40 dark:text-white sm:max-w-[150px]"
+                    aria-label="Excel import match columns"
+                  >
+                    <option value="">Column…</option>
+                    {matchImportColumnOptions.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={addMatchImportColumn}
+                    disabled={!matchImportColumnDraft.trim()}
+                    className="rounded-full border border-black/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
+                  >
+                    Add
+                  </button>
+                  {matchImportColumns.map((column) => (
+                    <button
+                      key={column}
+                      type="button"
+                      onClick={() => removeMatchImportColumn(column)}
+                      className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/15 dark:text-emerald-200"
+                      title="Remove column from Excel match"
+                    >
+                      {column} ×
+                    </button>
                   ))}
-                </select>
-              </label>
-              <span className="text-[10px] font-black text-black/30 dark:text-white/30">→</span>
-              <label className="inline-flex min-w-0 items-center gap-1.5">
-                <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-sky-700 dark:text-sky-300">
-                  Products
-                </span>
-                <select
-                  value={matchProductColumn}
-                  onChange={(event) => setMatchProductColumn(event.target.value)}
-                  className={COMPACT_SELECT_CLASS}
-                  aria-label="Products match column"
-                >
-                  <option value="">Column…</option>
-                  {productColumns.map(column => (
-                    <option key={column} value={column}>{column}</option>
-                  ))}
-                </select>
-              </label>
-              {isPreviewingMatch ? (
-                <span className="text-[10px] font-bold text-black/35 dark:text-white/35">Checking…</span>
-              ) : null}
+                </div>
+                <span className="text-[9px] text-black/25 dark:text-white/25">→</span>
+                <label className="inline-flex min-w-0 items-center gap-1">
+                  <span className="shrink-0 text-[9px] font-bold text-sky-700 dark:text-sky-300">Products</span>
+                  <select
+                    value={matchProductColumn}
+                    onChange={(event) => setMatchProductColumn(event.target.value)}
+                    className="h-7 min-w-0 max-w-[120px] rounded-md border border-black/10 bg-white px-1.5 text-[10px] font-semibold text-black outline-none dark:border-white/10 dark:bg-black/40 dark:text-white sm:max-w-[150px]"
+                    aria-label="Products match column"
+                  >
+                    <option value="">Column…</option>
+                    {productColumns.map(column => (
+                      <option key={column} value={column}>{column}</option>
+                    ))}
+                  </select>
+                </label>
+                {isPreviewingMatch ? (
+                  <span className="text-[9px] font-bold text-black/35 dark:text-white/35">…</span>
+                ) : null}
+              </div>
 
-              <span className="hidden h-4 w-px bg-black/10 dark:bg-white/10 sm:block" />
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  disabled={!activeImportId || isReprocessing}
+                  onClick={() => void reprocessImportRows()}
+                  className="rounded-full border border-black/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
+                >
+                  {isReprocessing ? '…' : 'Refresh'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!activeImportId || isApplying || matchImportColumns.length === 0 || !matchProductColumn || selectedRowGroups.size === 0}
+                  onClick={() => void applyImportToProducts()}
+                  className="rounded-full bg-emerald-600 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                >
+                  {isApplying ? '…' : 'Apply'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!activeImportId}
+                  onClick={() => void deleteImport()}
+                  className="rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-red-600 transition hover:bg-red-500 hover:text-white disabled:opacity-40"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1">
               {ALL_ROW_GROUPS.map(status => (
                 <label
                   key={status}
                   className={
-                    'inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-black transition ' +
+                    'inline-flex cursor-pointer items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-black transition ' +
                     (selectedRowGroups.has(status)
                       ? isMatchConfigured
                         ? ROW_MATCH_ROW_CLASS[status]
@@ -886,48 +1099,29 @@ export default function ProductImportsPage() {
                     type="checkbox"
                     checked={selectedRowGroups.has(status)}
                     onChange={() => toggleRowGroup(status)}
-                    className="h-3 w-3 accent-emerald-600"
+                    className="h-2.5 w-2.5 accent-emerald-600"
                   />
                   {ROW_MATCH_STATUS_LABELS[status]} {isMatchConfigured ? rowStatusCounts[status] : 0}
                 </label>
               ))}
 
-              <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                <button
-                  type="button"
-                  disabled={!activeImportId || isReprocessing}
-                  onClick={() => void reprocessImportRows()}
-                  className="rounded-full border border-black/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
-                >
-                  {isReprocessing ? '…' : 'Refresh'}
-                </button>
-                <button
-                  type="button"
-                  disabled={!activeImportId || isApplying || !matchImportColumn || !matchProductColumn || selectedRowGroups.size === 0}
-                  onClick={() => void applyImportToProducts()}
-                  className="rounded-full bg-emerald-600 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
-                >
-                  {isApplying ? '…' : 'Apply'}
-                </button>
-                <button
-                  type="button"
-                  disabled={!activeImportId}
-                  onClick={() => void deleteImport()}
-                  className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-600 transition hover:bg-red-500 hover:text-white disabled:opacity-40"
-                >
-                  Delete
-                </button>
-              </div>
+              {hiddenRowCount > 0 ? (
+                <span className="rounded-full border border-zinc-300/60 bg-zinc-100/80 px-1.5 py-0.5 text-[9px] font-bold text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55">
+                  {hiddenRowCount} hidden
+                </span>
+              ) : null}
             </div>
 
             {matchPreviewError ? (
-              <p className="text-[10px] font-bold text-red-600 dark:text-red-300">{matchPreviewError}</p>
+              <p className="text-[9px] font-bold text-red-600 dark:text-red-300">{matchPreviewError}</p>
             ) : null}
 
-            <p className="text-[10px] font-medium text-black/40 dark:text-white/40">
+            <p className="truncate text-[9px] font-medium text-black/45 dark:text-white/45" title={rowsData?.import.filename}>
               {rowsData
-                ? `${rowsData.import.filename} · ${filteredImportRows.length}/${rowsData.count} rows shown · ${selectedTransferColumns.size} columns to transfer` +
-                  (selectedRowGroups.size === 0 ? ' · tick a group to view & apply' : '')
+                ? `${rowsData.import.filename} · ${filteredImportRows.length}/${rowsData.count} shown` +
+                  (hiddenRowCount > 0 ? ` · ${hiddenRowCount} hidden (Crystal/custom/−)` : '') +
+                  ` · ${selectedTransferColumns.size} transfer cols` +
+                  (selectedRowGroups.size === 0 && !showHiddenRows ? ' · tick a group' : '')
                 : 'Select an import from the left.'}
             </p>
           </div>
@@ -947,21 +1141,35 @@ export default function ProductImportsPage() {
           ) : (
             <div className="min-h-0 flex-1 overflow-auto scrollbar-minimal">
               <table className="min-w-full border-separate border-spacing-0 text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-950">
+                <thead className="sticky top-0 z-40 bg-white dark:bg-zinc-950">
                   <tr>
-                    <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
+                    <th className="sticky left-0 top-0 z-50 min-w-[148px] whitespace-nowrap border-b border-r border-black/10 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.12)] dark:border-white/10 dark:bg-zinc-950 dark:text-white/40 dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.45)]">
+                      <div className="flex flex-col gap-1.5">
+                        <span>Label</span>
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 text-[9px] font-bold normal-case tracking-normal text-black/55 dark:text-white/55">
+                          <input
+                            type="checkbox"
+                            checked={showHiddenRows}
+                            onChange={(event) => setShowHiddenRows(event.target.checked)}
+                            className="h-3 w-3 accent-emerald-600"
+                          />
+                          Show hidden
+                        </label>
+                      </div>
+                    </th>
+                    <th className="sticky top-0 z-40 whitespace-nowrap border-b border-black/10 bg-white px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40">
                       Match
                     </th>
-                    <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
+                    <th className="sticky top-0 z-40 whitespace-nowrap border-b border-black/10 bg-white px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40">
                       Sheet
                     </th>
-                    <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
+                    <th className="sticky top-0 z-40 whitespace-nowrap border-b border-black/10 bg-white px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40">
                       Row
                     </th>
                     {visibleColumns.map(column => (
                       <th
                         key={column}
-                        className="max-w-[180px] whitespace-nowrap border-b border-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40"
+                        className="sticky top-0 z-40 max-w-[180px] whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40"
                       >
                         <label className="flex cursor-pointer select-none flex-col gap-1">
                           <span>{column}</span>
@@ -977,7 +1185,7 @@ export default function ProductImportsPage() {
                         </label>
                       </th>
                     ))}
-                    <th className="whitespace-nowrap border-b border-black/10 px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:text-white/40">
+                    <th className="sticky top-0 z-40 whitespace-nowrap border-b border-black/10 bg-white px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40">
                       Warnings
                     </th>
                   </tr>
@@ -986,26 +1194,60 @@ export default function ProductImportsPage() {
                   {filteredImportRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={visibleColumns.length + 4}
+                        colSpan={visibleColumns.length + 5}
                         className="border-b border-black/5 px-3 py-10 text-center text-xs font-bold text-black/40 dark:border-white/5 dark:text-white/40"
                       >
-                        {selectedRowGroups.size === 0
+                        {selectedRowGroups.size === 0 && !showHiddenRows
                           ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
-                          : 'No rows in the selected groups.'}
+                          : selectedRowGroups.size === 0 && showHiddenRows && hiddenRowCount === 0
+                            ? 'No hidden rows in this import.'
+                            : 'No rows in the selected groups.'}
                       </td>
                     </tr>
                   ) : null}
                   {filteredImportRows.map(row => {
                     const rowStatus = rowStatusById.get(row.id);
-                    const rowTone = rowStatus ? ROW_MATCH_ROW_CLASS[rowStatus] : NEUTRAL_ROW_CLASS;
-                    const existingProduct = rowStatus === 'matched' && matchImportColumn
-                      ? findExistingProductByColumn(row, existingProductIndex, matchImportColumn)
+                    const rowHidden = isHiddenImportRow(row);
+                    const rowTone = rowHidden
+                      ? 'border-black/5 bg-zinc-100/90 text-black/55 dark:border-white/5 dark:bg-white/[0.04] dark:text-white/55'
+                      : rowStatus
+                        ? ROW_MATCH_ROW_CLASS[rowStatus]
+                        : NEUTRAL_ROW_CLASS;
+                    const displayLabel = getImportRowDisplayLabel(row);
+                    const existingProduct = rowStatus === 'matched' && matchImportColumns.length > 0
+                      ? findExistingProductByColumn(row, existingProductIndex, matchImportColumns)
                       : null;
 
                     return (
-                      <tr key={row.id}>
+                      <tr key={row.id} className={rowHidden ? 'opacity-90' : undefined}>
+                        <td className="sticky left-0 z-20 min-w-[148px] border-b border-r border-black/5 bg-white px-2 py-1.5 align-top shadow-[4px_0_8px_-4px_rgba(0,0,0,0.08)] dark:border-white/5 dark:bg-zinc-950 dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.4)]">
+                          <input
+                            type="text"
+                            defaultValue={displayLabel}
+                            key={`${row.id}:${displayLabel}`}
+                            disabled={savingLabelRowId === row.id}
+                            placeholder="Note…"
+                            title={
+                              rowHidden
+                                ? 'Hidden row — not matched or applied. Use −, Crystal, or custom to hide.'
+                                : 'Staging label — stays on this import only'
+                            }
+                            className="h-8 w-full min-w-[132px] rounded-md border border-black/10 bg-white/90 px-2 text-[11px] font-medium text-black outline-none placeholder:text-black/30 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/25 disabled:opacity-60 dark:border-white/10 dark:bg-black/40 dark:text-white dark:placeholder:text-white/30"
+                            onBlur={(event) => void saveRowLabel(row.id, event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                event.currentTarget.blur();
+                              }
+                            }}
+                          />
+                        </td>
                         <td className={'whitespace-nowrap border-b px-3 py-2 font-bold ' + rowTone}>
-                          {rowStatus ? (
+                          {rowHidden ? (
+                            <span className="inline-block rounded-full bg-zinc-500/80 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white">
+                              Hidden
+                            </span>
+                          ) : rowStatus ? (
                             <span className={'inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ' + ROW_MATCH_BADGE_CLASS[rowStatus]}>
                               {ROW_MATCH_STATUS_LABELS[rowStatus]}
                             </span>

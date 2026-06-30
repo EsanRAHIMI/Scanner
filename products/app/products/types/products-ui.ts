@@ -56,6 +56,8 @@ export interface ListViewProps {
   /** Admin moderation: highlight cells with edit history. */
   moderationMode?: boolean;
   changeAudit?: FieldChangeAuditApi;
+  /** Admin-only: show filled cell counts beside selected column headers. */
+  showColumnFillCounts?: boolean;
 }
 
 export interface GalleryCardProps {
