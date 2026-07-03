@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import {
+  acquireSequentialPreview,
+  isPreviewLoaded,
   registerPreviewFailed,
   registerPreviewLoaded,
   resolvePreviewSrc,
@@ -17,6 +19,8 @@ interface CachedMediaPreviewProps {
   priority?: boolean;
   /** When false, do not start loading until enabled (viewport / hover). */
   enabled?: boolean;
+  /** Stable sort key for sequential one-at-a-time loading (e.g. row index). */
+  sequentialKey?: string;
 }
 
 export function CachedMediaPreview({
@@ -27,6 +31,7 @@ export function CachedMediaPreview({
   onBroken,
   priority = false,
   enabled = true,
+  sequentialKey,
 }: CachedMediaPreviewProps) {
   const [src, setSrc] = React.useState<string | null>(null);
   const [broken, setBroken] = React.useState(false);
@@ -37,9 +42,26 @@ export function CachedMediaPreview({
       setBroken(false);
       return;
     }
+
     setBroken(false);
-    setSrc(resolvePreviewSrc(url, width));
-  }, [url, width, enabled]);
+
+    if (isPreviewLoaded(url, width)) {
+      setSrc(resolvePreviewSrc(url, width));
+      return;
+    }
+
+    let cancelled = false;
+    setSrc(null);
+
+    const orderKey = sequentialKey ?? previewOrderKey(url, width);
+    void acquireSequentialPreview(url, width, orderKey).then((resolved) => {
+      if (!cancelled && resolved) setSrc(resolved);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [url, width, enabled, sequentialKey]);
 
   React.useEffect(() => {
     if (broken) onBroken?.();
@@ -72,11 +94,14 @@ export function CachedMediaPreview({
         registerPreviewLoaded(url, width, el.currentSrc || el.src);
       }}
       onError={() => {
-        // Sync failure into module cache so hover prefetch does not retry in a loop.
         registerPreviewFailed(url, width);
         setBroken(true);
       }}
       className={className}
     />
   );
+}
+
+function previewOrderKey(url: string, width: number): string {
+  return `z|${url.slice(-24)}|w${width}`;
 }

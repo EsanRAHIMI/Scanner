@@ -9,6 +9,7 @@ import {
 } from '../lib/product-utils';
 import { beginLightboxTrace, markLightboxTrace } from '../lib/lightbox-perf';
 import { useInView } from '../hooks/use-in-view';
+import { useMediaLoadGate } from './media-load-provider';
 import { useNarrowViewport } from '../hooks/use-narrow-viewport';
 import { CachedMediaPreview } from './cached-media-preview';
 import { BrandedImageFrame } from './branded-image-frame';
@@ -28,15 +29,20 @@ const PhotoDeck = React.memo(({
   linkHoverTimerRef,
   recordId,
   column,
+  mediaRowIndex,
   onMouseEnter,
   onMouseLeave,
 }: PhotoDeckProps) => {
   const narrow = useNarrowViewport();
+  const mediaGateOpen = useMediaLoadGate(mediaRowIndex);
   const visibleUrls = urls.slice(0, narrow ? 1 : maxItems);
   const previewWidth = DRIVE_IMAGE_WIDTH_LIST;
   const inViewMargin = narrow ? '48px 0px' : '200px 0px';
   const { ref: inViewRef, inView } = useInView<HTMLDivElement>(inViewMargin);
   const [stackExpanded, setStackExpanded] = React.useState(false);
+  const sequentialKey =
+    mediaRowIndex !== undefined ? `${String(mediaRowIndex).padStart(5, '0')}:0` : undefined;
+  const canLoadMedia = mediaGateOpen && inView;
 
   if (visibleUrls.length === 0) return null;
 
@@ -92,8 +98,9 @@ const PhotoDeck = React.memo(({
               <CachedMediaPreview
                 url={primaryUrl}
                 width={previewWidth}
-                enabled={inView}
-                priority={inView}
+                enabled={canLoadMedia}
+                priority={canLoadMedia && mediaRowIndex === 0}
+                sequentialKey={sequentialKey}
                 className="absolute inset-0 h-full w-full object-contain"
                 alt="Product image"
               />
@@ -119,7 +126,11 @@ const PhotoDeck = React.memo(({
           const isVideo = isVideoUrl(u);
           const previewUrl = getDriveDirectLink(u, DRIVE_IMAGE_WIDTH_FULL);
           const isTopCard = revIdx === 0;
-          const shouldLoadImage = inView && (isTopCard || stackExpanded);
+          const shouldLoadImage = canLoadMedia && (isTopCard || stackExpanded);
+          const cardSequentialKey =
+            mediaRowIndex !== undefined
+              ? `${String(mediaRowIndex).padStart(5, '0')}:${revIdx}`
+              : undefined;
 
           return (
             <button
@@ -168,7 +179,8 @@ const PhotoDeck = React.memo(({
                     url={u}
                     width={previewWidth}
                     enabled={shouldLoadImage}
-                    priority={isTopCard && inView}
+                    priority={isTopCard && canLoadMedia}
+                    sequentialKey={cardSequentialKey}
                     className="block h-full w-full object-cover"
                     alt={`Product view ${revIdx + 1}`}
                   />

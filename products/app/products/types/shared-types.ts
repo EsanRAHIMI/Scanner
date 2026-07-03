@@ -84,6 +84,12 @@ export interface ProductsCacheContextValue {
   loading: boolean;
   /** True while an on-demand "load more" page request is in flight. */
   backgroundLoading: boolean;
+  /** True once every MongoDB page has been synced into the client cache. */
+  catalogFullyLoaded: boolean;
+  /** Rows currently held in the client cache (grows during background sync). */
+  loadedRecordCount: number;
+  /** Speed up silent background catalog sync (e.g. while searching). */
+  boostCatalogSync: (active: boolean) => void;
   /** True when the server has more pages beyond what is currently loaded. */
   hasMore: boolean;
   /** Fetch the next page on demand (e.g. when scrolling near the end). Single-flight. */

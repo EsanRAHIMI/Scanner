@@ -19,6 +19,7 @@ import {
   DRIVE_IMAGE_WIDTH_GALLERY,
 } from '../lib/product-utils';
 import { useInView } from '../hooks/use-in-view';
+import { useMediaLoadGate } from './media-load-provider';
 import { CachedMediaPreview } from './cached-media-preview';
 import { BrandedImageFrame } from './branded-image-frame';
 
@@ -33,9 +34,14 @@ export function GalleryCard({
   openPreviewByUrl,
   familyMode,
   variantCounts,
+  mediaRowIndex,
 }: GalleryCardProps) {
   const r = record;
+  const mediaGateOpen = useMediaLoadGate(mediaRowIndex);
   const { ref: inViewRef, inView } = useInView<HTMLDivElement>('200px 0px');
+  const canLoadMedia = mediaGateOpen && inView;
+  const sequentialKey =
+    mediaRowIndex !== undefined ? `${String(mediaRowIndex).padStart(5, '0')}:0` : undefined;
   const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
     const kl = k.trim().toLowerCase();
     return kl === 'url' || kl.endsWith(' url') || kl.endsWith('_url') || kl.endsWith('-url');
@@ -89,8 +95,9 @@ export function GalleryCard({
                 <CachedMediaPreview
                   url={rawImg}
                   width={DRIVE_IMAGE_WIDTH_GALLERY}
-                  enabled={inView}
-                  priority={inView}
+                  enabled={canLoadMedia}
+                  priority={canLoadMedia && mediaRowIndex === 0}
+                  sequentialKey={sequentialKey}
                   onBroken={() => setImageFailed(true)}
                   className="absolute inset-0 h-full w-full object-contain"
                   alt="product"

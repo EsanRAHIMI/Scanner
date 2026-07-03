@@ -65,6 +65,7 @@ import { ProductsExcelExport } from './components/products-excel-export';
 import { ProductDetailsPanel } from './components/product-details-panel';
 import { SelectionBar } from './components/selection-bar';
 import { GalleryCard } from './components/gallery-card';
+import { MediaLoadProvider, GalleryMediaAnchor } from './components/media-load-provider';
 import { ListView } from './components/list-view';
 import { PwaInstallFab } from './components/pwa-install-fab';
 import {
@@ -113,6 +114,9 @@ export function ProductsView({
     data,
     loading,
     backgroundLoading,
+    catalogFullyLoaded,
+    loadedRecordCount,
+    boostCatalogSync,
     hasMore,
     loadMore,
     error,
@@ -197,6 +201,10 @@ export function ProductsView({
     categoryFieldName, colorFieldName, spaceFieldName, materialFieldName,
     galleryItems
   } = filters;
+
+  React.useEffect(() => {
+    boostCatalogSync(debouncedSearch.trim().length > 0);
+  }, [debouncedSearch, boostCatalogSync]);
 
   const listScrollRef = React.useRef<HTMLDivElement>(null);
   const galleryScrollRef = React.useRef<HTMLDivElement>(null);
@@ -1716,7 +1724,9 @@ export function ProductsView({
           canEditField={canEditFieldForUser}
           showColumnFillCounts={canDelete}
         />
-      ) : viewMode === 'list' ? (
+      ) : (
+        <MediaLoadProvider scrollRootRef={viewMode === 'list' ? listScrollRef : galleryScrollRef}>
+      {viewMode === 'list' ? (
         <>
           <ListView
             loading={loading}
@@ -1781,8 +1791,8 @@ export function ProductsView({
           className="scrollbar-minimal h-full min-h-0 w-full overflow-y-auto p-3"
         >
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5">
-            {renderedRecords.map((r) => (
-              <div key={r.id} data-product-row-id={r.id}>
+            {renderedRecords.map((r, idx) => (
+              <GalleryMediaAnchor key={r.id} rowIndex={idx}>
                 <GalleryCard
                   record={r}
                   columns={columns}
@@ -1792,8 +1802,9 @@ export function ProductsView({
                   openPreviewByUrl={openPreviewByUrl}
                   familyMode={familyMode}
                   variantCounts={variantCounts}
+                  mediaRowIndex={idx}
                 />
-              </div>
+              </GalleryMediaAnchor>
             ))}
           </div>
 
@@ -1803,7 +1814,11 @@ export function ProductsView({
                   <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                </div>
                <h3 className="text-2xl font-black text-black dark:text-white tracking-tight">Product Not Found</h3>
-               <p className="mt-2 text-zinc-500 max-w-[280px]">We couldn't find any items matching your specific search or filters.</p>
+               <p className="mt-2 text-zinc-500 max-w-[280px]">
+                 {debouncedSearch.trim() && !catalogFullyLoaded
+                   ? `Searching ${loadedRecordCount.toLocaleString('en-US')} loaded products… full catalog still syncing.`
+                   : "We couldn't find any items matching your specific search or filters."}
+               </p>
                <button 
                  onClick={handleClearAllFilters}
                  className="mt-10 rounded-full bg-zinc-950 px-10 py-3.5 text-sm font-black text-white hover:bg-black shadow-2xl dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 transition-all active:scale-95 uppercase tracking-widest"
@@ -1830,6 +1845,8 @@ export function ProductsView({
           />
         ) : null}
         </div>
+      )}
+        </MediaLoadProvider>
       )}
 
       {!currentItem ? <PwaInstallFab raised={selectedCount > 0} /> : null}

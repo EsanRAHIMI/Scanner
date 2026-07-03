@@ -225,6 +225,9 @@ async function fetchProductsAssets(
 const FIRST_PAGE_LIMIT = 40;
 /** Next-page size for demand-based (scroll) loading — small, one request at a time. */
 const NEXT_PAGE_LIMIT = 80;
+/** Delay between silent background catalog pages (metadata only — no images). */
+const BG_CATALOG_DELAY_MS = 120;
+const BG_CATALOG_FAST_DELAY_MS = 40;
 
 /** Fetch a SINGLE page (first page or an on-demand next page). */
 async function fetchProductsPage(
@@ -472,6 +475,11 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
 
   // True while an on-demand "load more" page request is in flight (subtle indicator).
   const [backgroundLoading, setBackgroundLoading] = React.useState(false);
+  const [catalogFullyLoaded, setCatalogFullyLoaded] = React.useState(false);
+  const bgCatalogBoostRef = React.useRef(false);
+  const bgCatalogTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catalogFullyLoadedRef = React.useRef(false);
+  const revalidationInFlightRef = React.useRef(false);
   // Mutual-exclusion flag shared with the post-edit revalidation path.
   const bgRunningRef = React.useRef(false);
 
@@ -540,11 +548,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     }
   );
 
-  // ── Demand-based pagination (NO automatic background full-catalog loading) ──
-  // The first page (40, sort=num) is shown immediately. Further pages are fetched
-  // ONLY when the UI calls loadMore() (e.g. the user scrolls near the end). One
-  // request at a time, single-flight, cursor advances from the snapshot — never a
-  // loop. If the user does not scroll, no more assets requests are made.
+  // ── Progressive background catalog sync ──
+  // First page paints immediately; remaining MongoDB pages stream in silently so
+  // client-side search/filters eventually cover the full catalog without blocking UI.
   const loadMoreInFlightRef = React.useRef(false);
   const paginationRef = React.useRef<{ cursor: string | null; hasMore: boolean }>({
     cursor: null,
@@ -596,6 +602,77 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
     }
   }, [cacheKey, swrMutate]);
 
+  const scheduleBgCatalogStep = React.useCallback((delayMs: number) => {
+    if (bgCatalogTimerRef.current) clearTimeout(bgCatalogTimerRef.current);
+    bgCatalogTimerRef.current = setTimeout(() => {
+      void runBgCatalogStepRef.current?.();
+    }, delayMs);
+  }, []);
+
+  const runBgCatalogStep = React.useCallback(async () => {
+    if (catalogFullyLoadedRef.current) return;
+    const { hasMore } = paginationRef.current;
+    if (!hasMore) {
+      catalogFullyLoadedRef.current = true;
+      setCatalogFullyLoaded(true);
+      return;
+    }
+    if (revalidationInFlightRef.current) {
+      scheduleBgCatalogStep(200);
+      return;
+    }
+    if (loadMoreInFlightRef.current) {
+      scheduleBgCatalogStep(80);
+      return;
+    }
+    await loadMore();
+    if (!paginationRef.current.hasMore) {
+      catalogFullyLoadedRef.current = true;
+      setCatalogFullyLoaded(true);
+      return;
+    }
+    const delay = bgCatalogBoostRef.current ? BG_CATALOG_FAST_DELAY_MS : BG_CATALOG_DELAY_MS;
+    scheduleBgCatalogStep(delay);
+  }, [loadMore, scheduleBgCatalogStep]);
+
+  const runBgCatalogStepRef = React.useRef(runBgCatalogStep);
+  runBgCatalogStepRef.current = runBgCatalogStep;
+
+  const boostCatalogSync = React.useCallback(
+    (active: boolean) => {
+      bgCatalogBoostRef.current = active;
+      if (active && !catalogFullyLoadedRef.current) {
+        scheduleBgCatalogStep(0);
+      }
+    },
+    [scheduleBgCatalogStep],
+  );
+
+  React.useEffect(() => {
+    if (!clientStorageReady || !swrData) return;
+
+    const hasMorePages = Boolean(swrData.has_more && swrData.next_cursor);
+    catalogFullyLoadedRef.current = !hasMorePages;
+    setCatalogFullyLoaded(!hasMorePages);
+
+    if (!hasMorePages) return;
+
+    const start = () => scheduleBgCatalogStep(600);
+    let idleId: number | null = null;
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = window.requestIdleCallback(start, { timeout: 2500 });
+    }
+    const fallbackId = window.setTimeout(start, 1000);
+
+    return () => {
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        window.cancelIdleCallback(idleId);
+      }
+      window.clearTimeout(fallbackId);
+      if (bgCatalogTimerRef.current) clearTimeout(bgCatalogTimerRef.current);
+    };
+  }, [clientStorageReady, swrData, scheduleBgCatalogStep]);
+
   const persistedCacheJsonRef = React.useRef<string>('');
 
   React.useEffect(() => {
@@ -628,7 +705,6 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
   /** Background sync after optimistic edits — separate from initial SWR load error. */
   const [backgroundSyncError, setBackgroundSyncError] = React.useState<string | null>(null);
   const revalidationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const revalidationInFlightRef = React.useRef(false);
   const revalidationBackoffMsRef = React.useRef(REVALIDATION_DELAY_MS);
   const runRevalidationRef = React.useRef<(() => Promise<void>) | null>(null);
   /** Consecutive non-reconciling 'pending' revalidation attempts (caps the retry loop). */
@@ -950,6 +1026,9 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       data,
       loading,
       backgroundLoading,
+      catalogFullyLoaded,
+      loadedRecordCount: data?.records.length ?? swrData?.records.length ?? 0,
+      boostCatalogSync,
       hasMore: Boolean(swrData?.has_more && swrData?.next_cursor),
       loadMore,
       error,
@@ -1003,9 +1082,15 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
         // Allow a fresh first-page load (demand-based pagination restarts from page 1).
         loadMoreInFlightRef.current = false;
 
+        catalogFullyLoadedRef.current = false;
+        setCatalogFullyLoaded(false);
+
         const freshData = await swrMutate();
         rawSnapshotRef.current = freshData ?? null;
         setLocalOverride(null);
+        if (freshData?.has_more && freshData.next_cursor) {
+          scheduleBgCatalogStep(400);
+        }
       },
     }),
     [
@@ -1014,8 +1099,10 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       isStaleOfflineSnapshot,
       loading,
       backgroundLoading,
+      catalogFullyLoaded,
       swrData,
       loadMore,
+      boostCatalogSync,
       notePendingDelete,
       clearPendingDelete,
       clearPendingDeletes,
@@ -1026,6 +1113,7 @@ export function ProductsCacheProvider({ children }: { children: React.ReactNode 
       bumpPendingFieldsTick,
       bumpPendingDeletesTick,
       clearRevalidationTimer,
+      scheduleBgCatalogStep,
     ],
   );
 

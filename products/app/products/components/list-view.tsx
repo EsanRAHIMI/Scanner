@@ -36,6 +36,26 @@ import {
 } from '../lib/constants';
 import { isContentStatusFieldName } from '../lib/product-utils';
 import { PhotoDeck } from './photo-deck';
+import { useMediaRowAnchor } from './media-load-provider';
+
+function MediaAnchoredTr({
+  rowIndex,
+  children,
+  className,
+  ...rest
+}: React.ComponentProps<'tr'> & { rowIndex: number }) {
+  const rowRef = useMediaRowAnchor(rowIndex);
+  return (
+    <tr
+      ref={rowRef as React.RefObject<HTMLTableRowElement>}
+      data-media-row-index={rowIndex}
+      className={className}
+      {...rest}
+    >
+      {children}
+    </tr>
+  );
+}
 import { ListScrollRootContext } from './list-scroll-root';
 import { UrlColumnList, isUrlReorderDragEvent } from './url-column-list';
 import { ProductsSkeleton } from './products-skeleton';
@@ -362,7 +382,7 @@ export function ListView({
   );
 
   const renderCell = React.useCallback(
-    (column: string, value: unknown, recordId: string) => {
+    (column: string, value: unknown, recordId: string, rowIndex = 0) => {
       const col = column.trim().toLowerCase();
       const isURL = col === 'url';
       const isDAM = col === 'dam';
@@ -493,6 +513,7 @@ export function ListView({
               urls={deckUrls}
               maxItems={4}
               brandedPrimary={brandedPrimary}
+              mediaRowIndex={rowIndex}
               onOpenPreview={openPreviewByUrl}
               recordId={recordId}
               column={column}
@@ -981,8 +1002,9 @@ export function ListView({
               const groupBorderClass = 'border-emerald-500/30 dark:border-emerald-400/25';
               
               return (
-                <tr
+                <MediaAnchoredTr
                   key={r.id}
+                  rowIndex={i}
                   data-product-row-id={r.id}
                   className={
                     'align-middle transition-colors max-sm:[contain-intrinsic-size:auto_9.75rem] max-sm:[content-visibility:auto] max-sm:transition-none ' +
@@ -1097,9 +1119,9 @@ export function ListView({
                           changeAudit={changeAudit}
                         >
                           {isCodeNumber ? (
-                            <div className={codeNumberCellShellClass()}>{renderCell(c, cellValue, r.id)}</div>
+                            <div className={codeNumberCellShellClass()}>{renderCell(c, cellValue, r.id, i)}</div>
                           ) : (
-                            renderCell(c, cellValue, r.id)
+                            renderCell(c, cellValue, r.id, i)
                           )}
                         </CellChangeAudit>
                       </td>
@@ -1129,7 +1151,7 @@ export function ListView({
                       </button>
                     </td>
                   ) : null}
-                </tr>
+                </MediaAnchoredTr>
               );
             })
           )}
@@ -1141,7 +1163,9 @@ export function ListView({
                       <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
                    </div>
                    <h3 className="text-lg font-bold text-black dark:text-white">No products match your search</h3>
-                   <p className="mt-1 text-sm text-black/40 dark:text-white/40">Try adjusting your filters or search terms.</p>
+                   <p className="mt-1 text-sm text-black/40 dark:text-white/40">
+                     Try adjusting your filters or search terms.
+                   </p>
                 </div>
               </td>
             </tr>

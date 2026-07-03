@@ -69,6 +69,8 @@ export interface GalleryCardProps {
   openPreviewByUrl: (url: string) => void;
   familyMode: string;
   variantCounts: Record<string, number>;
+  /** Row index in the visible grid — gates sequential media prefetch. */
+  mediaRowIndex?: number;
 }
 
 export interface PhotoDeckProps {
@@ -82,6 +84,8 @@ export interface PhotoDeckProps {
   linkHoverTimerRef?: React.RefObject<NodeJS.Timeout | null>;
   recordId?: string;
   column?: string;
+  /** Row index in the visible list — gates sequential media prefetch (2–3 ahead). */
+  mediaRowIndex?: number;
   onMouseEnter?: (url: string, e: React.MouseEvent) => void;
   onMouseLeave?: () => void;
 }

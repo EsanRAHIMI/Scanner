@@ -36,8 +36,8 @@ const FAILED_PREVIEW_TTL_MS = 120_000;
 const MAX_FAILED_PREVIEW_CACHE_DESKTOP = 256;
 const MAX_FAILED_PREVIEW_CACHE_MOBILE = 128;
 
-const MAX_CONCURRENT_PREFETCH_DESKTOP = 8;
-const MAX_CONCURRENT_PREFETCH_MOBILE = 3;
+const MAX_CONCURRENT_PREFETCH_DESKTOP = 1;
+const MAX_CONCURRENT_PREFETCH_MOBILE = 1;
 
 type FailedPreviewEntry = { failedAt: number };
 
@@ -312,4 +312,58 @@ export function prefetchMediaPreview(
   const promise = schedulePrefetch(() => loadImageSrc(src, key));
   loadPromises.set(key, promise);
   return promise;
+}
+
+type SequentialJob = {
+  orderKey: string;
+  url: string;
+  width: number;
+  resolve: (src: string | null) => void;
+};
+
+const sequentialJobs: SequentialJob[] = [];
+let sequentialDrainRunning = false;
+
+function drainSequentialJobs() {
+  if (sequentialDrainRunning) return;
+  sequentialDrainRunning = true;
+
+  const runNext = () => {
+    if (sequentialJobs.length === 0) {
+      sequentialDrainRunning = false;
+      return;
+    }
+    sequentialJobs.sort((a, b) => a.orderKey.localeCompare(b.orderKey));
+    const job = sequentialJobs.shift()!;
+    void prefetchMediaPreview(job.url, job.width)
+      .then((src) => job.resolve(src))
+      .finally(runNext);
+  };
+
+  runNext();
+}
+
+/**
+ * Instagram-style ordered preview load — one image at a time globally, sorted by orderKey
+ * (e.g. "00042:0" for row 42 primary thumb). Dedupes in-flight jobs for the same cache key.
+ */
+export function acquireSequentialPreview(
+  url: string,
+  width: number,
+  orderKey: string,
+): Promise<string | null> {
+  syncPreviewCacheCapacity();
+  const key = previewCacheKey(url, width);
+  if (isFailedKey(key)) return Promise.resolve(null);
+
+  const cached = loadedSrcByKey.peek(key);
+  if (cached) return Promise.resolve(cached);
+
+  const pending = loadPromises.get(key);
+  if (pending) return pending;
+
+  return new Promise((resolve) => {
+    sequentialJobs.push({ orderKey, url, width, resolve });
+    drainSequentialJobs();
+  });
 }
