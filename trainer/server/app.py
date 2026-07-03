@@ -36,6 +36,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from pymongo import InsertOne, UpdateOne
 
+from marketing_performance_seed import DEFAULT_MARKETING_PERFORMANCE
+
 CLASSES_COLLECTION = "trainer_classes"
 QUEUE_COLLECTION = "trainer_queue"
 PRODUCT_FIELD_OPTIONS_COLLECTION = "product_field_options"
@@ -691,7 +693,7 @@ def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[st
     return None
   match = payload.get("match")
   if not isinstance(match, dict):
-    return None
+    match = payload
   import_columns = match.get("import_columns")
   if isinstance(import_columns, list):
     parsed_import_columns = [
@@ -702,10 +704,10 @@ def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[st
   else:
     parsed_import_columns = []
   import_column = match.get("import_column")
-  if not parsed_import_columns and isinstance(import_column, str):
+  if not parsed_import_columns and isinstance(import_column, str) and import_column.strip():
     parsed_import_columns = [_validate_import_match_column(import_column)]
   product_column = match.get("product_column")
-  if not parsed_import_columns or not isinstance(product_column, str):
+  if not parsed_import_columns or not isinstance(product_column, str) or not product_column.strip():
     return None
   return parsed_import_columns, _validate_import_match_column(product_column)
 
@@ -2366,6 +2368,95 @@ def _campaign_to_response(doc: dict[str, Any]) -> dict[str, Any]:
   }
 
 
+MARKETING_PERFORMANCE_ID = "current"
+MARKETING_PERFORMANCE_COLLECTION = "marketing_performance"
+_MARKETING_PERF_MERGE_KEYS = (
+  "title",
+  "brand",
+  "period",
+  "overview",
+  "instagram",
+  "google_ads",
+  "meta_ads",
+  "services",
+  "live_sources",
+  "active_campaign",
+)
+
+
+def _marketing_perf_response(doc: dict[str, Any]) -> dict[str, Any]:
+  active = doc.get("active_campaign")
+  if not active and isinstance(doc.get("meta_ads"), dict):
+    active = (doc.get("meta_ads") or {}).get("active_campaign")
+  if not active:
+    active = (DEFAULT_MARKETING_PERFORMANCE.get("meta_ads") or {}).get("active_campaign")
+  return {
+    "id": doc.get("_id"),
+    "title": doc.get("title"),
+    "brand": doc.get("brand"),
+    "period": doc.get("period") or {},
+    "overview": doc.get("overview") or {},
+    "instagram": doc.get("instagram") or {},
+    "google_ads": doc.get("google_ads") or {},
+    "meta_ads": doc.get("meta_ads") or {},
+    "services": doc.get("services") or [],
+    "live_sources": doc.get("live_sources") or {},
+    "active_campaign": active or {},
+    "created_at": doc.get("created_at"),
+    "updated_at": doc.get("updated_at"),
+  }
+
+
+async def _get_or_seed_marketing_performance(db: Any) -> dict[str, Any]:
+  doc = await db[MARKETING_PERFORMANCE_COLLECTION].find_one({"_id": MARKETING_PERFORMANCE_ID})
+  if doc:
+    return doc
+  now = _utc_now_iso()
+  seed = {**DEFAULT_MARKETING_PERFORMANCE, "created_at": now, "updated_at": now}
+  await db[MARKETING_PERFORMANCE_COLLECTION].insert_one(seed)
+  return seed
+
+
+@api.get("/admin/marketing-performance")
+async def admin_get_marketing_performance(
+  _: dict[str, Any] = Depends(_require_admin),
+  db=Depends(_get_db),
+):
+  doc = await _get_or_seed_marketing_performance(db)
+  return {"snapshot": _marketing_perf_response(doc)}
+
+
+@api.put("/admin/marketing-performance")
+async def admin_put_marketing_performance(
+  payload: dict[str, Any],
+  req: FastAPIRequest,
+  user: dict[str, Any] = Depends(_require_admin),
+  db=Depends(_get_db),
+):
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=400, detail="INVALID_PAYLOAD")
+  existing = await _get_or_seed_marketing_performance(db)
+  patch: dict[str, Any] = {"updated_at": _utc_now_iso(), "updated_by": user.get("_id")}
+  incoming = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else payload
+  for key in _MARKETING_PERF_MERGE_KEYS:
+    if key in incoming and incoming[key] is not None:
+      patch[key] = incoming[key]
+  await db[MARKETING_PERFORMANCE_COLLECTION].update_one(
+    {"_id": MARKETING_PERFORMANCE_ID},
+    {"$set": patch},
+  )
+  doc = await db[MARKETING_PERFORMANCE_COLLECTION].find_one({"_id": MARKETING_PERFORMANCE_ID})
+  await log_activity(
+    req,
+    "MARKETING_PERFORMANCE_UPDATE",
+    details="Updated marketing performance snapshot",
+    resource_id=MARKETING_PERFORMANCE_ID,
+    user=user,
+    db=db,
+  )
+  return {"snapshot": _marketing_perf_response(doc or existing)}
+
+
 @api.get("/marketing-campaigns")
 async def marketing_campaigns_list(
   limit: int = 200,
@@ -3148,6 +3239,7 @@ _BACKUPABLE_COLLECTIONS = [
   "users",
   "content_calendar",
   "marketing_campaigns",
+  "marketing_performance",
   "activity_logs",
   CONTENT_CALENDAR_FIELD_OPTIONS_COLLECTION,
   PRODUCT_FIELD_OPTIONS_COLLECTION,
@@ -3467,7 +3559,8 @@ async def admin_update_product_import_row(
     raise HTTPException(status_code=404, detail="IMPORT_ROW_NOT_FOUND")
 
   # Staging-only admin label — never transferred to Products on apply.
-  if "row_label" in payload and payload.get("field") is None:
+  field_key = payload.get("field")
+  if "row_label" in payload and (field_key is None or (isinstance(field_key, str) and not field_key.strip())):
     raw_label = payload.get("row_label")
     if raw_label is None:
       label = ""

@@ -386,6 +386,14 @@ function summarizeImportRowFieldsForAgent(
 const IMPORT_MATCH_LOGIC =
   'OR across selected Excel columns: Matched if ANY Excel match column value equals a product value in the chosen Products column (trim + lowercase). Unmatched = has a value but no product hit. Empty = all match Excel columns blank.';
 
+function buildImportMatchPayload(importColumns: string[], productColumn: string) {
+  return {
+    import_columns: importColumns,
+    import_column: importColumns[0] ?? '',
+    product_column: productColumn,
+  };
+}
+
 function collectUnmatchedSamplesForAgent(
   rows: ProductImportRow[],
   rowStatusById: Map<string, ImportRowMatchStatus>,
@@ -556,10 +564,7 @@ export default function ProductImportsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          match: {
-            import_columns: matchImportColumns,
-            product_column: matchProductColumn,
-          },
+          match: buildImportMatchPayload(matchImportColumns, matchProductColumn),
         }),
       });
       const text = await res.text();
@@ -626,7 +631,7 @@ export default function ProductImportsPage() {
   }, [activeImportId, editingCell, matchImportColumns, matchProductColumn, mutateRows, previewMatch, rowsData]);
 
   const saveRowLabel = React.useCallback(
-    async (rowId: string, label: string) => {
+    async (rowId: string, label: string, options?: { silent?: boolean }) => {
       if (!activeImportId || saveInFlightRef.current) return;
 
       const trimmed = label.trim();
@@ -673,7 +678,9 @@ export default function ProductImportsPage() {
         );
       } catch (err) {
         await mutateRows(previousData, { revalidate: false });
-        setMessage(err instanceof Error ? err.message : 'Label update failed');
+        if (!options?.silent) {
+          setMessage(err instanceof Error ? err.message : 'Label update failed');
+        }
       } finally {
         setSavingLabelRowId(null);
         saveInFlightRef.current = false;
@@ -756,7 +763,7 @@ export default function ProductImportsPage() {
       const detected = detectCrystalCustomLabel(row.fields);
       if (!detected) continue;
       autoLabeledRowIdsRef.current.add(row.id);
-      void saveRowLabel(row.id, detected);
+      void saveRowLabel(row.id, detected, { silent: true });
     }
   }, [activeImportId, rowsData, saveRowLabel]);
 
@@ -818,10 +825,7 @@ export default function ProductImportsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           columns: selectedColumns,
-          match: {
-            import_columns: matchImportColumns,
-            product_column: matchProductColumn,
-          },
+          match: buildImportMatchPayload(matchImportColumns, matchProductColumn),
           apply_row_groups: Array.from(selectedRowGroups),
         }),
       });

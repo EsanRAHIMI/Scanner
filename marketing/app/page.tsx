@@ -9,6 +9,7 @@ import {
   MARKETING_SECTIONS as sections,
   type DashboardItem,
 } from '@/lib/config/marketing-os';
+import { MarketingPerformanceDashboard } from '@/components/marketing-performance/dashboard';
 
 export default function MarketingHomePage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -88,6 +89,8 @@ export default function MarketingHomePage() {
         </div>
       </section>
 
+      <MarketingPerformanceDashboard />
+
       <section>
         <p className="dash-eyebrow">Critical workflows</p>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -166,21 +169,6 @@ export default function MarketingHomePage() {
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="dash-panel p-6 opacity-70">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-light-gray">
-                <svg className="h-5 w-5 text-brand-medium-gray" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7h16M4 12h16M4 17h10" />
-                </svg>
-              </div>
-              <span className="rounded-full bg-brand-light-gray px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-medium-gray">
-                Coming soon
-              </span>
-            </div>
-            <div className="text-lg font-semibold text-brand-dark-gray">Executive report</div>
-            <p className="mt-1 text-sm text-brand-medium-gray">Weekly KPIs and learnings dashboard.</p>
           </div>
         </div>
       </section>
