@@ -655,6 +655,46 @@ export function ProductsView({
       ? moderationListRecords
       : visibleRecords;
 
+  /** Restarts sequential image loading when the visible list identity changes. */
+  const mediaListResetKey = React.useMemo(() => {
+    const head = listVisibleRecords.slice(0, 4).map((r) => r.id).join(',');
+    return [
+      debouncedSearch.trim(),
+      viewMode,
+      familyMode,
+      sortKey ?? '',
+      sortDir,
+      [...selectedCategories].sort().join('\x1f'),
+      [...selectedColors].sort().join('\x1f'),
+      [...selectedSpaces].sort().join('\x1f'),
+      [...selectedMaterials].sort().join('\x1f'),
+      familyCollectionName ?? '',
+      showSelectedOnly ? 'sel' : '',
+      moderationMode && moderationFilterActive
+        ? `${moderationEditorFilter}:${moderationSourceFilter}`
+        : '',
+      listVisibleRecords.length,
+      head,
+    ].join('\x1e');
+  }, [
+    debouncedSearch,
+    viewMode,
+    familyMode,
+    sortKey,
+    sortDir,
+    selectedCategories,
+    selectedColors,
+    selectedSpaces,
+    selectedMaterials,
+    familyCollectionName,
+    showSelectedOnly,
+    moderationMode,
+    moderationFilterActive,
+    moderationEditorFilter,
+    moderationSourceFilter,
+    listVisibleRecords,
+  ]);
+
   const hasExportRowFilters = Boolean(
     debouncedSearch.trim() ||
     selectedCategories.size > 0 ||
@@ -1725,7 +1765,10 @@ export function ProductsView({
           showColumnFillCounts={canDelete}
         />
       ) : (
-        <MediaLoadProvider scrollRootRef={viewMode === 'list' ? listScrollRef : galleryScrollRef}>
+        <MediaLoadProvider
+          scrollRootRef={viewMode === 'list' ? listScrollRef : galleryScrollRef}
+          listResetKey={mediaListResetKey}
+        >
       {viewMode === 'list' ? (
         <>
           <ListView

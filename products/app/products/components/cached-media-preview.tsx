@@ -7,7 +7,11 @@ import {
   registerPreviewFailed,
   registerPreviewLoaded,
   resolvePreviewSrc,
+  wasPreviewEverLoaded,
 } from '../lib/media-preview-cache';
+import { getDriveDirectLink } from '../lib/product-utils';
+import { useMediaLoadGeneration, useMediaRowLoadTier } from './media-load-provider';
+import type { MediaRowLoadTier } from './media-load-provider';
 
 interface CachedMediaPreviewProps {
   url: string;
@@ -15,12 +19,11 @@ interface CachedMediaPreviewProps {
   className?: string;
   alt?: string;
   onBroken?: () => void;
-  /** When true, skip prefetch queue delay and use higher fetch priority (front thumbnails). */
   priority?: boolean;
-  /** When false, do not start loading until enabled (viewport / hover). */
+  /** When false, skip new network work — but keep showing an already-loaded preview. */
   enabled?: boolean;
-  /** Stable sort key for sequential one-at-a-time loading (e.g. row index). */
   sequentialKey?: string;
+  mediaRowIndex?: number;
 }
 
 export function CachedMediaPreview({
@@ -32,17 +35,19 @@ export function CachedMediaPreview({
   priority = false,
   enabled = true,
   sequentialKey,
+  mediaRowIndex,
 }: CachedMediaPreviewProps) {
-  const [src, setSrc] = React.useState<string | null>(null);
+  const mediaLoadGeneration = useMediaLoadGeneration();
+  const loadTier = useMediaRowLoadTier(mediaRowIndex);
+  const [src, setSrc] = React.useState<string | null>(() => initialPreviewSrc(url, width));
   const [broken, setBroken] = React.useState(false);
 
-  React.useEffect(() => {
-    if (!enabled) {
-      setSrc(null);
-      setBroken(false);
-      return;
-    }
+  const cachedSrc = isPreviewLoaded(url, width) ? resolvePreviewSrc(url, width) : '';
+  const warmSrc =
+    !cachedSrc && wasPreviewEverLoaded(url, width) ? getDriveDirectLink(url, width) : '';
+  const displaySrc = cachedSrc || src || warmSrc;
 
+  React.useEffect(() => {
     setBroken(false);
 
     if (isPreviewLoaded(url, width)) {
@@ -50,24 +55,30 @@ export function CachedMediaPreview({
       return;
     }
 
+    if (wasPreviewEverLoaded(url, width)) {
+      setSrc(getDriveDirectLink(url, width));
+      return;
+    }
+
+    if (!enabled) return;
+
     let cancelled = false;
-    setSrc(null);
 
     const orderKey = sequentialKey ?? previewOrderKey(url, width);
-    void acquireSequentialPreview(url, width, orderKey).then((resolved) => {
+    void acquireSequentialPreview(url, width, orderKey, effectiveLoadTier(loadTier)).then((resolved) => {
       if (!cancelled && resolved) setSrc(resolved);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [url, width, enabled, sequentialKey]);
+  }, [url, width, enabled, sequentialKey, mediaLoadGeneration, loadTier]);
 
   React.useEffect(() => {
     if (broken) onBroken?.();
   }, [broken, onBroken]);
 
-  if (!enabled || broken || !src) {
+  if (broken || !displaySrc) {
     return (
       <span
         aria-hidden
@@ -82,11 +93,11 @@ export function CachedMediaPreview({
   return (
     /* eslint-disable-next-line @next/next/no-img-element */
     <img
-      src={src}
+      src={displaySrc}
       alt={alt}
       loading={priority ? 'eager' : 'lazy'}
       decoding="async"
-      fetchPriority={priority ? 'high' : 'low'}
+      fetchPriority={priority ? 'high' : 'auto'}
       referrerPolicy="no-referrer"
       draggable={false}
       onLoad={(e) => {
@@ -100,6 +111,16 @@ export function CachedMediaPreview({
       className={className}
     />
   );
+}
+
+function initialPreviewSrc(url: string, width: number): string | null {
+  if (isPreviewLoaded(url, width)) return resolvePreviewSrc(url, width);
+  if (wasPreviewEverLoaded(url, width)) return getDriveDirectLink(url, width);
+  return null;
+}
+
+function effectiveLoadTier(tier: MediaRowLoadTier): MediaRowLoadTier {
+  return tier === 'off' ? 'lookahead' : tier;
 }
 
 function previewOrderKey(url: string, width: number): string {

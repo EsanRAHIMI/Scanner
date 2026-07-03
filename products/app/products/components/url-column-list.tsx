@@ -10,6 +10,7 @@ import {
 } from '../lib/product-utils';
 import { prefetchMediaPreview } from '../lib/media-preview-cache';
 import { CachedMediaPreview } from './cached-media-preview';
+import { useMediaLoadGate } from './media-load-provider';
 import { useInView } from '../hooks/use-in-view';
 import type { EditingUrlState, LinkHoverState } from '../types/shared-types';
 
@@ -31,10 +32,12 @@ function reorderUrls(urls: string[], from: number, to: number): string[] {
   return next;
 }
 
-function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
+function UrlThumb({ url, isHidden, mediaRowIndex }: { url: string; isHidden?: boolean; mediaRowIndex?: number }) {
   const [broken, setBroken] = React.useState(false);
   const isVideo = isVideoUrl(url);
   const { ref, inView } = useInView<HTMLDivElement>('40px 0px');
+  const mediaGate = useMediaLoadGate(mediaRowIndex);
+  const canLoad = inView && (mediaRowIndex === undefined || mediaGate);
 
   React.useEffect(() => {
     setBroken(false);
@@ -54,7 +57,7 @@ function UrlThumb({ url, isHidden }: { url: string; isHidden?: boolean }) {
         <CachedMediaPreview
           url={url}
           width={DRIVE_IMAGE_WIDTH_THUMB}
-          enabled={inView}
+          enabled={canLoad}
           onBroken={() => setBroken(true)}
           className="h-full w-full object-cover"
         />
@@ -142,6 +145,7 @@ export interface UrlColumnListProps {
   setLinkHoverState: (state: LinkHoverState | null) => void;
   getUrlSourceBadge: (url: string) => UrlSourceBadge;
   getCollectionMeta: (recordId: string) => { title: string; code: string; variant: string };
+  mediaRowIndex?: number;
 }
 
 export const UrlColumnList = React.memo(function UrlColumnList({
@@ -163,7 +167,9 @@ export const UrlColumnList = React.memo(function UrlColumnList({
   setLinkHoverState,
   getUrlSourceBadge,
   getCollectionMeta,
+  mediaRowIndex,
 }: UrlColumnListProps) {
+  const mediaGate = useMediaLoadGate(mediaRowIndex);
   const [localUrls, setLocalUrls] = React.useState(urlsProp);
   const [dragFrom, setDragFrom] = React.useState<number | null>(null);
   const [dropTarget, setDropTarget] = React.useState<number | null>(null);
@@ -426,7 +432,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                 </span>
               )}
 
-              <UrlThumb url={u} isHidden={isHiddenFromGallery} />
+              <UrlThumb url={u} isHidden={isHiddenFromGallery} mediaRowIndex={mediaRowIndex} />
 
               <a
                 href={getDriveDirectLink(u)}
@@ -449,7 +455,7 @@ export const UrlColumnList = React.memo(function UrlColumnList({
                   setDraggedUrlInfo(null);
                 }}
                 onMouseEnter={(e) => {
-                  void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_HOVER);
+                  if (mediaGate) void prefetchMediaPreview(u, DRIVE_IMAGE_WIDTH_HOVER);
                   if (linkHoverTimerRef.current) clearTimeout(linkHoverTimerRef.current);
                   linkHoverTimerRef.current = setTimeout(() => {
                     setLinkHoverState({

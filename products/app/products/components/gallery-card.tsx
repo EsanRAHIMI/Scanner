@@ -39,7 +39,7 @@ export function GalleryCard({
   const r = record;
   const mediaGateOpen = useMediaLoadGate(mediaRowIndex);
   const { ref: inViewRef, inView } = useInView<HTMLDivElement>('200px 0px');
-  const canLoadMedia = mediaGateOpen && inView;
+  const canLoadMedia = mediaGateOpen;
   const sequentialKey =
     mediaRowIndex !== undefined ? `${String(mediaRowIndex).padStart(5, '0')}:0` : undefined;
   const urlEntry = Object.entries(r.fields || {}).find(([k]) => {
@@ -84,12 +84,17 @@ export function GalleryCard({
               onClick={() => openPreviewByUrl?.(lightboxSrc || thumbSrc)}
               title="Click to maximize"
             >
-              {isMain ? (
+              {isMain && canLoadMedia ? (
                 <BrandedImageFrame
                   composedSrc={composedMainImageUrl(rawImg)}
                   cutoutSrc={thumbSrc}
                   alt="product"
                   onBroken={() => setImageFailed(true)}
+                />
+              ) : isMain ? (
+                <span
+                  aria-hidden
+                  className="absolute inset-0 block h-full w-full bg-gradient-to-br from-black/[0.06] to-black/[0.12] dark:from-white/[0.05] dark:to-white/[0.10]"
                 />
               ) : (
                 <CachedMediaPreview
@@ -98,6 +103,7 @@ export function GalleryCard({
                   enabled={canLoadMedia}
                   priority={canLoadMedia && mediaRowIndex === 0}
                   sequentialKey={sequentialKey}
+                  mediaRowIndex={mediaRowIndex}
                   onBroken={() => setImageFailed(true)}
                   className="absolute inset-0 h-full w-full object-contain"
                   alt="product"

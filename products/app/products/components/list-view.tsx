@@ -633,6 +633,7 @@ export function ListView({
                   setLinkHoverState={setLinkHoverState}
                   getUrlSourceBadge={getUrlSourceBadge}
                   getCollectionMeta={getCollectionMeta}
+                  mediaRowIndex={rowIndex}
                 />
               )}
             </div>

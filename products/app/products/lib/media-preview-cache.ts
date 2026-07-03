@@ -28,16 +28,16 @@ const PREVIEW_CACHE_WIDTHS = [
 ] as const;
 
 /** ~130 product media × ~3 widths (thumb / list / hover) in the working scroll window. */
-const MAX_PREVIEW_CACHE_DESKTOP = 480;
-const MAX_PREVIEW_CACHE_MOBILE = 240;
+const MAX_PREVIEW_CACHE_DESKTOP = 1200;
+const MAX_PREVIEW_CACHE_MOBILE = 480;
 
 /** Recent load failures — short TTL so transient CDN/network errors can recover. */
 const FAILED_PREVIEW_TTL_MS = 120_000;
 const MAX_FAILED_PREVIEW_CACHE_DESKTOP = 256;
 const MAX_FAILED_PREVIEW_CACHE_MOBILE = 128;
 
-const MAX_CONCURRENT_PREFETCH_DESKTOP = 1;
-const MAX_CONCURRENT_PREFETCH_MOBILE = 1;
+const MAX_CONCURRENT_PREFETCH_DESKTOP = 8;
+const MAX_CONCURRENT_PREFETCH_MOBILE = 4;
 
 type FailedPreviewEntry = { failedAt: number };
 
@@ -101,6 +101,9 @@ class LruCache<V> {
 }
 
 const loadPromises = new Map<string, Promise<string | null>>();
+
+/** Keys that successfully decoded at least once — survives LRU eviction for instant remount. */
+const loadedOnceKeys = new Set<string>();
 
 function onPreviewCacheEvict(key: string): void {
   loadPromises.delete(key);
@@ -241,6 +244,7 @@ export function invalidateMediaPreviewForUrl(url: string): void {
 function rememberLoadedSrc(key: string, src: string): void {
   syncPreviewCacheCapacity();
   clearFailedKey(key);
+  loadedOnceKeys.add(key);
   loadedSrcByKey.set(key, src);
 }
 
@@ -257,7 +261,13 @@ export function resolvePreviewSrc(url: string, width: number): string {
 }
 
 export function isPreviewLoaded(url: string, width: number): boolean {
-  return loadedSrcByKey.has(previewCacheKey(url, width));
+  const key = previewCacheKey(url, width);
+  return loadedSrcByKey.has(key) || loadedOnceKeys.has(key);
+}
+
+/** True after a successful decode — used to show browser-cached src without waiting on the queue. */
+export function wasPreviewEverLoaded(url: string, width: number): boolean {
+  return loadedOnceKeys.has(previewCacheKey(url, width));
 }
 
 /** Record a failed preview load so prefetch and `<img>` do not retry in a tight loop. */
@@ -316,41 +326,97 @@ export function prefetchMediaPreview(
 
 type SequentialJob = {
   orderKey: string;
+  tier: number;
   url: string;
   width: number;
+  generation: number;
   resolve: (src: string | null) => void;
 };
 
+const MAX_CONCURRENT_BY_TIER: Record<number, number> = {
+  0: 8,
+  1: 2,
+  2: 4,
+};
+
 const sequentialJobs: SequentialJob[] = [];
+const activeSequentialByTier = new Map<number, number>();
 let sequentialDrainRunning = false;
+let mediaLoadGeneration = 0;
+
+/** Drop queued work and invalidate in-flight sequential resolves (search / filter / scroll jump). */
+export function resetSequentialMediaQueue(): number {
+  mediaLoadGeneration += 1;
+  for (const job of sequentialJobs) {
+    job.resolve(null);
+  }
+  sequentialJobs.length = 0;
+  sequentialDrainRunning = false;
+  activeSequentialByTier.clear();
+  return mediaLoadGeneration;
+}
+
+export function getMediaLoadGeneration(): number {
+  return mediaLoadGeneration;
+}
 
 function drainSequentialJobs() {
   if (sequentialDrainRunning) return;
   sequentialDrainRunning = true;
 
+  const tierOf = (job: SequentialJob) => job.tier;
+  const activeForTier = (tier: number) => activeSequentialByTier.get(tier) ?? 0;
+
   const runNext = () => {
-    if (sequentialJobs.length === 0) {
+    sequentialJobs.sort((a, b) => {
+      if (a.tier !== b.tier) return a.tier - b.tier;
+      return a.orderKey.localeCompare(b.orderKey);
+    });
+
+    const jobIndex = sequentialJobs.findIndex(
+      (job) => activeForTier(job.tier) < (MAX_CONCURRENT_BY_TIER[job.tier] ?? 1),
+    );
+
+    if (jobIndex === -1) {
       sequentialDrainRunning = false;
       return;
     }
-    sequentialJobs.sort((a, b) => a.orderKey.localeCompare(b.orderKey));
-    const job = sequentialJobs.shift()!;
+
+    const job = sequentialJobs.splice(jobIndex, 1)[0]!;
+    const tier = tierOf(job);
+    activeSequentialByTier.set(tier, activeForTier(tier) + 1);
+    const genAtStart = job.generation;
+
     void prefetchMediaPreview(job.url, job.width)
-      .then((src) => job.resolve(src))
-      .finally(runNext);
+      .then((src) => {
+        if (genAtStart === mediaLoadGeneration) job.resolve(src);
+        else job.resolve(null);
+      })
+      .finally(() => {
+        activeSequentialByTier.set(tier, Math.max(0, activeForTier(tier) - 1));
+        runNext();
+      });
   };
 
   runNext();
 }
 
+const TIER_BY_LOAD: Record<string, number> = {
+  visible: 0,
+  bootstrap: 2,
+  lookahead: 1,
+  off: 3,
+};
+
 /**
- * Instagram-style ordered preview load — one image at a time globally, sorted by orderKey
- * (e.g. "00042:0" for row 42 primary thumb). Dedupes in-flight jobs for the same cache key.
+ * Instagram-style ordered preview load — visible rows run in parallel (tier 0),
+ * lookahead rows are throttled (tier 1).
  */
 export function acquireSequentialPreview(
   url: string,
   width: number,
   orderKey: string,
+  loadTier: keyof typeof TIER_BY_LOAD = 'visible',
 ): Promise<string | null> {
   syncPreviewCacheCapacity();
   const key = previewCacheKey(url, width);
@@ -358,12 +424,23 @@ export function acquireSequentialPreview(
 
   const cached = loadedSrcByKey.peek(key);
   if (cached) return Promise.resolve(cached);
+  if (loadedOnceKeys.has(key)) {
+    return Promise.resolve(getDriveDirectLink(url, width));
+  }
 
   const pending = loadPromises.get(key);
   if (pending) return pending;
 
+  const tier = TIER_BY_LOAD[loadTier] ?? 0;
+  if (tier >= 3) return Promise.resolve(null);
+
+  if (tier === 0 || tier === 2) {
+    return prefetchMediaPreview(url, width);
+  }
+
+  const generation = mediaLoadGeneration;
   return new Promise((resolve) => {
-    sequentialJobs.push({ orderKey, url, width, resolve });
+    sequentialJobs.push({ orderKey, tier, url, width, generation, resolve });
     drainSequentialJobs();
   });
 }

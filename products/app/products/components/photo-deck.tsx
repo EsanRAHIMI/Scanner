@@ -42,7 +42,8 @@ const PhotoDeck = React.memo(({
   const [stackExpanded, setStackExpanded] = React.useState(false);
   const sequentialKey =
     mediaRowIndex !== undefined ? `${String(mediaRowIndex).padStart(5, '0')}:0` : undefined;
-  const canLoadMedia = mediaGateOpen && inView;
+  /** Gate covers all visible rows + lookahead — no second inView block (that caused bottom gaps). */
+  const canLoadMedia = mediaGateOpen;
 
   if (visibleUrls.length === 0) return null;
 
@@ -88,11 +89,16 @@ const PhotoDeck = React.memo(({
                   </svg>
                 </div>
               </div>
-            ) : brandedPrimary ? (
+            ) : brandedPrimary && canLoadMedia ? (
               <BrandedImageFrame
                 composedSrc={brandedPrimary.composedSrc}
                 cutoutSrc={brandedPrimary.cutoutSrc}
                 alt="Product image"
+              />
+            ) : brandedPrimary ? (
+              <span
+                aria-hidden
+                className={`block h-full w-full ${PRODUCT_FRAME_BG} bg-gradient-to-br from-black/[0.06] to-black/[0.12]`}
               />
             ) : (
               <CachedMediaPreview
@@ -101,6 +107,7 @@ const PhotoDeck = React.memo(({
                 enabled={canLoadMedia}
                 priority={canLoadMedia && mediaRowIndex === 0}
                 sequentialKey={sequentialKey}
+                mediaRowIndex={mediaRowIndex}
                 className="absolute inset-0 h-full w-full object-contain"
                 alt="Product image"
               />
@@ -181,6 +188,7 @@ const PhotoDeck = React.memo(({
                     enabled={shouldLoadImage}
                     priority={isTopCard && canLoadMedia}
                     sequentialKey={cardSequentialKey}
+                    mediaRowIndex={mediaRowIndex}
                     className="block h-full w-full object-cover"
                     alt={`Product view ${revIdx + 1}`}
                   />
