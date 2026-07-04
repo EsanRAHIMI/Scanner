@@ -3,7 +3,18 @@ type ImportRowLike = {
   fields?: Record<string, unknown>;
 };
 
-const HIDDEN_LABELS = new Set(['-', 'crystal', 'custom']);
+/** Built-in defaults; the user can add/remove terms in the Excel Imports toolbar. */
+export const DEFAULT_HIDDEN_LABELS = ['-', 'Crystal', 'custom'];
+
+function toHiddenLabelSet(hiddenLabels?: Iterable<string>): Set<string> {
+  const source = hiddenLabels ?? DEFAULT_HIDDEN_LABELS;
+  const set = new Set<string>();
+  for (const label of source) {
+    const normalized = label.trim().toLowerCase();
+    if (normalized) set.add(normalized);
+  }
+  return set;
+}
 
 function fieldValueText(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -32,12 +43,12 @@ export function detectCrystalCustomLabel(
   return null;
 }
 
-export function isHiddenImportRow(row: ImportRowLike): boolean {
+export function isHiddenImportRow(row: ImportRowLike, hiddenLabels?: Iterable<string>): boolean {
+  const labelSet = toHiddenLabelSet(hiddenLabels);
   const saved = (row.row_label ?? '').trim();
-  const label = saved.toLowerCase();
-  if (HIDDEN_LABELS.has(label)) return true;
-  if (saved) return false;
-  return detectCrystalCustomLabel(row.fields) !== null;
+  if (saved) return labelSet.has(saved.toLowerCase());
+  const detected = detectCrystalCustomLabel(row.fields);
+  return detected ? labelSet.has(detected.toLowerCase()) : false;
 }
 
 export function getImportRowDisplayLabel(row: ImportRowLike): string {

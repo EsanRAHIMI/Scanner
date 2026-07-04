@@ -9,6 +9,7 @@ import { useProductsCache } from '../../products-cache-provider';
 import { formatPrice, formatScalar, highlightMatches, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
 import { ProductsHeaderSearch } from '../components/products-header-search';
 import {
+  DEFAULT_HIDDEN_LABELS,
   detectCrystalCustomLabel,
   getImportRowDisplayLabel,
   isHiddenImportRow,
@@ -95,6 +96,25 @@ const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'unmatched', 'empty']
 
 const DEFAULT_SELECTED_ROW_GROUPS: ImportRowMatchStatus[] = ALL_ROW_GROUPS;
 
+/**
+ * Verified rows = Matched rows whose selected field already has a value on the
+ * existing product (and, if the Excel row also has that field, the values agree).
+ * The filter lets you isolate ("only"), exclude ("hide"), or ignore ("off") them.
+ */
+type VerifiedFilterMode = 'off' | 'only' | 'hide';
+
+const VERIFIED_FILTER_MODES: VerifiedFilterMode[] = ['off', 'only', 'hide'];
+
+const VERIFIED_FILTER_MODE_LABELS: Record<VerifiedFilterMode, string> = {
+  off: 'All',
+  only: 'Only verified',
+  hide: 'Hide verified',
+};
+
+function isVerifiedFilterMode(value: unknown): value is VerifiedFilterMode {
+  return typeof value === 'string' && VERIFIED_FILTER_MODES.includes(value as VerifiedFilterMode);
+}
+
 const IMPORT_TABLE_COLUMN_ORDER = [
   'Image1',
   'Image',
@@ -178,6 +198,73 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
 };
 
 const IMPORT_ROWS_LIMIT = 5000;
+const SELECTED_IMPORT_SESSION_STORAGE_KEY = 'lorenzo:products:imports:selected';
+const IMPORT_MATCH_SESSION_STORAGE_PREFIX = 'lorenzo:products:import-match:';
+const HIDDEN_LABELS_STORAGE_KEY = 'lorenzo:products:imports:hidden-labels';
+
+function readStoredHiddenLabels(): string[] {
+  if (typeof window === 'undefined') return [...DEFAULT_HIDDEN_LABELS];
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_LABELS_STORAGE_KEY);
+    if (!raw) return [...DEFAULT_HIDDEN_LABELS];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_HIDDEN_LABELS];
+    const seen = new Set<string>();
+    const labels: string[] = [];
+    for (const item of parsed) {
+      if (typeof item !== 'string') continue;
+      const value = item.trim();
+      const key = value.toLowerCase();
+      if (!value || seen.has(key)) continue;
+      seen.add(key);
+      labels.push(value);
+    }
+    return labels;
+  } catch {
+    return [...DEFAULT_HIDDEN_LABELS];
+  }
+}
+
+type CachedImportSessionState = {
+  matchImportColumns?: unknown;
+  matchProductColumn?: unknown;
+  matchPreview?: unknown;
+  selectedRowGroups?: unknown;
+  selectedTransferColumns?: unknown;
+  hideVerifiedMatchedRows?: unknown;
+  verifiedFilterMode?: unknown;
+  verifiedMatchedColumn?: unknown;
+  verifiedProductValueRequired?: unknown;
+};
+
+function importSessionStorageKey(importId: string) {
+  return `${IMPORT_MATCH_SESSION_STORAGE_PREFIX}${importId}`;
+}
+
+function isImportRowMatchStatus(value: unknown): value is ImportRowMatchStatus {
+  return typeof value === 'string' && ALL_ROW_GROUPS.includes(value as ImportRowMatchStatus);
+}
+
+function readCachedImportSessionState(importId: string): CachedImportSessionState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(importSessionStorageKey(importId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as CachedImportSessionState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearCachedImportSessionState(importId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(importSessionStorageKey(importId));
+  } catch {
+    // Ignore storage failures; the page still works without the session cache.
+  }
+}
 
 function formatDate(value: string | undefined) {
   if (!value) return '—';
@@ -311,6 +398,26 @@ function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, 
   if (!left) return false;
   const right = normalizeComparable(getEquivalentFieldValue(existingFields, column));
   return Boolean(right) && left === right;
+}
+
+function isHiddenRowLabelText(label: string, hiddenLabels: string[]) {
+  const normalized = label.trim().toLowerCase();
+  if (!normalized) return false;
+  return hiddenLabels.some((item) => item.trim().toLowerCase() === normalized);
+}
+
+function isMatchedImportRowVerifiedForColumn(
+  row: ProductImportRow,
+  existingProduct: ProductsRecord | null,
+  column: string,
+  productValueRequired: boolean,
+) {
+  if (!existingProduct || !column) return false;
+  const productValue = normalizeComparable(getEquivalentFieldValue(existingProduct.fields ?? {}, column));
+  if (!productValue) return !productValueRequired;
+  if (!productValueRequired) return false;
+  const importValue = normalizeComparable(getEquivalentFieldValue(row.fields ?? {}, column));
+  return !importValue || importValue === productValue;
 }
 
 function classifyImportRowMatchStatus(
@@ -453,6 +560,12 @@ export default function ProductImportsPage() {
   const [selectedRowGroups, setSelectedRowGroups] = React.useState<Set<ImportRowMatchStatus>>(
     () => new Set(DEFAULT_SELECTED_ROW_GROUPS),
   );
+  const [verifiedFilterMode, setVerifiedFilterMode] = React.useState<VerifiedFilterMode>('off');
+  const [verifiedMatchedColumn, setVerifiedMatchedColumn] = React.useState('');
+  const [verifiedProductValueRequired, setVerifiedProductValueRequired] = React.useState(true);
+  const [temporarilyHiddenRowIds, setTemporarilyHiddenRowIds] = React.useState<Set<string>>(new Set());
+  const [hiddenLabels, setHiddenLabels] = React.useState<string[]>(DEFAULT_HIDDEN_LABELS);
+  const [hiddenLabelDraft, setHiddenLabelDraft] = React.useState('');
   const [showHiddenRows, setShowHiddenRows] = React.useState(false);
   const [isLgScreen, setIsLgScreen] = React.useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false);
@@ -494,9 +607,25 @@ export default function ProductImportsPage() {
       return;
     }
     if (!selectedImportId || !imports.some(item => item.id === selectedImportId)) {
-      setSelectedImportId(imports[0].id);
+      let cachedSelectedImportId = '';
+      try {
+        cachedSelectedImportId = window.sessionStorage.getItem(SELECTED_IMPORT_SESSION_STORAGE_KEY) ?? '';
+      } catch {
+        cachedSelectedImportId = '';
+      }
+      const cachedImportExists = imports.some(item => item.id === cachedSelectedImportId);
+      setSelectedImportId(cachedImportExists ? cachedSelectedImportId : imports[0].id);
     }
   }, [imports, selectedImportId]);
+
+  React.useEffect(() => {
+    if (!activeImportId) return;
+    try {
+      window.sessionStorage.setItem(SELECTED_IMPORT_SESSION_STORAGE_KEY, activeImportId);
+    } catch {
+      // Session storage is a convenience only.
+    }
+  }, [activeImportId]);
 
   const uploadFile = async () => {
     if (!selectedFile || isUploading) return;
@@ -534,6 +663,7 @@ export default function ProductImportsPage() {
       const res = await apiFetch(`/admin/products/imports/${activeImportId}`, { method: 'DELETE' });
       const text = await res.text();
       if (!res.ok) throw new Error(text || 'Delete failed');
+      clearCachedImportSessionState(activeImportId);
       setSelectedImportId(null);
       await mutateImports();
       await mutateRows(undefined, { revalidate: false });
@@ -640,6 +770,13 @@ export default function ProductImportsPage() {
         previousData?.records.find((row) => row.id === rowId)?.row_label?.trim() ?? '';
       if (trimmed === previousLabel) return;
 
+      setTemporarilyHiddenRowIds((prev) => {
+        const next = new Set(prev);
+        if (isHiddenRowLabelText(trimmed, hiddenLabels)) next.add(rowId);
+        else next.delete(rowId);
+        return next;
+      });
+
       saveInFlightRef.current = true;
       setSavingLabelRowId(rowId);
 
@@ -678,6 +815,12 @@ export default function ProductImportsPage() {
         );
       } catch (err) {
         await mutateRows(previousData, { revalidate: false });
+        setTemporarilyHiddenRowIds((prev) => {
+          const next = new Set(prev);
+          if (isHiddenRowLabelText(previousLabel, hiddenLabels)) next.add(rowId);
+          else next.delete(rowId);
+          return next;
+        });
         if (!options?.silent) {
           setMessage(err instanceof Error ? err.message : 'Label update failed');
         }
@@ -686,11 +829,12 @@ export default function ProductImportsPage() {
         saveInFlightRef.current = false;
       }
     },
-    [activeImportId, mutateRows, rowsData],
+    [activeImportId, hiddenLabels, mutateRows, rowsData],
   );
 
   React.useEffect(() => {
     autoLabeledRowIdsRef.current = new Set();
+    setTemporarilyHiddenRowIds(new Set());
     setShowHiddenRows(false);
   }, [activeImportId]);
 
@@ -767,14 +911,19 @@ export default function ProductImportsPage() {
     }
   }, [activeImportId, rowsData, saveRowLabel]);
 
+  const isRowHiddenForView = React.useCallback(
+    (row: ProductImportRow) => temporarilyHiddenRowIds.has(row.id) || isHiddenImportRow(row, hiddenLabels),
+    [hiddenLabels, temporarilyHiddenRowIds],
+  );
+
   const hiddenRowCount = React.useMemo(
-    () => rowsData?.records.filter((row) => isHiddenImportRow(row)).length ?? 0,
-    [rowsData],
+    () => rowsData?.records.filter((row) => isRowHiddenForView(row)).length ?? 0,
+    [isRowHiddenForView, rowsData],
   );
 
   const matchableRows = React.useMemo(
-    () => rowsData?.records.filter((row) => !isHiddenImportRow(row)) ?? [],
-    [rowsData],
+    () => rowsData?.records.filter((row) => !isRowHiddenForView(row)) ?? [],
+    [isRowHiddenForView, rowsData],
   );
 
   const applyImportToProducts = React.useCallback(async () => {
@@ -870,6 +1019,8 @@ export default function ProductImportsPage() {
     if (!activeImportId || isReprocessing) return;
     setIsReprocessing(true);
     setMessage(null);
+    clearCachedImportSessionState(activeImportId);
+    setMatchPreview(null);
     try {
       const res = await apiFetch(`/admin/products/imports/${activeImportId}/reprocess`, {
         method: 'POST',
@@ -879,7 +1030,7 @@ export default function ProductImportsPage() {
       const result = JSON.parse(text) as ReprocessImportResponse;
       await mutateRows();
       if (matchImportColumns.length > 0 && matchProductColumn) {
-        void previewMatch();
+        await previewMatch();
       }
       setMessage(`Formulas rechecked: ${result.changed_count} of ${result.processed_count} row(s) updated.`);
     } catch (err) {
@@ -922,6 +1073,12 @@ export default function ProductImportsPage() {
       'Main',
     ];
   }, [productsData?.columns]);
+  const verifiedMatchedColumnOptions = React.useMemo(() => {
+    const options = new Set<string>();
+    for (const column of importColumns) options.add(column);
+    for (const column of productColumns) options.add(column);
+    return [...options];
+  }, [importColumns, productColumns]);
   const existingProductIndex = React.useMemo(() => {
     if (!matchProductColumn) return new Map<string, ProductsRecord>();
     return buildProductIndexByColumn(productsData?.records ?? [], matchProductColumn);
@@ -935,7 +1092,7 @@ export default function ProductImportsPage() {
       ? Object.fromEntries(
           Object.entries(previewStatuses).filter(([rowId]) => {
             const row = rowsData.records.find((item) => item.id === rowId);
-            return row ? !isHiddenImportRow(row) : true;
+            return row ? !isRowHiddenForView(row) : true;
           }),
         )
       : undefined;
@@ -951,6 +1108,7 @@ export default function ProductImportsPage() {
     matchPreview?.row_statuses,
     matchProductColumn,
     matchableRows,
+    isRowHiddenForView,
     rowsData,
   ]);
 
@@ -963,14 +1121,42 @@ export default function ProductImportsPage() {
   }, [rowStatusById]);
 
   const isMatchConfigured = matchImportColumns.length > 0 && Boolean(matchProductColumn);
+  const isVerifiedMatchedRow = React.useCallback(
+    (row: ProductImportRow) => {
+      if (!isMatchConfigured || !verifiedMatchedColumn) return false;
+      if (rowStatusById.get(row.id) !== 'matched') return false;
+      const existingProduct = findExistingProductByColumn(row, existingProductIndex, matchImportColumns);
+      return isMatchedImportRowVerifiedForColumn(
+        row,
+        existingProduct,
+        verifiedMatchedColumn,
+        verifiedProductValueRequired,
+      );
+    },
+    [
+      existingProductIndex,
+      isMatchConfigured,
+      matchImportColumns,
+      rowStatusById,
+      verifiedMatchedColumn,
+      verifiedProductValueRequired,
+    ],
+  );
+
+  const verifiedMatchedCount = React.useMemo(() => {
+    if (!rowsData || !verifiedMatchedColumn) return 0;
+    return rowsData.records.filter((row) => !isRowHiddenForView(row) && isVerifiedMatchedRow(row)).length;
+  }, [isRowHiddenForView, isVerifiedMatchedRow, rowsData, verifiedMatchedColumn]);
+
+  const isVerifiedFilterActive = verifiedFilterMode !== 'off' && Boolean(verifiedMatchedColumn);
 
   const filteredImportRows = React.useMemo(() => {
     if (!rowsData) return [];
 
     const hiddenRows = showHiddenRows
-      ? rowsData.records.filter((row) => isHiddenImportRow(row))
+      ? rowsData.records.filter((row) => isRowHiddenForView(row))
       : [];
-    const visibleRows = rowsData.records.filter((row) => !isHiddenImportRow(row));
+    const visibleRows = rowsData.records.filter((row) => !isRowHiddenForView(row));
 
     if (selectedRowGroups.size === 0) {
       return showHiddenRows ? hiddenRows : [];
@@ -979,11 +1165,27 @@ export default function ProductImportsPage() {
     const activeRows = visibleRows.filter((row) => {
       if (!isMatchConfigured) return true;
       const status = rowStatusById.get(row.id);
-      return status ? selectedRowGroups.has(status) : false;
+      if (!status || !selectedRowGroups.has(status)) return false;
+      if (isVerifiedFilterActive) {
+        const verified = isVerifiedMatchedRow(row);
+        if (verifiedFilterMode === 'hide' && verified) return false;
+        if (verifiedFilterMode === 'only' && !verified) return false;
+      }
+      return true;
     });
 
     return showHiddenRows ? [...activeRows, ...hiddenRows] : activeRows;
-  }, [isMatchConfigured, rowStatusById, rowsData, selectedRowGroups, showHiddenRows]);
+  }, [
+    isVerifiedFilterActive,
+    verifiedFilterMode,
+    isMatchConfigured,
+    isVerifiedMatchedRow,
+    isRowHiddenForView,
+    rowStatusById,
+    rowsData,
+    selectedRowGroups,
+    showHiddenRows,
+  ]);
 
   const importRowSearchTextById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -1008,20 +1210,138 @@ export default function ProductImportsPage() {
     if (!activeImportId || importColumns.length === 0) return;
     if (initializedTransferColumnsForImportRef.current === activeImportId) return;
     initializedTransferColumnsForImportRef.current = activeImportId;
-    setSelectedTransferColumns(new Set());
+    const cached = readCachedImportSessionState(activeImportId);
+    const cachedTransferColumns = Array.isArray(cached?.selectedTransferColumns)
+      ? cached.selectedTransferColumns.filter(
+          (column): column is string => typeof column === 'string' && importColumns.includes(column),
+        )
+      : [];
+    setSelectedTransferColumns(new Set(cachedTransferColumns));
   }, [activeImportId, importColumns]);
 
   React.useEffect(() => {
     if (!activeImportId || importColumns.length === 0 || productColumns.length === 0) return;
     if (initializedMatchColumnsForImportRef.current === activeImportId) return;
     initializedMatchColumnsForImportRef.current = activeImportId;
-    setMatchImportColumns([]);
+    const cached = readCachedImportSessionState(activeImportId);
+    const cachedMatchImportColumns = Array.isArray(cached?.matchImportColumns)
+      ? cached.matchImportColumns.filter(
+          (column): column is string =>
+            typeof column === 'string' && (column === 'Row' || importColumns.includes(column)),
+        )
+      : [];
+    const cachedMatchProductColumn =
+      typeof cached?.matchProductColumn === 'string' && productColumns.includes(cached.matchProductColumn)
+        ? cached.matchProductColumn
+        : '';
+    const cachedRowGroups = Array.isArray(cached?.selectedRowGroups)
+      ? cached.selectedRowGroups.filter(isImportRowMatchStatus)
+      : ALL_ROW_GROUPS;
+    const cachedVerifiedColumn =
+      typeof cached?.verifiedMatchedColumn === 'string' &&
+      (importColumns.includes(cached.verifiedMatchedColumn) || productColumns.includes(cached.verifiedMatchedColumn))
+        ? cached.verifiedMatchedColumn
+        : cachedMatchProductColumn;
+
+    setMatchImportColumns(cachedMatchImportColumns);
     setMatchImportColumnDraft('');
-    setMatchProductColumn('');
-    setMatchPreview(null);
+    setMatchProductColumn(cachedMatchProductColumn);
+    setMatchPreview(
+      cached?.matchPreview && typeof cached.matchPreview === 'object'
+        ? (cached.matchPreview as MatchPreviewResponse)
+        : null,
+    );
     setMatchPreviewError(null);
-    setSelectedRowGroups(new Set(ALL_ROW_GROUPS));
+    setSelectedRowGroups(new Set(cachedRowGroups));
+    const cachedVerifiedFilterMode = isVerifiedFilterMode(cached?.verifiedFilterMode)
+      ? cached.verifiedFilterMode
+      : cached?.hideVerifiedMatchedRows === true
+        ? 'hide'
+        : 'off';
+    setVerifiedFilterMode(cachedVerifiedFilterMode);
+    setVerifiedMatchedColumn(cachedVerifiedColumn);
+    setVerifiedProductValueRequired(cached?.verifiedProductValueRequired !== false);
   }, [activeImportId, productColumns, importColumns]);
+
+  React.useEffect(() => {
+    if (!verifiedMatchedColumn) return;
+    if (!verifiedMatchedColumnOptions.includes(verifiedMatchedColumn)) {
+      setVerifiedMatchedColumn('');
+    }
+  }, [verifiedMatchedColumn, verifiedMatchedColumnOptions]);
+
+  React.useEffect(() => {
+    if (verifiedMatchedColumn || !matchProductColumn) return;
+    if (verifiedMatchedColumnOptions.includes(matchProductColumn)) {
+      setVerifiedMatchedColumn(matchProductColumn);
+    }
+  }, [matchProductColumn, verifiedMatchedColumn, verifiedMatchedColumnOptions]);
+
+  React.useEffect(() => {
+    if (!activeImportId) return;
+    if (initializedMatchColumnsForImportRef.current !== activeImportId) return;
+    if (initializedTransferColumnsForImportRef.current !== activeImportId) return;
+    try {
+      window.sessionStorage.setItem(
+        importSessionStorageKey(activeImportId),
+        JSON.stringify({
+          matchImportColumns,
+          matchProductColumn,
+          matchPreview,
+          selectedRowGroups: Array.from(selectedRowGroups),
+          selectedTransferColumns: Array.from(selectedTransferColumns),
+          verifiedFilterMode,
+          verifiedMatchedColumn,
+          verifiedProductValueRequired,
+        }),
+      );
+    } catch {
+      // Ignore storage failures; the in-memory state remains the source of truth.
+    }
+  }, [
+    activeImportId,
+    verifiedFilterMode,
+    matchImportColumns,
+    matchPreview,
+    matchProductColumn,
+    selectedRowGroups,
+    selectedTransferColumns,
+    verifiedMatchedColumn,
+    verifiedProductValueRequired,
+  ]);
+
+  // Load persisted hide labels after mount only, so SSR and first client render match (no hydration mismatch).
+  React.useEffect(() => {
+    setHiddenLabels(readStoredHiddenLabels());
+  }, []);
+
+  const persistHiddenLabels = React.useCallback((next: string[]) => {
+    try {
+      window.localStorage.setItem(HIDDEN_LABELS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Preference persistence is best-effort.
+    }
+  }, []);
+
+  const addHiddenLabel = React.useCallback(() => {
+    const value = hiddenLabelDraft.trim();
+    if (!value) return;
+    setHiddenLabels((prev) => {
+      if (prev.some((item) => item.toLowerCase() === value.toLowerCase())) return prev;
+      const next = [...prev, value];
+      persistHiddenLabels(next);
+      return next;
+    });
+    setHiddenLabelDraft('');
+  }, [hiddenLabelDraft, persistHiddenLabels]);
+
+  const removeHiddenLabel = React.useCallback((label: string) => {
+    setHiddenLabels((prev) => {
+      const next = prev.filter((item) => item !== label);
+      persistHiddenLabels(next);
+      return next;
+    });
+  }, [persistHiddenLabels]);
 
   const toggleRowGroup = React.useCallback((group: ImportRowMatchStatus) => {
     setSelectedRowGroups(prev => {
@@ -1037,11 +1357,17 @@ export default function ProductImportsPage() {
       setMatchPreview(null);
       return;
     }
+    const previewImportColumns = matchPreview?.match.import_columns ?? [];
+    const previewMatchesCurrentConfig =
+      matchPreview?.match.product_column === matchProductColumn &&
+      previewImportColumns.length === matchImportColumns.length &&
+      previewImportColumns.every((column, index) => column === matchImportColumns[index]);
+    if (previewMatchesCurrentConfig) return;
     const timer = setTimeout(() => {
       void previewMatch();
     }, 400);
     return () => clearTimeout(timer);
-  }, [activeImportId, matchImportColumns, matchProductColumn, previewMatch, rowsData?.count]);
+  }, [activeImportId, matchImportColumns, matchPreview, matchProductColumn, previewMatch, rowsData?.count]);
 
   const toggleTransferColumn = React.useCallback((column: string) => {
     setSelectedTransferColumns(prev => {
@@ -1420,11 +1746,133 @@ export default function ProductImportsPage() {
                 </label>
               ))}
 
+              <div
+                className={
+                  'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 transition ' +
+                  (isVerifiedFilterActive
+                    ? 'border-emerald-500/30 bg-emerald-500/10 dark:border-emerald-400/25 dark:bg-emerald-500/15'
+                    : 'border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.03]')
+                }
+                title="Isolate or exclude Matched rows based on whether the selected Products field has a value."
+              >
+                <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                  Verified
+                </span>
+                <select
+                  value={verifiedMatchedColumn}
+                  onChange={(event) => setVerifiedMatchedColumn(event.target.value)}
+                  disabled={!isMatchConfigured}
+                  className="h-5 max-w-[150px] rounded-md border border-black/10 bg-white px-1 text-[9px] font-bold text-black/70 outline-none disabled:opacity-40 dark:border-white/10 dark:bg-black/40 dark:text-white/70"
+                  aria-label="Products field used to detect verified matched rows"
+                  title="Field checked on the existing matched product."
+                >
+                  <option value="">Field…</option>
+                  {verifiedMatchedColumnOptions.map(column => (
+                    <option key={column} value={column}>{column}</option>
+                  ))}
+                </select>
+                <label
+                  className={
+                    'inline-flex cursor-pointer items-center gap-1 rounded-md border px-1 py-0.5 text-[9px] font-black transition ' +
+                    (verifiedProductValueRequired
+                      ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/25 dark:text-emerald-200'
+                      : 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:border-amber-400/25 dark:text-amber-200')
+                  }
+                  title={
+                    verifiedProductValueRequired
+                      ? 'Checked: match rows where this Products field has a value.'
+                      : 'Unchecked: match rows where this Products field is empty/missing.'
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={verifiedProductValueRequired}
+                    onChange={(event) => setVerifiedProductValueRequired(event.target.checked)}
+                    disabled={!isMatchConfigured || !verifiedMatchedColumn}
+                    className="h-2.5 w-2.5 accent-emerald-600 disabled:opacity-40"
+                  />
+                  {verifiedProductValueRequired ? 'Has value' : 'No value'}
+                </label>
+                <div className="inline-flex overflow-hidden rounded-md border border-black/10 dark:border-white/10">
+                  {VERIFIED_FILTER_MODES.map((mode) => {
+                    const active = verifiedFilterMode === mode;
+                    const showCount = mode !== 'off' && Boolean(verifiedMatchedColumn);
+                    const targetText = verifiedProductValueRequired ? 'has a value' : 'is empty';
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={mode !== 'off' && (!isMatchConfigured || !verifiedMatchedColumn)}
+                        onClick={() => setVerifiedFilterMode(mode)}
+                        aria-pressed={active}
+                        title={
+                          mode === 'off'
+                            ? 'Show all matched rows'
+                            : mode === 'only'
+                              ? `Show only matched rows where this Products field ${targetText}`
+                              : `Hide matched rows where this Products field ${targetText}`
+                        }
+                        className={
+                          'px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider transition disabled:cursor-not-allowed disabled:opacity-40 ' +
+                          (active
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white text-black/50 hover:bg-black/5 dark:bg-black/40 dark:text-white/50 dark:hover:bg-white/10')
+                        }
+                      >
+                        {VERIFIED_FILTER_MODE_LABELS[mode]}
+                        {showCount ? ` ${verifiedMatchedCount}` : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {hiddenRowCount > 0 ? (
                 <span className="rounded-full border border-zinc-300/60 bg-zinc-100/80 px-1.5 py-0.5 text-[9px] font-bold text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55">
                   {hiddenRowCount} hidden
                 </span>
               ) : null}
+
+              <div
+                className="inline-flex min-w-0 flex-wrap items-center gap-1 rounded-full border border-black/10 bg-black/[0.02] px-1.5 py-0.5 dark:border-white/10 dark:bg-white/[0.03]"
+                title="Rows whose Label matches any of these terms are hidden and excluded from the Matched/Unmatched/Empty stats."
+              >
+                <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-black/35 dark:text-white/35">
+                  Hide labels
+                </span>
+                {hiddenLabels.map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => removeHiddenLabel(label)}
+                    className="rounded-full border border-zinc-300/60 bg-zinc-100/80 px-1.5 py-0.5 text-[9px] font-bold text-zinc-600 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55"
+                    title={`Remove “${label}” from hide terms`}
+                  >
+                    {label} ×
+                  </button>
+                ))}
+                <input
+                  value={hiddenLabelDraft}
+                  onChange={(event) => setHiddenLabelDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      addHiddenLabel();
+                    }
+                  }}
+                  placeholder="Add…"
+                  className="h-5 w-16 min-w-0 rounded-md border border-black/10 bg-white px-1 text-[9px] font-semibold text-black outline-none dark:border-white/10 dark:bg-black/40 dark:text-white"
+                  aria-label="Add a label term that hides matching rows"
+                />
+                <button
+                  type="button"
+                  onClick={addHiddenLabel}
+                  disabled={!hiddenLabelDraft.trim()}
+                  className="rounded-full border border-black/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
+                >
+                  Add
+                </button>
+              </div>
             </div>
 
             {matchPreviewError ? (
@@ -1435,7 +1883,12 @@ export default function ProductImportsPage() {
               {rowsData
                 ? `${rowsData.import.filename} · ${searchFilteredImportRows.length}/${rowsData.count} shown` +
                   (debouncedSearch.trim() ? ` · search “${debouncedSearch.trim()}”` : '') +
-                  (hiddenRowCount > 0 ? ` · ${hiddenRowCount} hidden (Crystal/custom/−)` : '') +
+                  (hiddenRowCount > 0 ? ` · ${hiddenRowCount} hidden (excluded from stats)` : '') +
+                  (isVerifiedFilterActive
+                    ? verifiedFilterMode === 'only'
+                      ? ` · showing ${verifiedMatchedCount} where ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has value' : 'has no value'}`
+                      : ` · ${verifiedMatchedCount} hidden where ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has value' : 'has no value'}`
+                    : '') +
                   ` · ${selectedTransferColumns.size} transfer cols` +
                   (selectedRowGroups.size === 0 && !showHiddenRows ? ' · tick a group' : '')
                 : 'Select an import from the left.'}
@@ -1519,13 +1972,17 @@ export default function ProductImportsPage() {
                             ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
                             : selectedRowGroups.size === 0 && showHiddenRows && hiddenRowCount === 0
                               ? 'No hidden rows in this import.'
-                              : 'No rows in the selected groups.'}
+                              : isVerifiedFilterActive && verifiedFilterMode === 'only' && verifiedMatchedCount === 0
+                                ? `No matched rows where ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has a value' : 'has no value'} in Products.`
+                                : isVerifiedFilterActive && verifiedFilterMode === 'hide' && verifiedMatchedCount > 0
+                                  ? `All visible matched rows match the ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has value' : 'no value'} filter.`
+                                  : 'No rows in the selected groups.'}
                       </td>
                     </tr>
                   ) : null}
                   {searchFilteredImportRows.map(row => {
                     const rowStatus = rowStatusById.get(row.id);
-                    const rowHidden = isHiddenImportRow(row);
+                    const rowHidden = isRowHiddenForView(row);
                     const rowTone = rowHidden
                       ? 'border-black/5 bg-zinc-100/90 text-black/55 dark:border-white/5 dark:bg-white/[0.04] dark:text-white/55'
                       : rowStatus

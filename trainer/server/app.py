@@ -251,6 +251,65 @@ async def _get_product_field_options(db: Any) -> dict[str, list[str]]:
   return initial_options
 
 
+def _compute_removed_field_options(
+  previous: dict[str, list[str]],
+  current: dict[str, list[str]],
+) -> dict[str, set[str]]:
+  """Values present before but no longer in the saved options, per selectable field."""
+  removed_by_field: dict[str, set[str]] = {}
+  for field_name in PRODUCT_SELECTABLE_FIELDS:
+    current_lower = {value.casefold() for value in current.get(field_name, [])}
+    removed = {
+      value
+      for value in previous.get(field_name, [])
+      if value.casefold() not in current_lower
+    }
+    if removed:
+      removed_by_field[field_name] = removed
+  return removed_by_field
+
+
+async def _remove_field_option_values_from_products(
+  db: Any, field_name: str, removed_values: set[str]
+) -> int:
+  """Strip removed option values from every product's field (string or list). Returns affected count."""
+  removed_lower = {value.casefold() for value in removed_values if value}
+  if not removed_lower:
+    return 0
+
+  affected = 0
+  projection = {f"fields.{field_name}": 1}
+  cursor = db["products"].find({f"fields.{field_name}": {"$exists": True}}, projection)
+  async for doc in cursor:
+    fields = doc.get("fields") or {}
+    if field_name not in fields:
+      continue
+    value = fields.get(field_name)
+
+    if isinstance(value, list):
+      kept = [
+        part
+        for part in value
+        if not (isinstance(part, str) and part.strip().casefold() in removed_lower)
+      ]
+      if len(kept) != len(value):
+        await db["products"].update_one(
+          {"_id": doc["_id"]}, {"$set": {f"fields.{field_name}": kept}}
+        )
+        affected += 1
+    elif isinstance(value, str):
+      parts = [part.strip() for part in value.split(",")]
+      non_empty = [part for part in parts if part]
+      kept = [part for part in non_empty if part.casefold() not in removed_lower]
+      if kept != non_empty:
+        await db["products"].update_one(
+          {"_id": doc["_id"]}, {"$set": {f"fields.{field_name}": ", ".join(kept)}}
+        )
+        affected += 1
+
+  return affected
+
+
 def _normalize_import_header(value: Any) -> str:
   text = str(value or "").strip().casefold()
   text = re.sub(r"[_\-/:(){}\[\]#]+", " ", text)
@@ -3340,6 +3399,9 @@ async def admin_update_product_field_options(
   options = _normalize_product_field_options_payload(payload.get("options"))
   now = _utc_now_iso()
 
+  previous_options = await _get_product_field_options(db)
+  removed_by_field = _compute_removed_field_options(previous_options, options)
+
   await db[PRODUCT_FIELD_OPTIONS_COLLECTION].update_one(
     {"_id": PRODUCT_FIELD_OPTIONS_DOC_ID},
     {
@@ -3353,15 +3415,34 @@ async def admin_update_product_field_options(
     upsert=True,
   )
 
+  # Cascade: removing an option also strips that value from every product that has it.
+  removed_products_by_field: dict[str, int] = {}
+  for field_name, removed_values in removed_by_field.items():
+    affected = await _remove_field_option_values_from_products(db, field_name, removed_values)
+    if affected:
+      removed_products_by_field[field_name] = affected
+
+  removed_summary = ", ".join(
+    f"{field_name}: {sorted(values)}" for field_name, values in removed_by_field.items()
+  )
+  details = "Updated selectable fields: Category, Space, Color, Material"
+  if removed_summary:
+    total_products = sum(removed_products_by_field.values())
+    details += f" · removed {removed_summary} from {total_products} product(s)"
+
   await log_activity(
     req,
     "PRODUCT_FIELD_OPTIONS_UPDATE",
-    details="Updated selectable fields: Category, Space, Color, Material",
+    details=details,
     user=user,
     db=db,
   )
 
-  return {"options": options, "updated_at": now}
+  return {
+    "options": options,
+    "updated_at": now,
+    "removed_from_products": removed_products_by_field,
+  }
 
 
 @api.get("/admin/products/imports")

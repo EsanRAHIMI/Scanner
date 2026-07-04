@@ -50,56 +50,86 @@ export function FieldOptionsManager() {
   });
   const [isSaving, setIsSaving] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
+  const draftRef = React.useRef<FieldOptions>(emptyOptions);
+  const saveSeqRef = React.useRef(0);
 
   React.useEffect(() => {
     if (data?.options) {
-      setDraft(normalizeOptions(data.options));
+      const normalized = normalizeOptions(data.options);
+      draftRef.current = normalized;
+      setDraft(normalized);
     }
   }, [data]);
 
-  const addOption = (field: SelectableField) => {
-    const value = newValues[field].trim();
-    if (!value) return;
-
-    setDraft(prev => {
-      const exists = prev[field].some(item => item.toLowerCase() === value.toLowerCase());
-      if (exists) return prev;
-      return { ...prev, [field]: [...prev[field], value].sort((a, b) => a.localeCompare(b)) };
-    });
-    setNewValues(prev => ({ ...prev, [field]: '' }));
-    setMessage(null);
-  };
-
-  const removeOption = (field: SelectableField, value: string) => {
-    setDraft(prev => ({
-      ...prev,
-      [field]: prev[field].filter(item => item !== value),
-    }));
-    setMessage(null);
-  };
-
-  const saveOptions = async () => {
-    if (isSaving) return;
+  const persist = React.useCallback(async (next: FieldOptions) => {
+    const seq = ++saveSeqRef.current;
     setIsSaving(true);
     setMessage(null);
     try {
       const res = await apiFetch('/admin/products/field-options', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ options: draft }),
+        body: JSON.stringify({ options: next }),
       });
       const text = await res.text();
       if (!res.ok) throw new Error(text || 'Failed to save field options');
 
-      const json = JSON.parse(text) as { options?: Partial<FieldOptions> };
-      setDraft(normalizeOptions(json.options));
+      const json = JSON.parse(text) as {
+        options?: Partial<FieldOptions>;
+        removed_from_products?: Record<string, number>;
+      };
       await mutate(json, { revalidate: false });
-      setMessage('Saved');
+      if (seq !== saveSeqRef.current) return;
+      const normalized = normalizeOptions(json.options);
+      draftRef.current = normalized;
+      setDraft(normalized);
+      const removedTotal = Object.values(json.removed_from_products ?? {}).reduce(
+        (sum, count) => sum + (count ?? 0),
+        0,
+      );
+      setMessage(removedTotal > 0 ? `Saved · cleared from ${removedTotal} product(s)` : 'Saved');
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to save');
+      if (seq === saveSeqRef.current) {
+        setMessage(err instanceof Error ? err.message : 'Failed to save');
+      }
     } finally {
-      setIsSaving(false);
+      if (seq === saveSeqRef.current) setIsSaving(false);
     }
+  }, [mutate]);
+
+  const addOption = (field: SelectableField) => {
+    const value = newValues[field].trim();
+    if (!value) return;
+
+    const prev = draftRef.current;
+    if (prev[field].some(item => item.toLowerCase() === value.toLowerCase())) {
+      setNewValues(current => ({ ...current, [field]: '' }));
+      return;
+    }
+    const next: FieldOptions = {
+      ...prev,
+      [field]: [...prev[field], value].sort((a, b) => a.localeCompare(b)),
+    };
+    draftRef.current = next;
+    setDraft(next);
+    setNewValues(current => ({ ...current, [field]: '' }));
+    void persist(next);
+  };
+
+  const removeOption = (field: SelectableField, value: string) => {
+    const prev = draftRef.current;
+    const next: FieldOptions = {
+      ...prev,
+      [field]: prev[field].filter(item => item !== value),
+    };
+    draftRef.current = next;
+    setDraft(next);
+    void persist(next);
+  };
+
+  const saveOptions = () => {
+    if (isSaving) return;
+    void persist(draftRef.current);
   };
 
   return (
@@ -110,12 +140,12 @@ export function FieldOptionsManager() {
             Selectable Field Options
           </h4>
           <p className="mt-1 text-xs font-medium text-black/40 dark:text-white/40">
-            Manage values shown in editable product fields.
+            Manage values shown in editable product fields. Changes save automatically; removing a value also clears it from products.
           </p>
         </div>
         <div className="flex items-center gap-3">
           {message ? (
-            <span className={`text-[10px] font-black ${message === 'Saved' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+            <span className={`text-[10px] font-black ${message.startsWith('Saved') ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
               {message}
             </span>
           ) : null}
