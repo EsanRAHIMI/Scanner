@@ -81,7 +81,7 @@ type MatchPreviewSample = {
 
 type MatchPreviewResponse = {
   ok: boolean;
-  match: { import_columns: string[]; product_column: string };
+  match: { import_columns: string[]; product_column: string; product_columns?: string[] };
   total_rows: number;
   matched_count: number;
   unmatched_count: number;
@@ -228,6 +228,7 @@ function readStoredHiddenLabels(): string[] {
 type CachedImportSessionState = {
   matchImportColumns?: unknown;
   matchProductColumn?: unknown;
+  matchProductColumns?: unknown;
   matchPreview?: unknown;
   selectedRowGroups?: unknown;
   selectedTransferColumns?: unknown;
@@ -370,11 +371,13 @@ function getEquivalentFieldValue(fields: Record<string, unknown>, column: string
   return getFirstField(fields, aliases[lower] ?? [column]);
 }
 
-function buildProductIndexByColumn(records: ProductsRecord[], productColumn: string) {
+function buildProductIndexByColumns(records: ProductsRecord[], productColumns: string[]) {
   const index = new Map<string, ProductsRecord>();
   for (const record of records) {
-    const value = normalizeComparable(getEquivalentFieldValue(record.fields ?? {}, productColumn));
-    if (value && !index.has(value)) index.set(value, record);
+    for (const productColumn of productColumns) {
+      const value = normalizeComparable(getEquivalentFieldValue(record.fields ?? {}, productColumn));
+      if (value && !index.has(value)) index.set(value, record);
+    }
   }
   return index;
 }
@@ -491,13 +494,14 @@ function summarizeImportRowFieldsForAgent(
 }
 
 const IMPORT_MATCH_LOGIC =
-  'OR across selected Excel columns: Matched if ANY Excel match column value equals a product value in the chosen Products column (trim + lowercase). Unmatched = has a value but no product hit. Empty = all match Excel columns blank.';
+  'OR across selected Excel and Products columns: Matched if ANY Excel match column value equals ANY selected Products column value (trim + lowercase). Unmatched = has an Excel value but no product hit. Empty = all match Excel columns blank.';
 
-function buildImportMatchPayload(importColumns: string[], productColumn: string) {
+function buildImportMatchPayload(importColumns: string[], productColumns: string[]) {
   return {
     import_columns: importColumns,
     import_column: importColumns[0] ?? '',
-    product_column: productColumn,
+    product_columns: productColumns,
+    product_column: productColumns[0] ?? '',
   };
 }
 
@@ -553,7 +557,9 @@ export default function ProductImportsPage() {
   const [selectedTransferColumns, setSelectedTransferColumns] = React.useState<Set<string>>(new Set());
   const [matchImportColumns, setMatchImportColumns] = React.useState<string[]>([]);
   const [matchImportColumnDraft, setMatchImportColumnDraft] = React.useState('');
-  const [matchProductColumn, setMatchProductColumn] = React.useState('');
+  const [matchProductColumns, setMatchProductColumns] = React.useState<string[]>([]);
+  const [matchProductColumnDraft, setMatchProductColumnDraft] = React.useState('');
+  const matchProductColumn = matchProductColumns[0] ?? '';
   const [matchPreview, setMatchPreview] = React.useState<MatchPreviewResponse | null>(null);
   const [matchPreviewError, setMatchPreviewError] = React.useState<string | null>(null);
   const [isPreviewingMatch, setIsPreviewingMatch] = React.useState(false);
@@ -687,7 +693,7 @@ export default function ProductImportsPage() {
   }, []);
 
   const previewMatch = React.useCallback(async () => {
-    if (!activeImportId || matchImportColumns.length === 0 || !matchProductColumn) return;
+    if (!activeImportId || matchImportColumns.length === 0 || matchProductColumns.length === 0) return;
     setIsPreviewingMatch(true);
     setMatchPreviewError(null);
     try {
@@ -695,7 +701,7 @@ export default function ProductImportsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          match: buildImportMatchPayload(matchImportColumns, matchProductColumn),
+          match: buildImportMatchPayload(matchImportColumns, matchProductColumns),
         }),
       });
       const text = await res.text();
@@ -707,7 +713,7 @@ export default function ProductImportsPage() {
     } finally {
       setIsPreviewingMatch(false);
     }
-  }, [activeImportId, matchImportColumns, matchProductColumn]);
+  }, [activeImportId, matchImportColumns, matchProductColumns]);
 
   const saveEditingCell = React.useCallback(async () => {
     if (!editingCell || !activeImportId || saveInFlightRef.current) return;
@@ -749,7 +755,7 @@ export default function ProductImportsPage() {
           records: current.records.map(row => row.id === rowId ? updatedRow : row),
         };
       }, { revalidate: false });
-      if (matchImportColumns.length > 0 && matchProductColumn) {
+      if (matchImportColumns.length > 0 && matchProductColumns.length > 0) {
         void previewMatch();
       }
     } catch (err) {
@@ -759,7 +765,7 @@ export default function ProductImportsPage() {
       setSavingCellKey(null);
       saveInFlightRef.current = false;
     }
-  }, [activeImportId, editingCell, matchImportColumns, matchProductColumn, mutateRows, previewMatch, rowsData]);
+  }, [activeImportId, editingCell, matchImportColumns, matchProductColumns, mutateRows, previewMatch, rowsData]);
 
   const saveRowLabel = React.useCallback(
     async (rowId: string, label: string, options?: { silent?: boolean }) => {
@@ -929,8 +935,8 @@ export default function ProductImportsPage() {
 
   const applyImportToProducts = React.useCallback(async () => {
     if (!activeImportId || isApplying) return;
-    if (matchImportColumns.length === 0 || !matchProductColumn) {
-      setMessage('Choose one or more Excel columns and a Products column before applying.');
+    if (matchImportColumns.length === 0 || matchProductColumns.length === 0) {
+      setMessage('Choose one or more Excel columns and one or more Products columns before applying.');
       return;
     }
     const selectedColumns = Array.from(selectedTransferColumns);
@@ -950,7 +956,7 @@ export default function ProductImportsPage() {
     const groupLabels = Array.from(selectedRowGroups).map(group => ROW_MATCH_STATUS_LABELS[group]).join(', ');
     const ok = window.confirm(
       `Apply this import to the main Products table?\n\n` +
-        `Match: "${matchImportColumns.join(' OR ')}" → "${matchProductColumn}"\n` +
+        `Match: "${matchImportColumns.join(' OR ')}" → "${matchProductColumns.join(' OR ')}"\n` +
         `Apply only: ${groupLabels}\n` +
         `Rows to process: ${visibleRowIds.length.toLocaleString('en-US')} currently visible row(s)\n` +
         `Transfer columns (${selectedColumns.length}): ${selectedColumns.join(', ')}\n\n` +
@@ -966,7 +972,7 @@ export default function ProductImportsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           columns: selectedColumns,
-          match: buildImportMatchPayload(matchImportColumns, matchProductColumn),
+          match: buildImportMatchPayload(matchImportColumns, matchProductColumns),
           apply_row_groups: Array.from(selectedRowGroups),
           row_ids: visibleRowIds,
         }),
@@ -1000,7 +1006,7 @@ export default function ProductImportsPage() {
     isApplying,
     matchImportColumns,
     selectedRowGroups,
-    matchProductColumn,
+    matchProductColumns,
     mutateImports,
     mutateProducts,
     mutateRows,
@@ -1021,7 +1027,7 @@ export default function ProductImportsPage() {
       if (!res.ok) throw new Error(text || 'Refresh formulas failed');
       const result = JSON.parse(text) as ReprocessImportResponse;
       await mutateRows();
-      if (matchImportColumns.length > 0 && matchProductColumn) {
+      if (matchImportColumns.length > 0 && matchProductColumns.length > 0) {
         await previewMatch();
       }
       setMessage(`Formulas rechecked: ${result.changed_count} of ${result.processed_count} row(s) updated.`);
@@ -1030,7 +1036,7 @@ export default function ProductImportsPage() {
     } finally {
       setIsReprocessing(false);
     }
-  }, [activeImportId, isReprocessing, matchImportColumns, matchProductColumn, mutateRows, previewMatch]);
+  }, [activeImportId, isReprocessing, matchImportColumns, matchProductColumns, mutateRows, previewMatch]);
 
   const importColumns = React.useMemo(
     () => (rowsData ? collectImportColumnsFromRows(rowsData.records) : []),
@@ -1071,12 +1077,16 @@ export default function ProductImportsPage() {
     for (const column of productColumns) options.add(column);
     return [...options];
   }, [importColumns, productColumns]);
+  const matchProductColumnOptions = React.useMemo(() => {
+    const extras = matchProductColumns.filter((column) => !productColumns.includes(column));
+    return [...productColumns, ...extras];
+  }, [matchProductColumns, productColumns]);
   const existingProductIndex = React.useMemo(() => {
-    if (!matchProductColumn) return new Map<string, ProductsRecord>();
-    return buildProductIndexByColumn(productsData?.records ?? [], matchProductColumn);
-  }, [matchProductColumn, productsData?.records]);
+    if (matchProductColumns.length === 0) return new Map<string, ProductsRecord>();
+    return buildProductIndexByColumns(productsData?.records ?? [], matchProductColumns);
+  }, [matchProductColumns, productsData?.records]);
   const rowStatusById = React.useMemo(() => {
-    if (!rowsData || matchImportColumns.length === 0 || !matchProductColumn) {
+    if (!rowsData || matchImportColumns.length === 0 || matchProductColumns.length === 0) {
       return new Map<string, ImportRowMatchStatus>();
     }
     const previewStatuses = matchPreview?.row_statuses;
@@ -1098,7 +1108,7 @@ export default function ProductImportsPage() {
     existingProductIndex,
     matchImportColumns,
     matchPreview?.row_statuses,
-    matchProductColumn,
+    matchProductColumns,
     matchableRows,
     isRowHiddenForView,
     rowsData,
@@ -1112,7 +1122,7 @@ export default function ProductImportsPage() {
     return counts;
   }, [rowStatusById]);
 
-  const isMatchConfigured = matchImportColumns.length > 0 && Boolean(matchProductColumn);
+  const isMatchConfigured = matchImportColumns.length > 0 && matchProductColumns.length > 0;
   const isVerifiedMatchedRow = React.useCallback(
     (row: ProductImportRow) => {
       if (!isMatchConfigured || !verifiedMatchedColumn) return false;
@@ -1228,10 +1238,15 @@ export default function ProductImportsPage() {
         )
       : [];
     const rawMatchProductColumn = cached?.matchProductColumn;
-    const cachedMatchProductColumn =
-      typeof rawMatchProductColumn === 'string' && productColumns.includes(rawMatchProductColumn)
-        ? rawMatchProductColumn
-        : '';
+    const rawMatchProductColumns = cached?.matchProductColumns;
+    const cachedMatchProductColumns = Array.isArray(rawMatchProductColumns)
+      ? rawMatchProductColumns.filter(
+          (column): column is string => typeof column === 'string' && productColumns.includes(column),
+        )
+      : typeof rawMatchProductColumn === 'string' && productColumns.includes(rawMatchProductColumn)
+        ? [rawMatchProductColumn]
+        : [];
+    const cachedMatchProductColumn = cachedMatchProductColumns[0] ?? '';
     const rawRowGroups = cached?.selectedRowGroups;
     const cachedRowGroups = Array.isArray(rawRowGroups)
       ? rawRowGroups.filter(isImportRowMatchStatus)
@@ -1245,7 +1260,8 @@ export default function ProductImportsPage() {
 
     setMatchImportColumns(cachedMatchImportColumns);
     setMatchImportColumnDraft('');
-    setMatchProductColumn(cachedMatchProductColumn);
+    setMatchProductColumns(cachedMatchProductColumns);
+    setMatchProductColumnDraft('');
     const rawMatchPreview = cached?.matchPreview;
     setMatchPreview(
       rawMatchPreview && typeof rawMatchPreview === 'object'
@@ -1288,7 +1304,7 @@ export default function ProductImportsPage() {
         importSessionStorageKey(activeImportId),
         JSON.stringify({
           matchImportColumns,
-          matchProductColumn,
+          matchProductColumns,
           matchPreview,
           selectedRowGroups: Array.from(selectedRowGroups),
           selectedTransferColumns: Array.from(selectedTransferColumns),
@@ -1305,7 +1321,7 @@ export default function ProductImportsPage() {
     verifiedFilterMode,
     matchImportColumns,
     matchPreview,
-    matchProductColumn,
+    matchProductColumns,
     selectedRowGroups,
     selectedTransferColumns,
     verifiedMatchedColumn,
@@ -1355,21 +1371,25 @@ export default function ProductImportsPage() {
   }, []);
 
   React.useEffect(() => {
-    if (matchImportColumns.length === 0 || !matchProductColumn || !activeImportId) {
+    if (matchImportColumns.length === 0 || matchProductColumns.length === 0 || !activeImportId) {
       setMatchPreview(null);
       return;
     }
     const previewImportColumns = matchPreview?.match.import_columns ?? [];
+    const previewProductColumns = matchPreview?.match.product_columns ?? (
+      matchPreview?.match.product_column ? [matchPreview.match.product_column] : []
+    );
     const previewMatchesCurrentConfig =
-      matchPreview?.match.product_column === matchProductColumn &&
       previewImportColumns.length === matchImportColumns.length &&
-      previewImportColumns.every((column, index) => column === matchImportColumns[index]);
+      previewImportColumns.every((column, index) => column === matchImportColumns[index]) &&
+      previewProductColumns.length === matchProductColumns.length &&
+      previewProductColumns.every((column, index) => column === matchProductColumns[index]);
     if (previewMatchesCurrentConfig) return;
     const timer = setTimeout(() => {
       void previewMatch();
     }, 400);
     return () => clearTimeout(timer);
-  }, [activeImportId, matchImportColumns, matchPreview, matchProductColumn, previewMatch, rowsData?.count]);
+  }, [activeImportId, matchImportColumns, matchPreview, matchProductColumns, previewMatch, rowsData?.count]);
 
   const toggleTransferColumn = React.useCallback((column: string) => {
     setSelectedTransferColumns(prev => {
@@ -1391,6 +1411,17 @@ export default function ProductImportsPage() {
     setMatchImportColumns((prev) => prev.filter((item) => item !== column));
   }, []);
 
+  const addMatchProductColumn = React.useCallback(() => {
+    const column = matchProductColumnDraft.trim();
+    if (!column) return;
+    setMatchProductColumns((prev) => (prev.includes(column) ? prev : [...prev, column]));
+    setMatchProductColumnDraft('');
+  }, [matchProductColumnDraft]);
+
+  const removeMatchProductColumn = React.useCallback((column: string) => {
+    setMatchProductColumns((prev) => prev.filter((item) => item !== column));
+  }, []);
+
   const agentContextRef = React.useRef<Record<string, unknown>>({});
   const agentFieldPriority = React.useMemo(
     () => [
@@ -1401,15 +1432,15 @@ export default function ProductImportsPage() {
       'Default Code',
       'Colecction Name',
       'Collection Name',
-      matchProductColumn,
+      ...matchProductColumns,
     ].filter(Boolean) as string[],
-    [matchImportColumns, matchProductColumn],
+    [matchImportColumns, matchProductColumns],
   );
   agentContextRef.current = {
     app: 'products',
     module: 'imports',
     page_summary: isMatchConfigured
-      ? `Excel Imports staging: ${searchFilteredImportRows.length} visible row(s); match ${matchImportColumns.join(' OR ')} → ${matchProductColumn}; ` +
+      ? `Excel Imports staging: ${searchFilteredImportRows.length} visible row(s); match ${matchImportColumns.join(' OR ')} → ${matchProductColumns.join(' OR ')}; ` +
         `${rowStatusCounts.matched} matched, ${rowStatusCounts.unmatched} unmatched, ${rowStatusCounts.empty} empty in loaded import` +
         (debouncedSearch.trim() ? `; search="${debouncedSearch.trim()}"` : '')
       : 'Excel Imports staging table (not the main Products catalog list)' +
@@ -1430,7 +1461,7 @@ export default function ProductImportsPage() {
         ? {
             configured: true,
             excel_columns: matchImportColumns,
-            products_column: matchProductColumn,
+            products_columns: matchProductColumns,
             logic: IMPORT_MATCH_LOGIC,
             totals_in_import: matchPreview
               ? {
@@ -1452,8 +1483,8 @@ export default function ProductImportsPage() {
               group_labels: Array.from(selectedRowGroups).map((g) => ROW_MATCH_STATUS_LABELS[g]),
             },
             status_meanings: {
-              matched: `Excel value matches an existing product's "${matchProductColumn}" field`,
-              unmatched: `Excel has a value in match column(s) but no product has that value in "${matchProductColumn}"`,
+              matched: `Excel value matches an existing product in any selected Products column: ${matchProductColumns.join(' OR ')}`,
+              unmatched: `Excel has a value in match column(s) but no product has that value in any selected Products column`,
               empty: 'All selected Excel match columns are blank for this row',
             },
             samples: {
@@ -1678,20 +1709,39 @@ export default function ProductImportsPage() {
                   ))}
                 </div>
                 <span className="text-[9px] text-black/25 dark:text-white/25">→</span>
-                <label className="inline-flex min-w-0 items-center gap-1">
+                <div className="inline-flex min-w-0 flex-wrap items-center gap-1">
                   <span className="shrink-0 text-[9px] font-bold text-sky-700 dark:text-sky-300">Products</span>
                   <select
-                    value={matchProductColumn}
-                    onChange={(event) => setMatchProductColumn(event.target.value)}
+                    value={matchProductColumnDraft}
+                    onChange={(event) => setMatchProductColumnDraft(event.target.value)}
                     className="h-7 min-w-0 max-w-[120px] rounded-md border border-black/10 bg-white px-1.5 text-[10px] font-semibold text-black outline-none dark:border-white/10 dark:bg-black/40 dark:text-white sm:max-w-[150px]"
-                    aria-label="Products match column"
+                    aria-label="Products match columns"
                   >
                     <option value="">Column…</option>
-                    {productColumns.map(column => (
+                    {matchProductColumnOptions.map(column => (
                       <option key={column} value={column}>{column}</option>
                     ))}
                   </select>
-                </label>
+                  <button
+                    type="button"
+                    onClick={addMatchProductColumn}
+                    disabled={!matchProductColumnDraft.trim()}
+                    className="rounded-full border border-black/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
+                  >
+                    Add
+                  </button>
+                  {matchProductColumns.map((column) => (
+                    <button
+                      key={column}
+                      type="button"
+                      onClick={() => removeMatchProductColumn(column)}
+                      className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/15 dark:text-sky-200"
+                      title="Remove column from Products match"
+                    >
+                      {column} ×
+                    </button>
+                  ))}
+                </div>
                 {isPreviewingMatch ? (
                   <span className="text-[9px] font-bold text-black/35 dark:text-white/35">…</span>
                 ) : null}
@@ -1708,7 +1758,7 @@ export default function ProductImportsPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={!activeImportId || isApplying || matchImportColumns.length === 0 || !matchProductColumn || selectedRowGroups.size === 0}
+                  disabled={!activeImportId || isApplying || matchImportColumns.length === 0 || matchProductColumns.length === 0 || selectedRowGroups.size === 0}
                   onClick={() => void applyImportToProducts()}
                   className="rounded-full bg-emerald-600 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-white transition hover:bg-emerald-700 disabled:opacity-40"
                 >

@@ -710,18 +710,23 @@ def _import_row_field_value(fields: dict[str, Any], column: str) -> Any:
   return _canonical_product_field_value(fields, column)
 
 
-async def _build_product_index_by_column(db: Any, product_column: str) -> dict[str, dict[str, Any]]:
+async def _build_product_index_by_columns(db: Any, product_columns: list[str]) -> dict[str, dict[str, Any]]:
   index: dict[str, dict[str, Any]] = {}
   cursor = db["products"].find({})
   async for doc in cursor:
     fields = doc.get("fields") or {}
     if not isinstance(fields, dict):
       continue
-    raw_value = _canonical_product_field_value(fields, product_column)
-    key = _product_compare_value(raw_value)
-    if key and key not in index:
-      index[key] = doc
+    for product_column in product_columns:
+      raw_value = _canonical_product_field_value(fields, product_column)
+      key = _product_compare_value(raw_value)
+      if key and key not in index:
+        index[key] = doc
   return index
+
+
+async def _build_product_index_by_column(db: Any, product_column: str) -> dict[str, dict[str, Any]]:
+  return await _build_product_index_by_columns(db, [product_column])
 
 
 def _iter_import_match_keys(row_fields: dict[str, Any], import_columns: list[str]) -> Iterable[str]:
@@ -747,7 +752,7 @@ def _find_matching_product_by_column(
   return None
 
 
-def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[str], str] | None:
+def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[str], list[str]] | None:
   if not isinstance(payload, dict):
     return None
   match = payload.get("match")
@@ -765,10 +770,21 @@ def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[st
   import_column = match.get("import_column")
   if not parsed_import_columns and isinstance(import_column, str) and import_column.strip():
     parsed_import_columns = [_validate_import_match_column(import_column)]
+  product_columns = match.get("product_columns")
+  if isinstance(product_columns, list):
+    parsed_product_columns = [
+      _validate_import_match_column(item)
+      for item in product_columns
+      if isinstance(item, str) and item.strip()
+    ]
+  else:
+    parsed_product_columns = []
   product_column = match.get("product_column")
-  if not parsed_import_columns or not isinstance(product_column, str) or not product_column.strip():
+  if not parsed_product_columns and isinstance(product_column, str) and product_column.strip():
+    parsed_product_columns = [_validate_import_match_column(product_column)]
+  if not parsed_import_columns or not parsed_product_columns:
     return None
-  return parsed_import_columns, _validate_import_match_column(product_column)
+  return parsed_import_columns, parsed_product_columns
 
 
 PRODUCT_IMPORT_ROW_MATCH_STATUSES = frozenset({"matched", "unmatched", "empty"})
@@ -3749,14 +3765,14 @@ async def admin_preview_product_import_match(
   match_config = _parse_import_match_payload(payload)
   if not match_config:
     raise HTTPException(status_code=400, detail="INVALID_MATCH_PAYLOAD")
-  import_columns, product_column = match_config
+  import_columns, product_columns = match_config
 
   batch_columns = batch.get("columns") or []
   for import_column in import_columns:
     if import_column != "Row" and import_column not in batch_columns:
       raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
 
-  product_index = await _build_product_index_by_column(db, product_column)
+  product_index = await _build_product_index_by_columns(db, product_columns)
   matched_count = 0
   unmatched_count = 0
   empty_import_value_count = 0
@@ -3797,7 +3813,15 @@ async def admin_preview_product_import_match(
       product = _find_matching_product_by_column(fields, product_index, import_columns)
       if len(matched_samples) < sample_limit and product:
         product_fields = product.get("fields") or {}
-        product_value = _canonical_product_field_value(product_fields, product_column)
+        product_value = next(
+          (
+            _canonical_product_field_value(product_fields, product_column)
+            for product_column in product_columns
+            if _product_compare_value(_canonical_product_field_value(product_fields, product_column))
+            == _product_compare_value(import_value)
+          ),
+          _canonical_product_field_value(product_fields, product_columns[0]),
+        )
         matched_samples.append({
           "row_id": row_id,
           "product_id": str(product.get("_id")),
@@ -3823,7 +3847,8 @@ async def admin_preview_product_import_match(
     "ok": True,
     "match": {
       "import_columns": import_columns,
-      "product_column": product_column,
+      "product_column": product_columns[0],
+      "product_columns": product_columns,
     },
     "total_rows": total_rows,
     "matched_count": matched_count,
@@ -3883,14 +3908,14 @@ async def admin_apply_product_import(
 
   match_config = _parse_import_match_payload(payload)
   if match_config:
-    import_match_columns, product_match_column = match_config
+    import_match_columns, product_match_columns = match_config
     for import_match_column in import_match_columns:
       if import_match_column != "Row" and import_match_column not in batch_columns:
         raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
-    product_index = await _build_product_index_by_column(db, product_match_column)
+    product_index = await _build_product_index_by_columns(db, product_match_columns)
   else:
     import_match_columns: list[str] = []
-    product_match_column = None
+    product_match_columns: list[str] = []
     product_index = await _build_product_match_index(db)
 
   apply_row_groups = _parse_apply_row_groups(payload) if match_config else set(PRODUCT_IMPORT_ROW_MATCH_STATUSES)
@@ -4047,7 +4072,8 @@ async def admin_apply_product_import(
           "match": (
             {
               "import_columns": import_match_columns,
-              "product_column": product_match_column,
+              "product_column": product_match_columns[0] if product_match_columns else None,
+              "product_columns": product_match_columns,
             }
             if match_config
             else None
