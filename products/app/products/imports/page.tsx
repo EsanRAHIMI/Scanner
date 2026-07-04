@@ -572,6 +572,7 @@ export default function ProductImportsPage() {
   const [search, setSearch] = React.useState('');
   const [debouncedSearch, setDebouncedSearch] = React.useState('');
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
+  const visibleImportRowIdsRef = React.useRef<string[]>([]);
   const initializedTransferColumnsForImportRef = React.useRef<string | null>(null);
   const initializedMatchColumnsForImportRef = React.useRef<string | null>(null);
   const autoLabeledRowIdsRef = React.useRef<Set<string>>(new Set());
@@ -941,28 +942,19 @@ export default function ProductImportsPage() {
       setMessage('Select at least one row group (Matched, Unmatched, or Empty).');
       return;
     }
+    const visibleRowIds = visibleImportRowIdsRef.current;
+    if (visibleRowIds.length === 0) {
+      setMessage('No visible rows to apply. Clear filters or show rows first.');
+      return;
+    }
     const groupLabels = Array.from(selectedRowGroups).map(group => ROW_MATCH_STATUS_LABELS[group]).join(', ');
-    const rowsToApply = matchPreview
-      ? Array.from(selectedRowGroups).reduce((sum, group) => {
-          if (group === 'matched') return sum + matchPreview.matched_count;
-          if (group === 'unmatched') return sum + matchPreview.unmatched_count;
-          return sum + matchPreview.empty_import_value_count;
-        }, 0)
-      : null;
-    const rowsSkipped = matchPreview
-      ? (matchPreview.matched_count + matchPreview.unmatched_count + matchPreview.empty_import_value_count) -
-        (rowsToApply ?? 0)
-      : null;
     const ok = window.confirm(
       `Apply this import to the main Products table?\n\n` +
         `Match: "${matchImportColumns.join(' OR ')}" → "${matchProductColumn}"\n` +
         `Apply only: ${groupLabels}\n` +
-        (rowsToApply !== null
-          ? `Rows to process: ${rowsToApply.toLocaleString('en-US')}` +
-            (rowsSkipped ? ` · ${rowsSkipped.toLocaleString('en-US')} skipped (not ticked)\n` : '\n')
-          : '') +
+        `Rows to process: ${visibleRowIds.length.toLocaleString('en-US')} currently visible row(s)\n` +
         `Transfer columns (${selectedColumns.length}): ${selectedColumns.join(', ')}\n\n` +
-        'Only ticked row groups and Transfer columns are written. Matched rows update existing products; unmatched/empty rows create new products when included. Continue?'
+        'Only the rows currently visible after search, hidden labels, Verified filter, and row-group filters are written. Continue?'
     );
     if (!ok) return;
 
@@ -976,6 +968,7 @@ export default function ProductImportsPage() {
           columns: selectedColumns,
           match: buildImportMatchPayload(matchImportColumns, matchProductColumn),
           apply_row_groups: Array.from(selectedRowGroups),
+          row_ids: visibleRowIds,
         }),
       });
       const text = await res.text();
@@ -1007,7 +1000,6 @@ export default function ProductImportsPage() {
     isApplying,
     matchImportColumns,
     selectedRowGroups,
-    matchPreview,
     matchProductColumn,
     mutateImports,
     mutateProducts,
@@ -1203,6 +1195,9 @@ export default function ProductImportsPage() {
       importRowMatchesSearch(row, q, importRowSearchTextById),
     );
   }, [debouncedSearch, filteredImportRows, importRowSearchTextById]);
+  visibleImportRowIdsRef.current = searchFilteredImportRows
+    .filter((row) => !isRowHiddenForView(row))
+    .map((row) => row.id);
 
   const visibleColumns = importColumns;
 
@@ -1211,8 +1206,9 @@ export default function ProductImportsPage() {
     if (initializedTransferColumnsForImportRef.current === activeImportId) return;
     initializedTransferColumnsForImportRef.current = activeImportId;
     const cached = readCachedImportSessionState(activeImportId);
-    const cachedTransferColumns = Array.isArray(cached?.selectedTransferColumns)
-      ? cached.selectedTransferColumns.filter(
+    const rawTransferColumns = cached?.selectedTransferColumns;
+    const cachedTransferColumns = Array.isArray(rawTransferColumns)
+      ? rawTransferColumns.filter(
           (column): column is string => typeof column === 'string' && importColumns.includes(column),
         )
       : [];
@@ -1224,37 +1220,43 @@ export default function ProductImportsPage() {
     if (initializedMatchColumnsForImportRef.current === activeImportId) return;
     initializedMatchColumnsForImportRef.current = activeImportId;
     const cached = readCachedImportSessionState(activeImportId);
-    const cachedMatchImportColumns = Array.isArray(cached?.matchImportColumns)
-      ? cached.matchImportColumns.filter(
+    const rawMatchImportColumns = cached?.matchImportColumns;
+    const cachedMatchImportColumns = Array.isArray(rawMatchImportColumns)
+      ? rawMatchImportColumns.filter(
           (column): column is string =>
             typeof column === 'string' && (column === 'Row' || importColumns.includes(column)),
         )
       : [];
+    const rawMatchProductColumn = cached?.matchProductColumn;
     const cachedMatchProductColumn =
-      typeof cached?.matchProductColumn === 'string' && productColumns.includes(cached.matchProductColumn)
-        ? cached.matchProductColumn
+      typeof rawMatchProductColumn === 'string' && productColumns.includes(rawMatchProductColumn)
+        ? rawMatchProductColumn
         : '';
-    const cachedRowGroups = Array.isArray(cached?.selectedRowGroups)
-      ? cached.selectedRowGroups.filter(isImportRowMatchStatus)
+    const rawRowGroups = cached?.selectedRowGroups;
+    const cachedRowGroups = Array.isArray(rawRowGroups)
+      ? rawRowGroups.filter(isImportRowMatchStatus)
       : ALL_ROW_GROUPS;
+    const rawVerifiedColumn = cached?.verifiedMatchedColumn;
     const cachedVerifiedColumn =
-      typeof cached?.verifiedMatchedColumn === 'string' &&
-      (importColumns.includes(cached.verifiedMatchedColumn) || productColumns.includes(cached.verifiedMatchedColumn))
-        ? cached.verifiedMatchedColumn
+      typeof rawVerifiedColumn === 'string' &&
+      (importColumns.includes(rawVerifiedColumn) || productColumns.includes(rawVerifiedColumn))
+        ? rawVerifiedColumn
         : cachedMatchProductColumn;
 
     setMatchImportColumns(cachedMatchImportColumns);
     setMatchImportColumnDraft('');
     setMatchProductColumn(cachedMatchProductColumn);
+    const rawMatchPreview = cached?.matchPreview;
     setMatchPreview(
-      cached?.matchPreview && typeof cached.matchPreview === 'object'
-        ? (cached.matchPreview as MatchPreviewResponse)
+      rawMatchPreview && typeof rawMatchPreview === 'object'
+        ? (rawMatchPreview as MatchPreviewResponse)
         : null,
     );
     setMatchPreviewError(null);
     setSelectedRowGroups(new Set(cachedRowGroups));
-    const cachedVerifiedFilterMode = isVerifiedFilterMode(cached?.verifiedFilterMode)
-      ? cached.verifiedFilterMode
+    const rawVerifiedFilterMode = cached?.verifiedFilterMode;
+    const cachedVerifiedFilterMode = isVerifiedFilterMode(rawVerifiedFilterMode)
+      ? rawVerifiedFilterMode
       : cached?.hideVerifiedMatchedRows === true
         ? 'hide'
         : 'off';

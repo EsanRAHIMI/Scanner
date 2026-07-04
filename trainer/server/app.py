@@ -3868,6 +3868,19 @@ async def admin_apply_product_import(
       detail=f"SELECTED_COLUMNS_NOT_IN_IMPORT: {sorted(unknown_transfer_columns)}",
     )
 
+  raw_row_ids = (payload or {}).get("row_ids")
+  selected_row_ids: set[str] | None = None
+  if raw_row_ids is not None:
+    if not isinstance(raw_row_ids, list):
+      raise HTTPException(status_code=400, detail="INVALID_ROW_IDS")
+    selected_row_ids = {
+      str(row_id).strip()
+      for row_id in raw_row_ids
+      if isinstance(row_id, str) and str(row_id).strip()
+    }
+    if not selected_row_ids:
+      raise HTTPException(status_code=400, detail="NO_VISIBLE_ROWS_SELECTED")
+
   match_config = _parse_import_match_payload(payload)
   if match_config:
     import_match_columns, product_match_column = match_config
@@ -3896,9 +3909,13 @@ async def admin_apply_product_import(
   pending_import_audit_logs: list[tuple[str, list[dict[str, Any]], str]] = []
   import_label = str(batch.get("filename") or import_id)
 
+  row_query: dict[str, Any] = {"import_id": import_id}
+  if selected_row_ids is not None:
+    row_query["_id"] = {"$in": list(selected_row_ids)}
+
   cursor = (
     db[PRODUCT_IMPORT_ROWS_COLLECTION]
-    .find({"import_id": import_id})
+    .find(row_query)
     .sort([("source_sheet", 1), ("source_row_number", 1)])
   )
 
@@ -4036,6 +4053,7 @@ async def admin_apply_product_import(
             else None
           ),
           "apply_row_groups": sorted(apply_row_groups) if match_config else None,
+          "selected_row_ids_count": len(selected_row_ids) if selected_row_ids is not None else None,
           "skipped_count": skipped_count,
           "rows_processed_by_group": rows_processed_by_group,
           "rows_skipped_by_group": rows_skipped_by_group,
@@ -4063,6 +4081,7 @@ async def admin_apply_product_import(
     "created_product_ids": created_product_ids[:50],
     "updated_product_ids": updated_product_ids[:50],
     "apply_row_groups": sorted(apply_row_groups) if match_config else None,
+    "selected_row_ids_count": len(selected_row_ids) if selected_row_ids is not None else None,
     "rows_processed_by_group": rows_processed_by_group,
     "rows_skipped_by_group": rows_skipped_by_group,
   }
