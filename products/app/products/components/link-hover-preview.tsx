@@ -20,22 +20,30 @@ interface LinkHoverPreviewProps {
   state: LinkHoverState | null;
 }
 
+function normalizePreviewSrc(src: string | null | undefined): string | null {
+  return src && src.trim() ? src : null;
+}
+
 function HoverPreviewImage({ url }: { url: string }) {
-  const [src, setSrc] = React.useState(() =>
-    resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_HOVER) ||
-    resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB),
+  const [src, setSrc] = React.useState<string | null>(() =>
+    normalizePreviewSrc(
+      resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_HOVER) ||
+      resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB),
+    ),
   );
 
   React.useEffect(() => {
     const hover = resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_HOVER);
     const thumb = resolvePreviewSrc(url, DRIVE_IMAGE_WIDTH_THUMB);
-    const resolved = hover || thumb;
+    const resolved = normalizePreviewSrc(hover || thumb);
     if (resolved) {
       setSrc(resolved);
     } else if (!isPreviewLoadBlocked(url, DRIVE_IMAGE_WIDTH_HOVER)) {
       // First paint: use lh3 direct link only when not in the negative cache.
-      const direct = getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER);
-      if (direct) setSrc(direct);
+      const direct = normalizePreviewSrc(getDriveDirectLink(url, DRIVE_IMAGE_WIDTH_HOVER));
+      setSrc(direct);
+    } else {
+      setSrc(null);
     }
     let cancelled = false;
     if (!isPreviewLoadBlocked(url, DRIVE_IMAGE_WIDTH_HOVER)) {
@@ -48,6 +56,8 @@ function HoverPreviewImage({ url }: { url: string }) {
       cancelled = true;
     };
   }, [url]);
+
+  if (!src) return null;
 
   return (
     /* eslint-disable-next-line @next/next/no-img-element */
