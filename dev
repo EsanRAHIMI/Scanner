@@ -7,7 +7,7 @@
 #   ./dev up backend frontend   # start only selected services
 #   ./dev stop         # stop every service
 #   ./dev status       # show which ports are in use
-#   ./dev setup        # create venvs + install Python/Node deps (first time)
+#   ./dev setup        # create/repair venvs + install Python/Node deps
 #   ./dev help         # show this help
 #
 set -euo pipefail
@@ -46,6 +46,85 @@ python_bin() {
   fi
 }
 
+# After moving the repo, venv "activate" + console-script shebangs still point at
+# the old absolute path. Calling those scripts then falls through to system
+# Python (missing deps). Prefer "$venv/bin/python -m …" and rewrite paths.
+heal_venv_if_relocated() {
+  local dir="$1"
+  local venv_rel="$2"
+  local venv_dir="$dir/$venv_rel"
+
+  [[ -d "$venv_dir/bin" ]] || return 0
+
+  # Path may contain spaces (e.g. "/Volumes/NO NAME/…"); do detection + rewrites in Python.
+  VENV_DIR="$venv_dir" "$(python_bin)" - <<'PY'
+import os
+import re
+from pathlib import Path
+
+venv = Path(os.environ["VENV_DIR"]).resolve()
+expected = str(venv)
+activate = venv / "bin" / "activate"
+cfg = venv / "pyvenv.cfg"
+
+candidates: list[str] = []
+if activate.is_file():
+    text = activate.read_text(encoding="utf-8", errors="replace")
+    for pat in (
+        r'^VIRTUAL_ENV=(.*)$',
+        r'^export VIRTUAL_ENV=(.*)$',
+        r'VIRTUAL_ENV=\$\(cygpath (.*)\)$',
+        r'export VIRTUAL_ENV=(.*)$',
+    ):
+        for m in re.finditer(pat, text, flags=re.M):
+            candidates.append(m.group(1).strip().strip("\"'"))
+if cfg.is_file():
+    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+        if " -m venv " in line:
+            candidates.append(line.split(" -m venv ", 1)[1].strip())
+
+old = next((c for c in candidates if c and c != expected), None)
+if old is None:
+    raise SystemExit(0)
+
+print(f"→ repairing relocated venv {venv}", flush=True)
+print(f"  (was: {old})", flush=True)
+
+for name in ("activate", "activate.csh", "activate.fish", "Activate.ps1"):
+    path = venv / "bin" / name
+    if path.is_file():
+        text = path.read_text(encoding="utf-8")
+        if old in text:
+            path.write_text(text.replace(old, expected), encoding="utf-8")
+
+skip = {"python", "python3"}
+bin_dir = venv / "bin"
+# Kernel shebangs cannot contain spaces; skip rewrite when the new path has any.
+rewrite_shebangs = " " not in expected and "\t" not in expected
+if bin_dir.is_dir() and rewrite_shebangs:
+    for path in bin_dir.iterdir():
+        if not path.is_file() or path.name in skip or path.name.startswith("python3."):
+            continue
+        try:
+            with path.open("rb") as fh:
+                if fh.read(2) != b"#!":
+                    continue
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        first, sep, rest = text.partition("\n")
+        if old in first:
+            path.write_text(first.replace(old, expected) + sep + rest, encoding="utf-8")
+elif bin_dir.is_dir() and not rewrite_shebangs:
+    print("  (shebang scripts left unchanged — path has spaces; ./dev uses python -m)", flush=True)
+
+if cfg.is_file():
+    text = cfg.read_text(encoding="utf-8")
+    if old in text:
+        cfg.write_text(text.replace(old, expected), encoding="utf-8")
+PY
+}
+
 ensure_venv() {
   local dir="$1"
   local venv_path="$2"
@@ -55,6 +134,13 @@ ensure_venv() {
   if [[ ! -d "$dir/$venv_path/bin" ]]; then
     echo "→ creating venv in $dir/$venv_path"
     (cd "$dir" && "$py" -m venv "$venv_path")
+  else
+    heal_venv_if_relocated "$dir" "$venv_path"
+  fi
+
+  if [[ ! -x "$dir/$venv_path/bin/python" ]]; then
+    echo "error: broken venv in $dir/$venv_path — run: ./dev setup" >&2
+    exit 1
   fi
 }
 
@@ -65,13 +151,13 @@ run_python_api() {
   shift 3
   local extra_env="$*"
 
-  local venv_activate="$dir/$venv_rel/bin/activate"
-  if [[ ! -f "$venv_activate" ]]; then
+  if [[ ! -x "$dir/$venv_rel/bin/python" ]]; then
     echo "error: missing venv in $dir/$venv_rel — run: ./dev setup" >&2
     exit 1
   fi
 
-  echo "cd $dir && source $venv_rel/bin/activate && ${extra_env}uvicorn app:app --host 127.0.0.1 --port $port --reload"
+  # Use python -m uvicorn so we never depend on relocated console-script shebangs.
+  echo "cd $dir && ${extra_env}$venv_rel/bin/python -m uvicorn app:app --host 127.0.0.1 --port $port --reload"
 }
 
 run_npm_dev() {
@@ -217,11 +303,11 @@ cmd_setup() {
     local venv="${entry##*:}"
     ensure_venv "$dir" "$venv"
     echo "→ pip install in $dir"
-    (cd "$dir" && source "$venv/bin/activate" && pip install -q -r requirements.txt)
+    (cd "$dir" && "$venv/bin/python" -m pip install -q -r requirements.txt)
   done
 
   echo "→ playwright chromium (proposals PDF export)"
-  (cd proposals/server && source .venv/bin/activate && python -m playwright install chromium)
+  (cd proposals/server && .venv/bin/python -m playwright install chromium)
 
   for dir in frontend trainer/web products marketing image/web proposals/web; do
     if [[ ! -d "$dir/node_modules" ]]; then
@@ -252,6 +338,17 @@ cmd_up() {
     echo "error: Node.js is required (see README: Node 20+)" >&2
     exit 1
   fi
+
+  # Repair venvs if the repo was moved (old absolute paths in activate/shebangs).
+  for entry in \
+    "backend:venv" \
+    "trainer/server:.venv" \
+    "image/server:.venv" \
+    "proposals/server:.venv" \
+    "agent/server:.venv"
+  do
+    ensure_venv "${entry%%:*}" "${entry##*:}"
+  done
 
   local names=""
   local -a cmds=()
