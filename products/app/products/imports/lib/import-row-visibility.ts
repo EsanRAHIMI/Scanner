@@ -3,18 +3,20 @@ type ImportRowLike = {
   fields?: Record<string, unknown>;
 };
 
-/** Built-in defaults; the user can add/remove terms in the Excel Imports toolbar. */
-export const DEFAULT_HIDDEN_LABELS = ['-', 'Crystal', 'custom'];
+/** Sentinel stored in show-labels prefs for rows with no Label value. */
+export const EMPTY_ROW_LABEL_TOKEN = '(empty)';
 
-function toHiddenLabelSet(hiddenLabels?: Iterable<string>): Set<string> {
-  const source = hiddenLabels ?? DEFAULT_HIDDEN_LABELS;
-  const set = new Set<string>();
-  for (const label of source) {
-    const normalized = label.trim().toLowerCase();
-    if (normalized) set.add(normalized);
-  }
-  return set;
-}
+/** Suggested chips in the Show labels toolbar (toggle to whitelist). */
+export const SUGGESTED_SHOW_LABELS = [EMPTY_ROW_LABEL_TOKEN, '-', 'Crystal', 'custom'] as const;
+
+/**
+ * Empty list = no label filter (show every row).
+ * Non-empty = only rows whose effective label is in the list are shown.
+ */
+export const DEFAULT_SHOW_LABELS: string[] = [];
+
+/** @deprecated Use DEFAULT_SHOW_LABELS — kept for older imports. */
+export const DEFAULT_HIDDEN_LABELS = DEFAULT_SHOW_LABELS;
 
 function fieldValueText(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -43,16 +45,69 @@ export function detectCrystalCustomLabel(
   return null;
 }
 
-export function isHiddenImportRow(row: ImportRowLike, hiddenLabels?: Iterable<string>): boolean {
-  const labelSet = toHiddenLabelSet(hiddenLabels);
-  const saved = (row.row_label ?? '').trim();
-  if (saved) return labelSet.has(saved.toLowerCase());
-  const detected = detectCrystalCustomLabel(row.fields);
-  return detected ? labelSet.has(detected.toLowerCase()) : false;
-}
-
 export function getImportRowDisplayLabel(row: ImportRowLike): string {
   const saved = (row.row_label ?? '').trim();
   if (saved) return saved;
   return detectCrystalCustomLabel(row.fields) ?? '';
+}
+
+export function normalizeShowLabelToken(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return EMPTY_ROW_LABEL_TOKEN;
+  const key = trimmed.toLowerCase();
+  if (key === EMPTY_ROW_LABEL_TOKEN || key === 'empty' || key === '__empty__') {
+    return EMPTY_ROW_LABEL_TOKEN;
+  }
+  if (key === 'crystal') return 'Crystal';
+  if (key === 'custom') return 'custom';
+  return trimmed;
+}
+
+export function formatShowLabelChip(label: string): string {
+  const token = normalizeShowLabelToken(label);
+  return token === EMPTY_ROW_LABEL_TOKEN ? 'Empty' : token;
+}
+
+function toShowLabelSet(showLabels?: Iterable<string>): Set<string> | null {
+  if (showLabels == null) return null;
+  const set = new Set<string>();
+  for (const label of showLabels) {
+    set.add(normalizeShowLabelToken(label).toLowerCase());
+  }
+  return set.size > 0 ? set : null;
+}
+
+/**
+ * True when the row should be excluded from the active view / Apply set.
+ * Empty showLabels (or null set) means show all rows.
+ */
+export function isExcludedByShowLabels(
+  row: ImportRowLike,
+  showLabels?: Iterable<string>,
+): boolean {
+  const labelSet = toShowLabelSet(showLabels);
+  if (!labelSet) return false;
+
+  const display = getImportRowDisplayLabel(row).trim();
+  if (!display) return !labelSet.has(EMPTY_ROW_LABEL_TOKEN);
+  return !labelSet.has(display.toLowerCase());
+}
+
+/** @deprecated Prefer isExcludedByShowLabels — same behavior under Show-labels filter. */
+export function isHiddenImportRow(
+  row: ImportRowLike,
+  showLabels?: Iterable<string>,
+): boolean {
+  return isExcludedByShowLabels(row, showLabels);
+}
+
+export function isLabelAllowedByShowFilter(
+  label: string,
+  showLabels?: Iterable<string>,
+): boolean {
+  const labelSet = toShowLabelSet(showLabels);
+  if (!labelSet) return true;
+  const display = label.trim();
+  if (!display) return labelSet.has(EMPTY_ROW_LABEL_TOKEN);
+  return labelSet.has(display.toLowerCase());
 }

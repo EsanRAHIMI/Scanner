@@ -634,6 +634,19 @@ def _product_compare_value(value: Any) -> str:
   return re.sub(r"\s+", " ", text).casefold()
 
 
+# Ignored for "near" match: spaces, hyphen, slash, backslash, tatweel, parentheses.
+_PRODUCT_LOOSE_IGNORE_RE = re.compile(r"[\s\-/\\ـ()]+")
+PRODUCT_NEAR_MATCH_CHARS_LABEL = "space - / \\ ـ ( )"
+
+
+def _product_loose_compare_value(value: Any) -> str:
+  """Match key that ignores minor punctuation/spacing differences."""
+  base = _product_compare_value(value)
+  if not base:
+    return ""
+  return _PRODUCT_LOOSE_IGNORE_RE.sub("", base)
+
+
 def _first_non_empty_field(fields: dict[str, Any], names: list[str]) -> Any:
   for name in names:
     value = fields.get(name)
@@ -711,7 +724,16 @@ def _import_row_field_value(fields: dict[str, Any], column: str) -> Any:
 
 
 async def _build_product_index_by_columns(db: Any, product_columns: list[str]) -> dict[str, dict[str, Any]]:
-  index: dict[str, dict[str, Any]] = {}
+  exact_index, _loose_index = await _build_product_indexes_by_columns(db, product_columns)
+  return exact_index
+
+
+async def _build_product_indexes_by_columns(
+  db: Any,
+  product_columns: list[str],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+  exact_index: dict[str, dict[str, Any]] = {}
+  loose_index: dict[str, dict[str, Any]] = {}
   cursor = db["products"].find({})
   async for doc in cursor:
     fields = doc.get("fields") or {}
@@ -720,9 +742,12 @@ async def _build_product_index_by_columns(db: Any, product_columns: list[str]) -
     for product_column in product_columns:
       raw_value = _canonical_product_field_value(fields, product_column)
       key = _product_compare_value(raw_value)
-      if key and key not in index:
-        index[key] = doc
-  return index
+      loose_key = _product_loose_compare_value(raw_value)
+      if key and key not in exact_index:
+        exact_index[key] = doc
+      if loose_key and loose_key not in loose_index:
+        loose_index[loose_key] = doc
+  return exact_index, loose_index
 
 
 async def _build_product_index_by_column(db: Any, product_column: str) -> dict[str, dict[str, Any]]:
@@ -740,15 +765,34 @@ def _iter_import_match_keys(row_fields: dict[str, Any], import_columns: list[str
     yield key
 
 
+def _iter_import_loose_match_keys(row_fields: dict[str, Any], import_columns: list[str]) -> Iterable[str]:
+  seen: set[str] = set()
+  for import_column in import_columns:
+    raw_value = _import_row_field_value(row_fields, import_column)
+    key = _product_loose_compare_value(raw_value)
+    if not key or key in seen:
+      continue
+    seen.add(key)
+    yield key
+
+
 def _find_matching_product_by_column(
   row_fields: dict[str, Any],
   product_index: dict[str, dict[str, Any]],
   import_columns: list[str],
+  *,
+  loose_index: dict[str, dict[str, Any]] | None = None,
+  allow_near: bool = False,
 ) -> dict[str, Any] | None:
   for key in _iter_import_match_keys(row_fields, import_columns):
     product = product_index.get(key)
     if product:
       return product
+  if allow_near and loose_index:
+    for key in _iter_import_loose_match_keys(row_fields, import_columns):
+      product = loose_index.get(key)
+      if product:
+        return product
   return None
 
 
@@ -787,7 +831,7 @@ def _parse_import_match_payload(payload: dict[str, Any] | None) -> tuple[list[st
   return parsed_import_columns, parsed_product_columns
 
 
-PRODUCT_IMPORT_ROW_MATCH_STATUSES = frozenset({"matched", "unmatched", "empty"})
+PRODUCT_IMPORT_ROW_MATCH_STATUSES = frozenset({"matched", "near", "unmatched", "empty"})
 HIDDEN_IMPORT_ROW_LABELS = frozenset({"-", "crystal", "custom"})
 
 
@@ -818,6 +862,7 @@ def _classify_import_row_match_status(
   row_fields: dict[str, Any],
   product_index: dict[str, dict[str, Any]],
   import_columns: list[str],
+  loose_index: dict[str, dict[str, Any]] | None = None,
 ) -> str:
   if not isinstance(row_fields, dict):
     return "empty"
@@ -827,6 +872,10 @@ def _classify_import_row_match_status(
   for import_key in import_keys:
     if product_index.get(import_key):
       return "matched"
+  if loose_index:
+    for loose_key in _iter_import_loose_match_keys(row_fields, import_columns):
+      if loose_index.get(loose_key):
+        return "near"
   return "unmatched"
 
 
@@ -886,14 +935,104 @@ def _copy_import_image_to_product_storage(image_url: Any, product_id: str) -> st
   return f"/api/trainer/files/product-images/{product_id}/{target_name}"
 
 
+def _parse_import_column_map(
+  payload: dict[str, Any] | None,
+  allowed_import_columns: set[str],
+) -> dict[str, str]:
+  """Parse import→product column mapping from apply payload.
+
+  Accepts either:
+  - column_map: { "Excel Col": "Product Col", ... }
+  - columns: ["Excel Col", ...] (legacy same-name transfer)
+  """
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+
+  raw_map = payload.get("column_map")
+  column_map: dict[str, str] = {}
+
+  if isinstance(raw_map, dict) and raw_map:
+    for import_raw, product_raw in raw_map.items():
+      if not isinstance(import_raw, str) or not isinstance(product_raw, str):
+        continue
+      import_column = import_raw.strip()
+      product_column = product_raw.strip()
+      if not import_column or not product_column:
+        continue
+      if "." in import_column or import_column.startswith("$"):
+        continue
+      if "." in product_column or product_column.startswith("$"):
+        raise HTTPException(status_code=400, detail=f"INVALID_PRODUCT_COLUMN: {product_column}")
+      if import_column not in allowed_import_columns:
+        raise HTTPException(
+          status_code=400,
+          detail=f"SELECTED_COLUMNS_NOT_IN_IMPORT: {[import_column]}",
+        )
+      column_map[import_column] = product_column
+  else:
+    raw_columns = payload.get("columns")
+    if not isinstance(raw_columns, list) or not raw_columns:
+      raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+    selected_columns = {
+      column.strip()
+      for column in raw_columns
+      if isinstance(column, str) and column.strip() and "." not in column and not column.strip().startswith("$")
+    }
+    if not selected_columns:
+      raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+    unknown = selected_columns - allowed_import_columns
+    if unknown:
+      raise HTTPException(
+        status_code=400,
+        detail=f"SELECTED_COLUMNS_NOT_IN_IMPORT: {sorted(unknown)}",
+      )
+    # Legacy: same-name write, with Row→Num handled inside field builder.
+    for column in selected_columns:
+      if column == "Row":
+        column_map["Row"] = "Num"
+      elif column == "Image1":
+        column_map["Image1"] = "Image"
+      else:
+        column_map[column] = column
+
+  if not column_map:
+    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
+  return column_map
+
+
 def _product_fields_from_import_fields(
   fields: dict[str, Any],
   product_id: str,
   existing_fields: dict[str, Any] | None = None,
   selected_columns: set[str] | None = None,
+  column_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
   product_fields: dict[str, Any] = {}
   existing_image = _product_compare_value((existing_fields or {}).get("Image"))
+
+  if column_map is not None:
+    for import_column, product_column in column_map.items():
+      if "." in product_column or product_column.startswith("$"):
+        continue
+      if import_column == "Image1":
+        image1 = fields.get("Image1")
+        if not _product_compare_value(image1):
+          continue
+        if product_column.casefold() == "image":
+          if not existing_image:
+            product_fields["Image"] = _copy_import_image_to_product_storage(image1, product_id)
+        else:
+          product_fields[product_column] = image1
+        continue
+
+      value = fields.get(import_column)
+      if value == "" or value is None:
+        continue
+      if import_column == "Row" and product_column.casefold() == "num":
+        product_fields["Num"] = value
+        continue
+      product_fields[product_column] = value
+    return product_fields
 
   for field_name, value in fields.items():
     if field_name == "Row":
@@ -923,8 +1062,15 @@ def _changed_product_fields(
   existing_fields: dict[str, Any],
   product_id: str,
   selected_columns: set[str] | None = None,
+  column_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-  candidate_fields = _product_fields_from_import_fields(staged_fields, product_id, existing_fields, selected_columns)
+  candidate_fields = _product_fields_from_import_fields(
+    staged_fields,
+    product_id,
+    existing_fields,
+    selected_columns,
+    column_map=column_map,
+  )
   changed: dict[str, Any] = {}
 
   for field_name, value in candidate_fields.items():
@@ -3772,11 +3918,13 @@ async def admin_preview_product_import_match(
     if import_column != "Row" and import_column not in batch_columns:
       raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
 
-  product_index = await _build_product_index_by_columns(db, product_columns)
+  product_index, loose_index = await _build_product_indexes_by_columns(db, product_columns)
   matched_count = 0
+  near_count = 0
   unmatched_count = 0
   empty_import_value_count = 0
   matched_samples: list[dict[str, Any]] = []
+  near_samples: list[dict[str, Any]] = []
   unmatched_samples: list[dict[str, Any]] = []
   empty_samples: list[dict[str, Any]] = []
   row_statuses: dict[str, str] = {}
@@ -3784,14 +3932,12 @@ async def admin_preview_product_import_match(
 
   cursor = db[PRODUCT_IMPORT_ROWS_COLLECTION].find({"import_id": import_id})
   async for row in cursor:
-    if _is_hidden_import_row(row):
-      continue
     row_id = str(row.get("_id"))
     fields = row.get("fields") or {}
     if not isinstance(fields, dict):
       fields = {}
 
-    status = _classify_import_row_match_status(fields, product_index, import_columns)
+    status = _classify_import_row_match_status(fields, product_index, import_columns, loose_index)
     row_statuses[row_id] = status
     preview_import_column = import_columns[0] if import_columns else "Row"
     import_value = _import_row_field_value(fields, preview_import_column)
@@ -3832,6 +3978,37 @@ async def admin_preview_product_import_match(
         })
       continue
 
+    if status == "near":
+      near_count += 1
+      product = _find_matching_product_by_column(
+        fields,
+        product_index,
+        import_columns,
+        loose_index=loose_index,
+        allow_near=True,
+      )
+      if len(near_samples) < sample_limit and product:
+        product_fields = product.get("fields") or {}
+        product_value = next(
+          (
+            _canonical_product_field_value(product_fields, product_column)
+            for product_column in product_columns
+            if _product_loose_compare_value(_canonical_product_field_value(product_fields, product_column))
+            == _product_loose_compare_value(import_value)
+          ),
+          _canonical_product_field_value(product_fields, product_columns[0]),
+        )
+        near_samples.append({
+          "row_id": row_id,
+          "product_id": str(product.get("_id")),
+          "import_value": _import_value_to_text(import_value),
+          "product_value": _import_value_to_text(product_value),
+          "reason": f"near_match_ignoring:{PRODUCT_NEAR_MATCH_CHARS_LABEL}",
+          "source_sheet": row.get("source_sheet"),
+          "source_row_number": row.get("source_row_number"),
+        })
+      continue
+
     unmatched_count += 1
     if len(unmatched_samples) < sample_limit:
       unmatched_samples.append({
@@ -3842,7 +4019,7 @@ async def admin_preview_product_import_match(
         "source_row_number": row.get("source_row_number"),
       })
 
-  total_rows = matched_count + unmatched_count + empty_import_value_count
+  total_rows = matched_count + near_count + unmatched_count + empty_import_value_count
   return {
     "ok": True,
     "match": {
@@ -3852,10 +4029,13 @@ async def admin_preview_product_import_match(
     },
     "total_rows": total_rows,
     "matched_count": matched_count,
+    "near_count": near_count,
     "unmatched_count": unmatched_count,
     "empty_import_value_count": empty_import_value_count,
+    "near_match_chars": PRODUCT_NEAR_MATCH_CHARS_LABEL,
     "row_statuses": row_statuses,
     "matched_samples": matched_samples,
+    "near_samples": near_samples,
     "unmatched_samples": unmatched_samples,
     "empty_samples": empty_samples,
   }
@@ -3873,25 +4053,10 @@ async def admin_apply_product_import(
   if not batch:
     raise HTTPException(status_code=404, detail="IMPORT_NOT_FOUND")
 
-  raw_columns = (payload or {}).get("columns")
-  if not isinstance(raw_columns, list) or not raw_columns:
-    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
-  selected_columns = {
-    column.strip()
-    for column in raw_columns
-    if isinstance(column, str) and column.strip() and "." not in column and not column.strip().startswith("$")
-  }
-  if not selected_columns:
-    raise HTTPException(status_code=400, detail="NO_COLUMNS_SELECTED")
-
   batch_columns = batch.get("columns") or []
   allowed_transfer_columns = set(batch_columns) | {"Row", "Image1"}
-  unknown_transfer_columns = selected_columns - allowed_transfer_columns
-  if unknown_transfer_columns:
-    raise HTTPException(
-      status_code=400,
-      detail=f"SELECTED_COLUMNS_NOT_IN_IMPORT: {sorted(unknown_transfer_columns)}",
-    )
+  column_map = _parse_import_column_map(payload, allowed_transfer_columns)
+  selected_columns = set(column_map.keys())
 
   raw_row_ids = (payload or {}).get("row_ids")
   selected_row_ids: set[str] | None = None
@@ -3912,11 +4077,12 @@ async def admin_apply_product_import(
     for import_match_column in import_match_columns:
       if import_match_column != "Row" and import_match_column not in batch_columns:
         raise HTTPException(status_code=400, detail="IMPORT_COLUMN_NOT_IN_BATCH")
-    product_index = await _build_product_index_by_columns(db, product_match_columns)
+    product_index, loose_index = await _build_product_indexes_by_columns(db, product_match_columns)
   else:
     import_match_columns: list[str] = []
     product_match_columns: list[str] = []
     product_index = await _build_product_match_index(db)
+    loose_index = {}
 
   apply_row_groups = _parse_apply_row_groups(payload) if match_config else set(PRODUCT_IMPORT_ROW_MATCH_STATUSES)
   now = _utc_now_iso()
@@ -3947,8 +4113,11 @@ async def admin_apply_product_import(
   async for row in cursor:
     row_id = str(row.get("_id"))
     if _is_hidden_import_row(row):
-      skipped_count += 1
-      continue
+      # When the client sends an explicit visible row_ids whitelist, trust it —
+      # Show-labels can intentionally include Crystal/custom/- for Apply.
+      if selected_row_ids is None:
+        skipped_count += 1
+        continue
     staged_fields = row.get("fields") or {}
     if not isinstance(staged_fields, dict) or not staged_fields:
       unchanged_count += 1
@@ -3959,13 +4128,24 @@ async def admin_apply_product_import(
       product_staged_fields["Row"] = source_row_number
 
     if match_config:
-      row_match_status = _classify_import_row_match_status(staged_fields, product_index, import_match_columns)
+      row_match_status = _classify_import_row_match_status(
+        staged_fields,
+        product_index,
+        import_match_columns,
+        loose_index,
+      )
       if row_match_status not in apply_row_groups:
         skipped_count += 1
         rows_skipped_by_group[row_match_status] = rows_skipped_by_group.get(row_match_status, 0) + 1
         continue
       rows_processed_by_group[row_match_status] = rows_processed_by_group.get(row_match_status, 0) + 1
-      existing_product = _find_matching_product_by_column(staged_fields, product_index, import_match_columns)
+      existing_product = _find_matching_product_by_column(
+        staged_fields,
+        product_index,
+        import_match_columns,
+        loose_index=loose_index,
+        allow_near=row_match_status == "near",
+      )
     else:
       existing_product = _find_matching_product(staged_fields, product_index)
     if existing_product:
@@ -3974,7 +4154,13 @@ async def admin_apply_product_import(
       if not isinstance(existing_fields, dict):
         existing_fields = {}
 
-      changed_fields = _changed_product_fields(product_staged_fields, existing_fields, product_id, selected_columns)
+      changed_fields = _changed_product_fields(
+        product_staged_fields,
+        existing_fields,
+        product_id,
+        selected_columns,
+        column_map=column_map,
+      )
       if changed_fields:
         update_doc = {f"fields.{field_name}": value for field_name, value in changed_fields.items()}
         update_doc["updated_at"] = now
@@ -3988,9 +4174,19 @@ async def admin_apply_product_import(
 
         merged_fields = {**existing_fields, **changed_fields}
         existing_product["fields"] = merged_fields
-        for key in _product_match_keys(merged_fields):
-          if key:
-            product_index[key] = existing_product
+        if match_config:
+          for product_column in product_match_columns:
+            raw_value = _canonical_product_field_value(merged_fields, product_column)
+            key = _product_compare_value(raw_value)
+            loose_key = _product_loose_compare_value(raw_value)
+            if key:
+              product_index[key] = existing_product
+            if loose_key:
+              loose_index[loose_key] = existing_product
+        else:
+          for key in _product_match_keys(merged_fields):
+            if key:
+              product_index[key] = existing_product
       else:
         unchanged_count += 1
 
@@ -4006,8 +4202,18 @@ async def admin_apply_product_import(
       ))
       continue
 
+    # Near/matched without a resolvable product should not create a duplicate.
+    if match_config and row_match_status in {"matched", "near"}:
+      skipped_count += 1
+      continue
+
     product_id = uuid.uuid4().hex
-    new_fields = _product_fields_from_import_fields(product_staged_fields, product_id, selected_columns=selected_columns)
+    new_fields = _product_fields_from_import_fields(
+      product_staged_fields,
+      product_id,
+      selected_columns=selected_columns,
+      column_map=column_map,
+    )
     if not new_fields:
       unchanged_count += 1
       continue
@@ -4027,9 +4233,19 @@ async def admin_apply_product_import(
     audit_entries = _build_field_change_entries_from_create(new_fields)
     if audit_entries:
       pending_import_audit_logs.append((product_id, audit_entries, "created"))
-    for key in _product_match_keys(new_fields):
-      if key:
-        product_index[key] = product_doc
+    if match_config:
+      for product_column in product_match_columns:
+        raw_value = _canonical_product_field_value(new_fields, product_column)
+        key = _product_compare_value(raw_value)
+        loose_key = _product_loose_compare_value(raw_value)
+        if key:
+          product_index[key] = product_doc
+        if loose_key:
+          loose_index[loose_key] = product_doc
+    else:
+      for key in _product_match_keys(new_fields):
+        if key:
+          product_index[key] = product_doc
 
     row_write_ops.append(UpdateOne(
       {"_id": row_id, "import_id": import_id},
@@ -4069,6 +4285,7 @@ async def admin_apply_product_import(
           "unchanged_count": unchanged_count,
           "changed_cells_count": changed_cells_count,
           "selected_columns": sorted(selected_columns),
+          "column_map": column_map,
           "match": (
             {
               "import_columns": import_match_columns,

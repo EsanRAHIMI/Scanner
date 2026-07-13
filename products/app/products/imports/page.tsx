@@ -9,10 +9,15 @@ import { useProductsCache } from '../../products-cache-provider';
 import { formatPrice, formatScalar, highlightMatches, rewriteLegacyAppDomainInUrl } from '../lib/product-utils';
 import { ProductsHeaderSearch } from '../components/products-header-search';
 import {
-  DEFAULT_HIDDEN_LABELS,
+  DEFAULT_SHOW_LABELS,
+  EMPTY_ROW_LABEL_TOKEN,
+  SUGGESTED_SHOW_LABELS,
   detectCrystalCustomLabel,
+  formatShowLabelChip,
   getImportRowDisplayLabel,
-  isHiddenImportRow,
+  isExcludedByShowLabels,
+  isLabelAllowedByShowFilter,
+  normalizeShowLabelToken,
 } from './lib/import-row-visibility';
 import type { ProductsRecord } from '@/types/trainer';
 
@@ -61,7 +66,7 @@ type ApplyImportResponse = {
   rows_skipped_by_group?: Partial<Record<ImportRowMatchStatus, number>>;
 };
 
-type ImportRowMatchStatus = 'matched' | 'unmatched' | 'empty';
+type ImportRowMatchStatus = 'matched' | 'near' | 'unmatched' | 'empty';
 
 type ReprocessImportResponse = {
   ok: boolean;
@@ -84,17 +89,23 @@ type MatchPreviewResponse = {
   match: { import_columns: string[]; product_column: string; product_columns?: string[] };
   total_rows: number;
   matched_count: number;
+  near_count?: number;
   unmatched_count: number;
   empty_import_value_count: number;
+  near_match_chars?: string;
   row_statuses?: Record<string, ImportRowMatchStatus>;
   matched_samples: MatchPreviewSample[];
+  near_samples?: MatchPreviewSample[];
   unmatched_samples: MatchPreviewSample[];
   empty_samples?: MatchPreviewSample[];
 };
 
-const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'unmatched', 'empty'];
+const NEAR_MATCH_CHARS_LABEL = 'space - / \\ ـ ( )';
 
-const DEFAULT_SELECTED_ROW_GROUPS: ImportRowMatchStatus[] = ALL_ROW_GROUPS;
+const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'near', 'unmatched', 'empty'];
+
+/** Near is opt-in so Apply does not loosely update products unless you tick it. */
+const DEFAULT_SELECTED_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'unmatched', 'empty'];
 
 /**
  * Verified rows = Matched rows whose selected field already has a value on the
@@ -162,6 +173,7 @@ const COMPACT_SELECT_CLASS =
 
 const ROW_MATCH_STATUS_LABELS: Record<ImportRowMatchStatus, string> = {
   matched: 'Matched',
+  near: `Near (${NEAR_MATCH_CHARS_LABEL})`,
   unmatched: 'Unmatched',
   empty: 'Empty',
 };
@@ -169,6 +181,8 @@ const ROW_MATCH_STATUS_LABELS: Record<ImportRowMatchStatus, string> = {
 const ROW_MATCH_ROW_CLASS: Record<ImportRowMatchStatus, string> = {
   matched:
     'border-green-500/25 bg-green-500/10 text-green-800 dark:border-green-400/20 dark:bg-green-500/15 dark:text-green-200',
+  near:
+    'border-sky-500/25 bg-sky-500/10 text-sky-800 dark:border-sky-400/20 dark:bg-sky-500/15 dark:text-sky-200',
   unmatched:
     'border-amber-500/25 bg-amber-500/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/15 dark:text-amber-200',
   empty:
@@ -177,6 +191,7 @@ const ROW_MATCH_ROW_CLASS: Record<ImportRowMatchStatus, string> = {
 
 const ROW_MATCH_BADGE_CLASS: Record<ImportRowMatchStatus, string> = {
   matched: 'bg-green-600 text-white',
+  near: 'bg-sky-600 text-white',
   unmatched: 'bg-amber-500 text-white',
   empty: 'bg-red-600 text-white',
 };
@@ -200,28 +215,28 @@ const fetchJson = async <T,>(url: string): Promise<T> => {
 const IMPORT_ROWS_LIMIT = 5000;
 const SELECTED_IMPORT_SESSION_STORAGE_KEY = 'lorenzo:products:imports:selected';
 const IMPORT_MATCH_SESSION_STORAGE_PREFIX = 'lorenzo:products:import-match:';
-const HIDDEN_LABELS_STORAGE_KEY = 'lorenzo:products:imports:hidden-labels';
+const SHOW_LABELS_STORAGE_KEY = 'lorenzo:products:imports:show-labels';
 
-function readStoredHiddenLabels(): string[] {
-  if (typeof window === 'undefined') return [...DEFAULT_HIDDEN_LABELS];
+function readStoredShowLabels(): string[] {
+  if (typeof window === 'undefined') return [...DEFAULT_SHOW_LABELS];
   try {
-    const raw = window.localStorage.getItem(HIDDEN_LABELS_STORAGE_KEY);
-    if (!raw) return [...DEFAULT_HIDDEN_LABELS];
+    const raw = window.localStorage.getItem(SHOW_LABELS_STORAGE_KEY);
+    if (!raw) return [...DEFAULT_SHOW_LABELS];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...DEFAULT_HIDDEN_LABELS];
+    if (!Array.isArray(parsed)) return [...DEFAULT_SHOW_LABELS];
     const seen = new Set<string>();
     const labels: string[] = [];
     for (const item of parsed) {
       if (typeof item !== 'string') continue;
-      const value = item.trim();
+      const value = normalizeShowLabelToken(item);
       const key = value.toLowerCase();
-      if (!value || seen.has(key)) continue;
+      if (seen.has(key)) continue;
       seen.add(key);
       labels.push(value);
     }
     return labels;
   } catch {
-    return [...DEFAULT_HIDDEN_LABELS];
+    return [...DEFAULT_SHOW_LABELS];
   }
 }
 
@@ -232,6 +247,7 @@ type CachedImportSessionState = {
   matchPreview?: unknown;
   selectedRowGroups?: unknown;
   selectedTransferColumns?: unknown;
+  columnMappings?: unknown;
   hideVerifiedMatchedRows?: unknown;
   verifiedFilterMode?: unknown;
   verifiedMatchedColumn?: unknown;
@@ -343,6 +359,29 @@ function normalizeComparable(value: unknown) {
   return trimmed.replace(/\s+/g, ' ').toLowerCase();
 }
 
+/** Drop spaces / - / \ ـ ( ) so near-matches can align codes and names. */
+function normalizeLooseComparable(value: unknown) {
+  return normalizeComparable(value).replace(/[\s\-/\\ـ()]+/g, '');
+}
+
+function describeIgnoredMatchChars(...texts: string[]) {
+  const found = new Set<string>();
+  for (const text of texts) {
+    for (const ch of text) {
+      if (/\s/.test(ch)) found.add('space');
+      else if (ch === '-') found.add('-');
+      else if (ch === '/') found.add('/');
+      else if (ch === '\\') found.add('\\');
+      else if (ch === 'ـ') found.add('ـ');
+      else if (ch === '(') found.add('(');
+      else if (ch === ')') found.add(')');
+    }
+  }
+  if (found.size === 0) return NEAR_MATCH_CHARS_LABEL;
+  const order = ['space', '-', '/', '\\', 'ـ', '(', ')'];
+  return order.filter((item) => found.has(item)).join(' ');
+}
+
 function getFirstField(fields: Record<string, unknown>, names: string[]) {
   for (const name of names) {
     const value = fields[name];
@@ -382,6 +421,17 @@ function buildProductIndexByColumns(records: ProductsRecord[], productColumns: s
   return index;
 }
 
+function buildProductLooseIndexByColumns(records: ProductsRecord[], productColumns: string[]) {
+  const index = new Map<string, ProductsRecord>();
+  for (const record of records) {
+    for (const productColumn of productColumns) {
+      const value = normalizeLooseComparable(getEquivalentFieldValue(record.fields ?? {}, productColumn));
+      if (value && !index.has(value)) index.set(value, record);
+    }
+  }
+  return index;
+}
+
 function findExistingProductByColumn(
   row: ProductImportRow,
   index: Map<string, ProductsRecord>,
@@ -396,6 +446,20 @@ function findExistingProductByColumn(
   return null;
 }
 
+function findExistingProductByLooseColumn(
+  row: ProductImportRow,
+  looseIndex: Map<string, ProductsRecord>,
+  importColumns: string[],
+) {
+  for (const importColumn of importColumns) {
+    const value = normalizeLooseComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+    if (!value) continue;
+    const hit = looseIndex.get(value);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, unknown>, column: string) {
   const left = normalizeComparable(rowValue);
   if (!left) return false;
@@ -403,10 +467,17 @@ function fieldMatchesExisting(rowValue: unknown, existingFields: Record<string, 
   return Boolean(right) && left === right;
 }
 
-function isHiddenRowLabelText(label: string, hiddenLabels: string[]) {
-  const normalized = label.trim().toLowerCase();
-  if (!normalized) return false;
-  return hiddenLabels.some((item) => item.trim().toLowerCase() === normalized);
+function fieldNearMatchesExisting(rowValue: unknown, existingFields: Record<string, unknown>, column: string) {
+  const left = normalizeLooseComparable(rowValue);
+  if (!left) return false;
+  const right = normalizeLooseComparable(getEquivalentFieldValue(existingFields, column));
+  if (!right || left !== right) return false;
+  // Exact already matched — not a "near" highlight.
+  return normalizeComparable(rowValue) !== normalizeComparable(getEquivalentFieldValue(existingFields, column));
+}
+
+function isRowLabelExcludedByShowFilter(label: string, showLabels: string[]) {
+  return !isLabelAllowedByShowFilter(label, showLabels);
 }
 
 function isMatchedImportRowVerifiedForColumn(
@@ -426,6 +497,7 @@ function isMatchedImportRowVerifiedForColumn(
 function classifyImportRowMatchStatus(
   row: ProductImportRow,
   productIndex: Map<string, ProductsRecord>,
+  looseIndex: Map<string, ProductsRecord>,
   importColumns: string[],
 ): ImportRowMatchStatus {
   let hasValue = false;
@@ -436,12 +508,18 @@ function classifyImportRowMatchStatus(
     if (productIndex.has(value)) return 'matched';
   }
   if (!hasValue) return 'empty';
+  for (const importColumn of importColumns) {
+    const loose = normalizeLooseComparable(getEquivalentFieldValue(row.fields ?? {}, importColumn));
+    if (!loose) continue;
+    if (looseIndex.has(loose)) return 'near';
+  }
   return 'unmatched';
 }
 
 function buildRowStatusMap(
   rows: ProductImportRow[],
   productIndex: Map<string, ProductsRecord>,
+  looseIndex: Map<string, ProductsRecord>,
   importColumns: string[],
   previewStatuses?: Record<string, ImportRowMatchStatus>,
 ) {
@@ -450,7 +528,7 @@ function buildRowStatusMap(
     const fromPreview = previewStatuses?.[row.id];
     map.set(
       row.id,
-      fromPreview ?? classifyImportRowMatchStatus(row, productIndex, importColumns),
+      fromPreview ?? classifyImportRowMatchStatus(row, productIndex, looseIndex, importColumns),
     );
   }
   return map;
@@ -494,7 +572,7 @@ function summarizeImportRowFieldsForAgent(
 }
 
 const IMPORT_MATCH_LOGIC =
-  'OR across selected Excel and Products columns: Matched if ANY Excel match column value equals ANY selected Products column value (trim + lowercase). Unmatched = has an Excel value but no product hit. Empty = all match Excel columns blank.';
+  `OR across selected Excel and Products columns: Matched = exact (trim + lowercase). Near = same after ignoring ${NEAR_MATCH_CHARS_LABEL}. Unmatched = has Excel value but no product hit. Empty = all match Excel columns blank.`;
 
 function buildImportMatchPayload(importColumns: string[], productColumns: string[]) {
   return {
@@ -554,7 +632,7 @@ export default function ProductImportsPage() {
   const [savingLabelRowId, setSavingLabelRowId] = React.useState<string | null>(null);
   const [isApplying, setIsApplying] = React.useState(false);
   const [isReprocessing, setIsReprocessing] = React.useState(false);
-  const [selectedTransferColumns, setSelectedTransferColumns] = React.useState<Set<string>>(new Set());
+  const [columnMappings, setColumnMappings] = React.useState<Record<string, string>>({});
   const [matchImportColumns, setMatchImportColumns] = React.useState<string[]>([]);
   const [matchImportColumnDraft, setMatchImportColumnDraft] = React.useState('');
   const [matchProductColumns, setMatchProductColumns] = React.useState<string[]>([]);
@@ -570,8 +648,8 @@ export default function ProductImportsPage() {
   const [verifiedMatchedColumn, setVerifiedMatchedColumn] = React.useState('');
   const [verifiedProductValueRequired, setVerifiedProductValueRequired] = React.useState(true);
   const [temporarilyHiddenRowIds, setTemporarilyHiddenRowIds] = React.useState<Set<string>>(new Set());
-  const [hiddenLabels, setHiddenLabels] = React.useState<string[]>(DEFAULT_HIDDEN_LABELS);
-  const [hiddenLabelDraft, setHiddenLabelDraft] = React.useState('');
+  const [showLabels, setShowLabels] = React.useState<string[]>(DEFAULT_SHOW_LABELS);
+  const [showLabelDraft, setShowLabelDraft] = React.useState('');
   const [showHiddenRows, setShowHiddenRows] = React.useState(false);
   const [isLgScreen, setIsLgScreen] = React.useState(false);
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false);
@@ -779,7 +857,7 @@ export default function ProductImportsPage() {
 
       setTemporarilyHiddenRowIds((prev) => {
         const next = new Set(prev);
-        if (isHiddenRowLabelText(trimmed, hiddenLabels)) next.add(rowId);
+        if (isRowLabelExcludedByShowFilter(trimmed, showLabels)) next.add(rowId);
         else next.delete(rowId);
         return next;
       });
@@ -824,7 +902,7 @@ export default function ProductImportsPage() {
         await mutateRows(previousData, { revalidate: false });
         setTemporarilyHiddenRowIds((prev) => {
           const next = new Set(prev);
-          if (isHiddenRowLabelText(previousLabel, hiddenLabels)) next.add(rowId);
+          if (isRowLabelExcludedByShowFilter(previousLabel, showLabels)) next.add(rowId);
           else next.delete(rowId);
           return next;
         });
@@ -836,7 +914,7 @@ export default function ProductImportsPage() {
         saveInFlightRef.current = false;
       }
     },
-    [activeImportId, hiddenLabels, mutateRows, rowsData],
+    [activeImportId, showLabels, mutateRows, rowsData],
   );
 
   React.useEffect(() => {
@@ -919,8 +997,8 @@ export default function ProductImportsPage() {
   }, [activeImportId, rowsData, saveRowLabel]);
 
   const isRowHiddenForView = React.useCallback(
-    (row: ProductImportRow) => temporarilyHiddenRowIds.has(row.id) || isHiddenImportRow(row, hiddenLabels),
-    [hiddenLabels, temporarilyHiddenRowIds],
+    (row: ProductImportRow) => temporarilyHiddenRowIds.has(row.id) || isExcludedByShowLabels(row, showLabels),
+    [showLabels, temporarilyHiddenRowIds],
   );
 
   const hiddenRowCount = React.useMemo(
@@ -939,13 +1017,16 @@ export default function ProductImportsPage() {
       setMessage('Choose one or more Excel columns and one or more Products columns before applying.');
       return;
     }
-    const selectedColumns = Array.from(selectedTransferColumns);
-    if (selectedColumns.length === 0) {
-      setMessage('Select at least one column to transfer to Products.');
+    const mappedEntries = Object.entries(columnMappings).filter(
+      ([importColumn, productColumn]) =>
+        Boolean(importColumn.trim()) && Boolean(String(productColumn).trim()),
+    );
+    if (mappedEntries.length === 0) {
+      setMessage('Map at least one import column to a Products column before applying.');
       return;
     }
     if (selectedRowGroups.size === 0) {
-      setMessage('Select at least one row group (Matched, Unmatched, or Empty).');
+      setMessage('Select at least one row group (Matched, Near, Unmatched, or Empty).');
       return;
     }
     const visibleRowIds = visibleImportRowIdsRef.current;
@@ -953,14 +1034,20 @@ export default function ProductImportsPage() {
       setMessage('No visible rows to apply. Clear filters or show rows first.');
       return;
     }
+    const columnMap = Object.fromEntries(
+      mappedEntries.map(([importColumn, productColumn]) => [importColumn, String(productColumn).trim()]),
+    );
+    const mappingSummary = mappedEntries
+      .map(([importColumn, productColumn]) => `${importColumn} → ${productColumn}`)
+      .join(', ');
     const groupLabels = Array.from(selectedRowGroups).map(group => ROW_MATCH_STATUS_LABELS[group]).join(', ');
     const ok = window.confirm(
       `Apply this import to the main Products table?\n\n` +
         `Match: "${matchImportColumns.join(' OR ')}" → "${matchProductColumns.join(' OR ')}"\n` +
         `Apply only: ${groupLabels}\n` +
         `Rows to process: ${visibleRowIds.length.toLocaleString('en-US')} currently visible row(s)\n` +
-        `Transfer columns (${selectedColumns.length}): ${selectedColumns.join(', ')}\n\n` +
-        'Only the rows currently visible after search, hidden labels, Verified filter, and row-group filters are written. Continue?'
+        `Column map (${mappedEntries.length}): ${mappingSummary}\n\n` +
+        'Only the rows currently visible after search, show-labels filter, Verified filter, and row-group filters are written. Continue?'
     );
     if (!ok) return;
 
@@ -971,7 +1058,8 @@ export default function ProductImportsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          columns: selectedColumns,
+          column_map: columnMap,
+          columns: Object.keys(columnMap),
           match: buildImportMatchPayload(matchImportColumns, matchProductColumns),
           apply_row_groups: Array.from(selectedRowGroups),
           row_ids: visibleRowIds,
@@ -1003,6 +1091,7 @@ export default function ProductImportsPage() {
     }
   }, [
     activeImportId,
+    columnMappings,
     isApplying,
     matchImportColumns,
     selectedRowGroups,
@@ -1010,7 +1099,6 @@ export default function ProductImportsPage() {
     mutateImports,
     mutateProducts,
     mutateRows,
-    selectedTransferColumns,
   ]);
 
   const reprocessImportRows = React.useCallback(async () => {
@@ -1085,6 +1173,10 @@ export default function ProductImportsPage() {
     if (matchProductColumns.length === 0) return new Map<string, ProductsRecord>();
     return buildProductIndexByColumns(productsData?.records ?? [], matchProductColumns);
   }, [matchProductColumns, productsData?.records]);
+  const existingLooseProductIndex = React.useMemo(() => {
+    if (matchProductColumns.length === 0) return new Map<string, ProductsRecord>();
+    return buildProductLooseIndexByColumns(productsData?.records ?? [], matchProductColumns);
+  }, [matchProductColumns, productsData?.records]);
   const rowStatusById = React.useMemo(() => {
     if (!rowsData || matchImportColumns.length === 0 || matchProductColumns.length === 0) {
       return new Map<string, ImportRowMatchStatus>();
@@ -1101,10 +1193,12 @@ export default function ProductImportsPage() {
     return buildRowStatusMap(
       matchableRows,
       existingProductIndex,
+      existingLooseProductIndex,
       matchImportColumns,
       filteredPreview,
     );
   }, [
+    existingLooseProductIndex,
     existingProductIndex,
     matchImportColumns,
     matchPreview?.row_statuses,
@@ -1115,7 +1209,7 @@ export default function ProductImportsPage() {
   ]);
 
   const rowStatusCounts = React.useMemo(() => {
-    const counts = { matched: 0, unmatched: 0, empty: 0 };
+    const counts = { matched: 0, near: 0, unmatched: 0, empty: 0 };
     for (const status of rowStatusById.values()) {
       counts[status] += 1;
     }
@@ -1123,6 +1217,45 @@ export default function ProductImportsPage() {
   }, [rowStatusById]);
 
   const isMatchConfigured = matchImportColumns.length > 0 && matchProductColumns.length > 0;
+
+  const nearMatchDetailById = React.useMemo(() => {
+    const map = new Map<string, { productValue: string; importValue: string; ignored: string }>();
+    if (!isMatchConfigured) return map;
+    for (const row of matchableRows) {
+      if (rowStatusById.get(row.id) !== 'near') continue;
+      const product = findExistingProductByLooseColumn(row, existingLooseProductIndex, matchImportColumns);
+      if (!product) continue;
+      let importValue = '';
+      let productValue = '';
+      for (const importColumn of matchImportColumns) {
+        const leftRaw = getEquivalentFieldValue(row.fields ?? {}, importColumn);
+        const leftLoose = normalizeLooseComparable(leftRaw);
+        if (!leftLoose) continue;
+        for (const productColumn of matchProductColumns) {
+          const rightRaw = getEquivalentFieldValue(product.fields ?? {}, productColumn);
+          if (normalizeLooseComparable(rightRaw) !== leftLoose) continue;
+          importValue = formatScalar(leftRaw) || normalizeComparable(leftRaw);
+          productValue = formatScalar(rightRaw) || normalizeComparable(rightRaw);
+          break;
+        }
+        if (importValue || productValue) break;
+      }
+      map.set(row.id, {
+        importValue,
+        productValue,
+        ignored: describeIgnoredMatchChars(importValue, productValue),
+      });
+    }
+    return map;
+  }, [
+    existingLooseProductIndex,
+    isMatchConfigured,
+    matchImportColumns,
+    matchProductColumns,
+    matchableRows,
+    rowStatusById,
+  ]);
+
   const isVerifiedMatchedRow = React.useCallback(
     (row: ProductImportRow) => {
       if (!isMatchConfigured || !verifiedMatchedColumn) return false;
@@ -1216,14 +1349,31 @@ export default function ProductImportsPage() {
     if (initializedTransferColumnsForImportRef.current === activeImportId) return;
     initializedTransferColumnsForImportRef.current = activeImportId;
     const cached = readCachedImportSessionState(activeImportId);
-    const rawTransferColumns = cached?.selectedTransferColumns;
-    const cachedTransferColumns = Array.isArray(rawTransferColumns)
-      ? rawTransferColumns.filter(
-          (column): column is string => typeof column === 'string' && importColumns.includes(column),
-        )
-      : [];
-    setSelectedTransferColumns(new Set(cachedTransferColumns));
-  }, [activeImportId, importColumns]);
+    const nextMappings: Record<string, string> = {};
+
+    const rawMappings = cached?.columnMappings;
+    if (rawMappings && typeof rawMappings === 'object' && !Array.isArray(rawMappings)) {
+      for (const [importColumn, productColumn] of Object.entries(rawMappings as Record<string, unknown>)) {
+        if (!importColumns.includes(importColumn)) continue;
+        if (typeof productColumn !== 'string' || !productColumn.trim()) continue;
+        nextMappings[importColumn] = productColumn.trim();
+      }
+    } else {
+      const rawTransferColumns = cached?.selectedTransferColumns;
+      if (Array.isArray(rawTransferColumns)) {
+        for (const column of rawTransferColumns) {
+          if (typeof column !== 'string' || !importColumns.includes(column)) continue;
+          if (column === 'Image1' && productColumns.includes('Image')) {
+            nextMappings[column] = 'Image';
+          } else if (productColumns.includes(column)) {
+            nextMappings[column] = column;
+          }
+        }
+      }
+    }
+
+    setColumnMappings(nextMappings);
+  }, [activeImportId, importColumns, productColumns]);
 
   React.useEffect(() => {
     if (!activeImportId || importColumns.length === 0 || productColumns.length === 0) return;
@@ -1250,7 +1400,7 @@ export default function ProductImportsPage() {
     const rawRowGroups = cached?.selectedRowGroups;
     const cachedRowGroups = Array.isArray(rawRowGroups)
       ? rawRowGroups.filter(isImportRowMatchStatus)
-      : ALL_ROW_GROUPS;
+      : [...DEFAULT_SELECTED_ROW_GROUPS];
     const rawVerifiedColumn = cached?.verifiedMatchedColumn;
     const cachedVerifiedColumn =
       typeof rawVerifiedColumn === 'string' &&
@@ -1307,7 +1457,8 @@ export default function ProductImportsPage() {
           matchProductColumns,
           matchPreview,
           selectedRowGroups: Array.from(selectedRowGroups),
-          selectedTransferColumns: Array.from(selectedTransferColumns),
+          selectedTransferColumns: Object.keys(columnMappings),
+          columnMappings,
           verifiedFilterMode,
           verifiedMatchedColumn,
           verifiedProductValueRequired,
@@ -1323,43 +1474,69 @@ export default function ProductImportsPage() {
     matchPreview,
     matchProductColumns,
     selectedRowGroups,
-    selectedTransferColumns,
+    columnMappings,
     verifiedMatchedColumn,
     verifiedProductValueRequired,
   ]);
 
-  // Load persisted hide labels after mount only, so SSR and first client render match (no hydration mismatch).
+  // Load persisted show labels after mount only, so SSR and first client render match (no hydration mismatch).
   React.useEffect(() => {
-    setHiddenLabels(readStoredHiddenLabels());
+    setShowLabels(readStoredShowLabels());
   }, []);
 
-  const persistHiddenLabels = React.useCallback((next: string[]) => {
+  const persistShowLabels = React.useCallback((next: string[]) => {
     try {
-      window.localStorage.setItem(HIDDEN_LABELS_STORAGE_KEY, JSON.stringify(next));
+      window.localStorage.setItem(SHOW_LABELS_STORAGE_KEY, JSON.stringify(next));
     } catch {
       // Preference persistence is best-effort.
     }
   }, []);
 
-  const addHiddenLabel = React.useCallback(() => {
-    const value = hiddenLabelDraft.trim();
-    if (!value) return;
-    setHiddenLabels((prev) => {
-      if (prev.some((item) => item.toLowerCase() === value.toLowerCase())) return prev;
-      const next = [...prev, value];
-      persistHiddenLabels(next);
+  const toggleShowLabel = React.useCallback((label: string) => {
+    const token = normalizeShowLabelToken(label);
+    setShowLabels((prev) => {
+      const exists = prev.some((item) => normalizeShowLabelToken(item).toLowerCase() === token.toLowerCase());
+      const next = exists
+        ? prev.filter((item) => normalizeShowLabelToken(item).toLowerCase() !== token.toLowerCase())
+        : [...prev, token];
+      persistShowLabels(next);
       return next;
     });
-    setHiddenLabelDraft('');
-  }, [hiddenLabelDraft, persistHiddenLabels]);
+  }, [persistShowLabels]);
 
-  const removeHiddenLabel = React.useCallback((label: string) => {
-    setHiddenLabels((prev) => {
-      const next = prev.filter((item) => item !== label);
-      persistHiddenLabels(next);
+  const addShowLabel = React.useCallback(() => {
+    if (!showLabelDraft.trim()) return;
+    const token = normalizeShowLabelToken(showLabelDraft);
+    setShowLabels((prev) => {
+      if (prev.some((item) => normalizeShowLabelToken(item).toLowerCase() === token.toLowerCase())) {
+        return prev;
+      }
+      const next = [...prev, token];
+      persistShowLabels(next);
       return next;
     });
-  }, [persistHiddenLabels]);
+    setShowLabelDraft('');
+  }, [persistShowLabels, showLabelDraft]);
+
+  const clearShowLabels = React.useCallback(() => {
+    setShowLabels([]);
+    persistShowLabels([]);
+  }, [persistShowLabels]);
+
+  const showLabelChipOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    const options: string[] = [];
+    for (const label of [...SUGGESTED_SHOW_LABELS, ...showLabels]) {
+      const token = normalizeShowLabelToken(label);
+      const key = token.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push(token);
+    }
+    return options;
+  }, [showLabels]);
+
+  const isShowLabelFilterActive = showLabels.length > 0;
 
   const toggleRowGroup = React.useCallback((group: ImportRowMatchStatus) => {
     setSelectedRowGroups(prev => {
@@ -1391,14 +1568,34 @@ export default function ProductImportsPage() {
     return () => clearTimeout(timer);
   }, [activeImportId, matchImportColumns, matchPreview, matchProductColumns, previewMatch, rowsData?.count]);
 
-  const toggleTransferColumn = React.useCallback((column: string) => {
-    setSelectedTransferColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(column)) next.delete(column);
-      else next.add(column);
+  const setColumnMapping = React.useCallback((importColumn: string, productColumn: string) => {
+    setColumnMappings((prev) => {
+      const next = { ...prev };
+      const trimmed = productColumn.trim();
+      if (!trimmed) delete next[importColumn];
+      else next[importColumn] = trimmed;
       return next;
     });
   }, []);
+
+  const mappedColumnCount = React.useMemo(
+    () => Object.values(columnMappings).filter((value) => Boolean(value.trim())).length,
+    [columnMappings],
+  );
+
+  const transferProductColumnOptions = React.useMemo(() => {
+    const extras = Object.values(columnMappings).filter(
+      (column) => column.trim() && !productColumns.includes(column),
+    );
+    const seen = new Set<string>();
+    const options: string[] = [];
+    for (const column of [...productColumns, ...extras]) {
+      if (seen.has(column)) continue;
+      seen.add(column);
+      options.push(column);
+    }
+    return options;
+  }, [columnMappings, productColumns]);
 
   const addMatchImportColumn = React.useCallback(() => {
     const column = matchImportColumnDraft.trim();
@@ -1441,7 +1638,7 @@ export default function ProductImportsPage() {
     module: 'imports',
     page_summary: isMatchConfigured
       ? `Excel Imports staging: ${searchFilteredImportRows.length} visible row(s); match ${matchImportColumns.join(' OR ')} → ${matchProductColumns.join(' OR ')}; ` +
-        `${rowStatusCounts.matched} matched, ${rowStatusCounts.unmatched} unmatched, ${rowStatusCounts.empty} empty in loaded import` +
+        `${rowStatusCounts.matched} matched, ${rowStatusCounts.near} near, ${rowStatusCounts.unmatched} unmatched, ${rowStatusCounts.empty} empty in loaded import` +
         (debouncedSearch.trim() ? `; search="${debouncedSearch.trim()}"` : '')
       : 'Excel Imports staging table (not the main Products catalog list)' +
         (debouncedSearch.trim() ? `; search="${debouncedSearch.trim()}"` : ''),
@@ -1455,8 +1652,11 @@ export default function ProductImportsPage() {
       search_query: debouncedSearch.trim() || null,
       hidden_rows_count: hiddenRowCount,
       show_hidden_rows: showHiddenRows,
+      show_labels: showLabels,
+      show_labels_filter_active: isShowLabelFilterActive,
       imports_count: imports.length,
-      transfer_columns_selected: Array.from(selectedTransferColumns),
+      transfer_columns_selected: Object.keys(columnMappings).filter((key) => columnMappings[key]?.trim()),
+      column_mappings: columnMappings,
       match: isMatchConfigured
         ? {
             configured: true,
@@ -1467,6 +1667,7 @@ export default function ProductImportsPage() {
               ? {
                   total_rows: matchPreview.total_rows,
                   matched: matchPreview.matched_count,
+                  near: matchPreview.near_count ?? 0,
                   unmatched: matchPreview.unmatched_count,
                   empty: matchPreview.empty_import_value_count,
                   source: 'server_preview',
@@ -1474,6 +1675,7 @@ export default function ProductImportsPage() {
               : {
                   total_rows: matchableRows.length,
                   matched: rowStatusCounts.matched,
+                  near: rowStatusCounts.near,
                   unmatched: rowStatusCounts.unmatched,
                   empty: rowStatusCounts.empty,
                   source: 'client_index',
@@ -1484,6 +1686,7 @@ export default function ProductImportsPage() {
             },
             status_meanings: {
               matched: `Excel value matches an existing product in any selected Products column: ${matchProductColumns.join(' OR ')}`,
+              near: `Not exact, but matches after ignoring ${NEAR_MATCH_CHARS_LABEL}`,
               unmatched: `Excel has a value in match column(s) but no product has that value in any selected Products column`,
               empty: 'All selected Excel match columns are blank for this row',
             },
@@ -1493,10 +1696,12 @@ export default function ProductImportsPage() {
                   ? matchPreview.unmatched_samples
                   : collectUnmatchedSamplesForAgent(matchableRows, rowStatusById, matchImportColumns)
               ).slice(0, 8),
+              near: (matchPreview?.near_samples ?? []).slice(0, 5),
               empty: (matchPreview?.empty_samples ?? []).slice(0, 5),
               matched: (matchPreview?.matched_samples ?? []).slice(0, 3),
             },
             matched: rowStatusCounts.matched,
+            near: rowStatusCounts.near,
             unmatched: rowStatusCounts.unmatched,
             empty: rowStatusCounts.empty,
           }
@@ -1779,6 +1984,11 @@ export default function ProductImportsPage() {
               {ALL_ROW_GROUPS.map(status => (
                 <label
                   key={status}
+                  title={
+                    status === 'near'
+                      ? `Loose match ignoring: ${NEAR_MATCH_CHARS_LABEL}. Tick this to preview/apply those rows as product updates.`
+                      : undefined
+                  }
                   className={
                     'inline-flex cursor-pointer items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-black transition ' +
                     (selectedRowGroups.has(status)
@@ -1881,49 +2091,87 @@ export default function ProductImportsPage() {
 
               {hiddenRowCount > 0 ? (
                 <span className="rounded-full border border-zinc-300/60 bg-zinc-100/80 px-1.5 py-0.5 text-[9px] font-bold text-zinc-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55">
-                  {hiddenRowCount} hidden
+                  {hiddenRowCount} excluded
                 </span>
               ) : null}
 
               <div
                 className="inline-flex min-w-0 flex-wrap items-center gap-1 rounded-full border border-black/10 bg-black/[0.02] px-1.5 py-0.5 dark:border-white/10 dark:bg-white/[0.03]"
-                title="Rows whose Label matches any of these terms are hidden and excluded from the Matched/Unmatched/Empty stats."
+                title={
+                  isShowLabelFilterActive
+                    ? 'Only rows whose Label matches a selected chip are shown and eligible for Apply. Empty = blank Label cells.'
+                    : 'No Show labels selected — all rows are visible. Toggle chips to whitelist Label values (including Empty).'
+                }
               >
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-black/35 dark:text-white/35">
-                  Hide labels
+                  Show labels
                 </span>
-                {hiddenLabels.map((label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => removeHiddenLabel(label)}
-                    className="rounded-full border border-zinc-300/60 bg-zinc-100/80 px-1.5 py-0.5 text-[9px] font-bold text-zinc-600 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-600 dark:border-white/10 dark:bg-white/5 dark:text-white/55"
-                    title={`Remove “${label}” from hide terms`}
-                  >
-                    {label} ×
-                  </button>
-                ))}
+                {!isShowLabelFilterActive ? (
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
+                    All
+                  </span>
+                ) : null}
+                {showLabelChipOptions.map((label) => {
+                  const selected = showLabels.some(
+                    (item) => normalizeShowLabelToken(item).toLowerCase() === label.toLowerCase(),
+                  );
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => toggleShowLabel(label)}
+                      aria-pressed={selected}
+                      className={
+                        'rounded-full border px-1.5 py-0.5 text-[9px] font-bold transition ' +
+                        (selected
+                          ? 'border-emerald-500/50 bg-emerald-600 text-white'
+                          : 'border-zinc-300/60 bg-zinc-100/80 text-zinc-600 hover:bg-black/5 dark:border-white/10 dark:bg-white/5 dark:text-white/55 dark:hover:bg-white/10')
+                      }
+                      title={
+                        label === EMPTY_ROW_LABEL_TOKEN
+                          ? selected
+                            ? 'Stop showing blank Label rows'
+                            : 'Show blank Label rows'
+                          : selected
+                            ? `Stop showing “${formatShowLabelChip(label)}”`
+                            : `Show only rows labeled “${formatShowLabelChip(label)}” (with other selected chips)`
+                      }
+                    >
+                      {formatShowLabelChip(label)}
+                    </button>
+                  );
+                })}
                 <input
-                  value={hiddenLabelDraft}
-                  onChange={(event) => setHiddenLabelDraft(event.target.value)}
+                  value={showLabelDraft}
+                  onChange={(event) => setShowLabelDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
-                      addHiddenLabel();
+                      addShowLabel();
                     }
                   }}
                   placeholder="Add…"
                   className="h-5 w-16 min-w-0 rounded-md border border-black/10 bg-white px-1 text-[9px] font-semibold text-black outline-none dark:border-white/10 dark:bg-black/40 dark:text-white"
-                  aria-label="Add a label term that hides matching rows"
+                  aria-label="Add a custom Label value to the show filter"
                 />
                 <button
                   type="button"
-                  onClick={addHiddenLabel}
-                  disabled={!hiddenLabelDraft.trim()}
+                  onClick={addShowLabel}
+                  disabled={!showLabelDraft.trim()}
                   className="rounded-full border border-black/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black/55 transition hover:bg-black/5 disabled:opacity-40 dark:border-white/10 dark:text-white/55 dark:hover:bg-white/10"
                 >
                   Add
                 </button>
+                {isShowLabelFilterActive ? (
+                  <button
+                    type="button"
+                    onClick={clearShowLabels}
+                    className="rounded-full border border-black/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-black/45 transition hover:bg-black/5 dark:border-white/10 dark:text-white/45 dark:hover:bg-white/10"
+                    title="Clear show-labels filter (show all rows)"
+                  >
+                    Clear
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -1935,13 +2183,13 @@ export default function ProductImportsPage() {
               {rowsData
                 ? `${rowsData.import.filename} · ${searchFilteredImportRows.length}/${rowsData.count} shown` +
                   (debouncedSearch.trim() ? ` · search “${debouncedSearch.trim()}”` : '') +
-                  (hiddenRowCount > 0 ? ` · ${hiddenRowCount} hidden (excluded from stats)` : '') +
+                  (hiddenRowCount > 0 ? ` · ${hiddenRowCount} excluded by show-labels` : '') +
                   (isVerifiedFilterActive
                     ? verifiedFilterMode === 'only'
                       ? ` · showing ${verifiedMatchedCount} where ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has value' : 'has no value'}`
                       : ` · ${verifiedMatchedCount} hidden where ${verifiedMatchedColumn} ${verifiedProductValueRequired ? 'has value' : 'has no value'}`
                     : '') +
-                  ` · ${selectedTransferColumns.size} transfer cols` +
+                  ` · ${mappedColumnCount} mapped cols` +
                   (selectedRowGroups.size === 0 && !showHiddenRows ? ' · tick a group' : '')
                 : 'Select an import from the left.'}
             </p>
@@ -1974,7 +2222,7 @@ export default function ProductImportsPage() {
                             onChange={(event) => setShowHiddenRows(event.target.checked)}
                             className="h-3 w-3 accent-emerald-600"
                           />
-                          Show hidden
+                          Show excluded
                         </label>
                       </div>
                     </th>
@@ -1990,20 +2238,30 @@ export default function ProductImportsPage() {
                     {visibleColumns.map(column => (
                       <th
                         key={column}
-                        className="sticky top-0 z-40 max-w-[180px] whitespace-nowrap border-b border-black/10 bg-white px-3 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40"
+                        className="sticky top-0 z-40 min-w-[140px] max-w-[200px] border-b border-black/10 bg-white px-2 py-2 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40"
                       >
-                        <label className="flex cursor-pointer select-none flex-col gap-1">
-                          <span>{column}</span>
-                          <span className="inline-flex items-center gap-1 text-[9px] font-black normal-case tracking-normal text-black/45 dark:text-white/45">
-                            <input
-                              type="checkbox"
-                              checked={selectedTransferColumns.has(column)}
-                              onChange={() => toggleTransferColumn(column)}
-                              className="h-3 w-3 accent-emerald-600"
-                            />
-                            Transfer
-                          </span>
-                        </label>
+                        <div className="flex flex-col gap-1">
+                          <span className="truncate" title={column}>{column}</span>
+                          <select
+                            value={columnMappings[column] ?? ''}
+                            onChange={(event) => setColumnMapping(column, event.target.value)}
+                            className={
+                              'h-7 w-full min-w-0 rounded-md border px-1 text-[9px] font-semibold normal-case tracking-normal outline-none ' +
+                              (columnMappings[column]?.trim()
+                                ? 'border-emerald-500/50 bg-emerald-50 text-emerald-900 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-100'
+                                : 'border-black/10 bg-white text-black dark:border-white/10 dark:bg-black/40 dark:text-white')
+                            }
+                            aria-label={`Map ${column} to a Products column`}
+                            title="Products column to receive this import column on Apply"
+                          >
+                            <option value="">— skip —</option>
+                            {transferProductColumnOptions.map((productColumn) => (
+                              <option key={productColumn} value={productColumn}>
+                                {productColumn}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </th>
                     ))}
                     <th className="sticky top-0 z-40 whitespace-nowrap border-b border-black/10 bg-white px-3 py-3 text-[10px] font-black uppercase tracking-widest text-black/40 dark:border-white/10 dark:bg-zinc-950 dark:text-white/40">
@@ -2021,7 +2279,7 @@ export default function ProductImportsPage() {
                         {debouncedSearch.trim() && filteredImportRows.length > 0
                           ? 'No rows match your search.'
                           : selectedRowGroups.size === 0 && !showHiddenRows
-                            ? 'Tick at least one group (Matched, Unmatched, or Empty) to view rows.'
+                            ? 'Tick at least one group (Matched, Near, Unmatched, or Empty) to view rows.'
                             : selectedRowGroups.size === 0 && showHiddenRows && hiddenRowCount === 0
                               ? 'No hidden rows in this import.'
                               : isVerifiedFilterActive && verifiedFilterMode === 'only' && verifiedMatchedCount === 0
@@ -2041,9 +2299,13 @@ export default function ProductImportsPage() {
                         ? ROW_MATCH_ROW_CLASS[rowStatus]
                         : NEUTRAL_ROW_CLASS;
                     const displayLabel = getImportRowDisplayLabel(row);
-                    const existingProduct = rowStatus === 'matched' && matchImportColumns.length > 0
-                      ? findExistingProductByColumn(row, existingProductIndex, matchImportColumns)
-                      : null;
+                    const existingProduct =
+                      (rowStatus === 'matched' || rowStatus === 'near') && matchImportColumns.length > 0
+                        ? rowStatus === 'matched'
+                          ? findExistingProductByColumn(row, existingProductIndex, matchImportColumns)
+                          : findExistingProductByLooseColumn(row, existingLooseProductIndex, matchImportColumns)
+                        : null;
+                    const nearDetail = rowStatus === 'near' ? nearMatchDetailById.get(row.id) : undefined;
 
                     return (
                       <tr key={row.id} className={rowHidden ? 'opacity-90' : undefined}>
@@ -2056,7 +2318,7 @@ export default function ProductImportsPage() {
                             placeholder="Note…"
                             title={
                               rowHidden
-                                ? 'Hidden row — not matched or applied. Use −, Crystal, or custom to hide.'
+                                ? 'Excluded by Show labels — not matched or applied. Toggle Label chips to include this row.'
                                 : 'Staging label — stays on this import only'
                             }
                             className="h-8 w-full min-w-[132px] rounded-md border border-black/10 bg-white/90 px-2 text-[11px] font-medium text-black outline-none placeholder:text-black/30 focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/25 disabled:opacity-60 dark:border-white/10 dark:bg-black/40 dark:text-white dark:placeholder:text-white/30"
@@ -2072,11 +2334,25 @@ export default function ProductImportsPage() {
                         <td className={'whitespace-nowrap border-b px-3 py-2 font-bold ' + rowTone}>
                           {rowHidden ? (
                             <span className="inline-block rounded-full bg-zinc-500/80 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-white">
-                              Hidden
+                              Excluded
                             </span>
                           ) : rowStatus ? (
-                            <span className={'inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ' + ROW_MATCH_BADGE_CLASS[rowStatus]}>
-                              {ROW_MATCH_STATUS_LABELS[rowStatus]}
+                            <span
+                              className={'inline-flex max-w-[220px] flex-col gap-0.5'}
+                              title={
+                                rowStatus === 'near' && nearDetail
+                                  ? `Near match ignoring (${nearDetail.ignored})\nExcel: ${nearDetail.importValue}\nProducts: ${nearDetail.productValue}`
+                                  : undefined
+                              }
+                            >
+                              <span className={'inline-block rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ' + ROW_MATCH_BADGE_CLASS[rowStatus]}>
+                                {rowStatus === 'near' ? 'Near' : ROW_MATCH_STATUS_LABELS[rowStatus]}
+                              </span>
+                              {rowStatus === 'near' && nearDetail ? (
+                                <span className="text-[8px] font-bold normal-case tracking-normal text-sky-700/80 dark:text-sky-200/80">
+                                  ({nearDetail.ignored})
+                                </span>
+                              ) : null}
                             </span>
                           ) : (
                             <span className="text-[9px] font-bold text-black/30 dark:text-white/30">—</span>
@@ -2092,6 +2368,10 @@ export default function ProductImportsPage() {
                           const isMatchingCell = existingProduct
                             ? fieldMatchesExisting(row.fields[column], existingProduct.fields ?? {}, column)
                             : false;
+                          const isNearMatchingCell =
+                            !isMatchingCell && existingProduct && rowStatus === 'near'
+                              ? fieldNearMatchesExisting(row.fields[column], existingProduct.fields ?? {}, column)
+                              : false;
                           const isPriceColumn = column.trim().toLowerCase() === 'price';
                           const isImageLikeColumn = isImageColumn(column);
                           const imageUrl = isImageLikeColumn ? resolveImportAssetUrl(row.fields[column]) : '';
@@ -2107,6 +2387,7 @@ export default function ProductImportsPage() {
                                 (isImageLikeColumn ? 'w-[96px] min-w-[96px] max-w-[96px] ' : 'max-w-[220px] ') +
                                 rowTone +
                                 (isMatchingCell ? ' ring-1 ring-inset ring-green-500/40' : '') +
+                                (isNearMatchingCell ? ' ring-1 ring-inset ring-sky-500/40' : '') +
                                 (isPriceColumn ? ' font-bold' : '')
                               }
                               title={renderCell(row.fields[column], column)}
