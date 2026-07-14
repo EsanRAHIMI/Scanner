@@ -100,7 +100,7 @@ type MatchPreviewResponse = {
   empty_samples?: MatchPreviewSample[];
 };
 
-const NEAR_MATCH_CHARS_LABEL = 'space - / \\ ـ ( )';
+const NEAR_MATCH_CHARS_LABEL = 'space - / \\ ـ ( ) CJK';
 
 const ALL_ROW_GROUPS: ImportRowMatchStatus[] = ['matched', 'near', 'unmatched', 'empty'];
 
@@ -359,9 +359,11 @@ function normalizeComparable(value: unknown) {
   return trimmed.replace(/\s+/g, ' ').toLowerCase();
 }
 
-/** Drop spaces / - / \ ـ ( ) so near-matches can align codes and names. */
+/** Drop spaces / - / \ ـ ( ) and CJK ideographs (e.g. 横) so near-matches can align codes and names. */
 function normalizeLooseComparable(value: unknown) {
-  return normalizeComparable(value).replace(/[\s\-/\\ـ()]+/g, '');
+  return normalizeComparable(value)
+    .replace(/[\s\-/\\ـ()]+/g, '')
+    .replace(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+/g, '');
 }
 
 function describeIgnoredMatchChars(...texts: string[]) {
@@ -375,10 +377,11 @@ function describeIgnoredMatchChars(...texts: string[]) {
       else if (ch === 'ـ') found.add('ـ');
       else if (ch === '(') found.add('(');
       else if (ch === ')') found.add(')');
+      else if (/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(ch)) found.add('CJK');
     }
   }
   if (found.size === 0) return NEAR_MATCH_CHARS_LABEL;
-  const order = ['space', '-', '/', '\\', 'ـ', '(', ')'];
+  const order = ['space', '-', '/', '\\', 'ـ', '(', ')', 'CJK'];
   return order.filter((item) => found.has(item)).join(' ');
 }
 

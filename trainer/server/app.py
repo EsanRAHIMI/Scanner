@@ -634,17 +634,20 @@ def _product_compare_value(value: Any) -> str:
   return re.sub(r"\s+", " ", text).casefold()
 
 
-# Ignored for "near" match: spaces, hyphen, slash, backslash, tatweel, parentheses.
+# Ignored for "near" match: spaces, hyphen, slash, backslash, tatweel, parentheses,
+# and CJK ideographs (e.g. 横) that sometimes appear in product codes/names.
 _PRODUCT_LOOSE_IGNORE_RE = re.compile(r"[\s\-/\\ـ()]+")
-PRODUCT_NEAR_MATCH_CHARS_LABEL = "space - / \\ ـ ( )"
+_PRODUCT_LOOSE_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+")
+PRODUCT_NEAR_MATCH_CHARS_LABEL = "space - / \\ ـ ( ) CJK"
 
 
 def _product_loose_compare_value(value: Any) -> str:
-  """Match key that ignores minor punctuation/spacing differences."""
+  """Match key that ignores minor punctuation/spacing/CJK differences."""
   base = _product_compare_value(value)
   if not base:
     return ""
-  return _PRODUCT_LOOSE_IGNORE_RE.sub("", base)
+  without_punct = _PRODUCT_LOOSE_IGNORE_RE.sub("", base)
+  return _PRODUCT_LOOSE_CJK_RE.sub("", without_punct)
 
 
 def _first_non_empty_field(fields: dict[str, Any], names: list[str]) -> Any:
