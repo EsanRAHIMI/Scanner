@@ -88,3 +88,5 @@ frontend/out/
 
 # System files
 .DS_Store
+**/._*
+._*
