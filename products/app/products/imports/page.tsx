@@ -19,6 +19,7 @@ import {
   isLabelAllowedByShowFilter,
   normalizeShowLabelToken,
 } from './lib/import-row-visibility';
+import { downloadImportRowsXlsx } from './lib/export-import-rows-xlsx';
 import type { ProductsRecord } from '@/types/trainer';
 
 type ProductImportBatch = {
@@ -635,6 +636,7 @@ export default function ProductImportsPage() {
   const [savingLabelRowId, setSavingLabelRowId] = React.useState<string | null>(null);
   const [isApplying, setIsApplying] = React.useState(false);
   const [isReprocessing, setIsReprocessing] = React.useState(false);
+  const [isExportingXlsx, setIsExportingXlsx] = React.useState(false);
   const [columnMappings, setColumnMappings] = React.useState<Record<string, string>>({});
   const [matchImportColumns, setMatchImportColumns] = React.useState<string[]>([]);
   const [matchImportColumnDraft, setMatchImportColumnDraft] = React.useState('');
@@ -1347,6 +1349,36 @@ export default function ProductImportsPage() {
 
   const visibleColumns = importColumns;
 
+  const exportVisibleImportRowsXlsx = React.useCallback(async () => {
+    if (isExportingXlsx || searchFilteredImportRows.length === 0) return;
+    setIsExportingXlsx(true);
+    setMessage(null);
+    try {
+      const hiddenRowIds = new Set(
+        searchFilteredImportRows.filter((row) => isRowHiddenForView(row)).map((row) => row.id),
+      );
+      await downloadImportRowsXlsx({
+        rows: searchFilteredImportRows,
+        excelColumns: visibleColumns,
+        rowStatusById,
+        hiddenRowIds,
+        importFilename: rowsData?.import.filename,
+      });
+      setMessage(`Exported ${searchFilteredImportRows.length.toLocaleString('en-US')} row(s) to .xlsx.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Excel export failed');
+    } finally {
+      setIsExportingXlsx(false);
+    }
+  }, [
+    isExportingXlsx,
+    isRowHiddenForView,
+    rowStatusById,
+    rowsData?.import.filename,
+    searchFilteredImportRows,
+    visibleColumns,
+  ]);
+
   React.useEffect(() => {
     if (!activeImportId || importColumns.length === 0) return;
     if (initializedTransferColumnsForImportRef.current === activeImportId) return;
@@ -1956,6 +1988,15 @@ export default function ProductImportsPage() {
               </div>
 
               <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  disabled={!activeImportId || isExportingXlsx || searchFilteredImportRows.length === 0}
+                  onClick={() => void exportVisibleImportRowsXlsx()}
+                  className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700 transition hover:bg-emerald-600 hover:text-white disabled:opacity-40 dark:border-emerald-400/30 dark:bg-emerald-400/15 dark:text-emerald-200"
+                  title="Download the currently filtered/visible rows as .xlsx (includes Label)"
+                >
+                  {isExportingXlsx ? '…' : 'Xlsx'}
+                </button>
                 <button
                   type="button"
                   disabled={!activeImportId || isReprocessing}
