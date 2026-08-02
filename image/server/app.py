@@ -44,7 +44,7 @@ from core.processor import ImageProcessor, WatermarkConfig
 from core.cutout.base import EngineConfig
 from core.progress import STAGE_LABELS, registry as progress_registry, stage_percent
 from core.rembg_config import rembg_config_from_system, rembg_meta_dict
-from core.rembg_pool import pool_loaded_model, run_engine, warmup_worker
+from core.rembg_pool import pool_loaded_model, recycle_worker, run_engine, warmup_worker
 from core.renditions import RenditionSpec, build_transparent_renditions
 from core.repository import ImageRepository
 from core.storage import StorageBackend, sanitize_storage_name
@@ -250,29 +250,35 @@ async def _generate_and_store_renditions(item, *, spec: RenditionSpec | None = N
         return item.rendition_urls
 
     cutout_key = _rendition_cutout_key(item)
+    ran_cutout = False
     if not storage.exists(cutout_key):
         item.processed_url = await processor.process_original_async(
             item.original_key, cutout_key, _rembg_config()
         )
         item.processed_key = cutout_key
+        ran_cutout = True
 
-    cutout_bytes = storage.get_bytes(cutout_key)
-    tight = Image.open(io.BytesIO(cutout_bytes)).convert("RGBA")
-    bbox = tight.getbbox()
-    if bbox:
-        tight = tight.crop(bbox)
+    try:
+        cutout_bytes = storage.get_bytes(cutout_key)
+        tight = Image.open(io.BytesIO(cutout_bytes)).convert("RGBA")
+        bbox = tight.getbbox()
+        if bbox:
+            tight = tight.crop(bbox)
 
-    spec = spec or _rendition_spec()
-    renditions = await asyncio.to_thread(build_transparent_renditions, tight, spec)
-    stem = sanitize_storage_name(item.display_name)
-    urls: dict[str, str] = {}
-    for r in renditions:
-        key = f"{storage.final_prefix(item.batch_id)}/{r.filename(stem)}"
-        urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
+        spec = spec or _rendition_spec()
+        renditions = await asyncio.to_thread(build_transparent_renditions, tight, spec)
+        stem = sanitize_storage_name(item.display_name)
+        urls: dict[str, str] = {}
+        for r in renditions:
+            key = f"{storage.final_prefix(item.batch_id)}/{r.filename(stem)}"
+            urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
 
-    item.rendition_urls = urls
-    _require_repo().save_item(item)
-    return urls
+        item.rendition_urls = urls
+        _require_repo().save_item(item)
+        return urls
+    finally:
+        if ran_cutout:
+            await recycle_worker("renditions_cutout")
 
 
 # ---- Non-destructive touch-up (Adjust step) -------------------------------- #
@@ -316,86 +322,92 @@ async def _render_item_with_adjustments(item, batch) -> None:
     Original processed_key is never modified (fully non-destructive).
     """
     cutout_key = _resolve_cutout_key(item)
+    ran_cutout = False
     if not storage.exists(cutout_key):
         item.processed_url = await processor.process_original_async(
             item.original_key, cutout_key, _rembg_config_for_batch(batch)
         )
         item.processed_key = cutout_key
+        ran_cutout = True
 
-    original_png = storage.get_bytes(cutout_key)
-    adj = item.adjustments or {}
-    t = _normalize_transform(adj.get("transform"))
-    mask_key = adj.get("mask_key")
-    mask_png = storage.get_bytes(mask_key) if (mask_key and storage.exists(mask_key)) else None
+    try:
+        original_png = storage.get_bytes(cutout_key)
+        adj = item.adjustments or {}
+        t = _normalize_transform(adj.get("transform"))
+        mask_key = adj.get("mask_key")
+        mask_png = storage.get_bytes(mask_key) if (mask_key and storage.exists(mask_key)) else None
 
-    subject = await asyncio.to_thread(
-        processor.build_adjusted_subject,
-        original_png,
-        mask_png=mask_png,
-        rotation=t["rotation"],
-        flip_h=t["flip_h"],
-        flip_v=t["flip_v"],
-    )
+        subject = await asyncio.to_thread(
+            processor.build_adjusted_subject,
+            original_png,
+            mask_png=mask_png,
+            rotation=t["rotation"],
+            flip_h=t["flip_h"],
+            flip_v=t["flip_v"],
+        )
 
-    # Versioned filenames so every save produces NEW URLs — reliably cache-proof
-    # across the browser and any CDN. Previous versioned artifacts are removed.
-    version = int(time.time() * 1000)
-    for old_key in (adj.get("artifacts") or []):
-        if old_key and storage.exists(old_key):
-            storage.delete_key(old_key)
-    artifacts: list[str] = []
-    stem = sanitize_storage_name(item.display_name)
+        # Versioned filenames so every save produces NEW URLs — reliably cache-proof
+        # across the browser and any CDN. Previous versioned artifacts are removed.
+        version = int(time.time() * 1000)
+        for old_key in (adj.get("artifacts") or []):
+            if old_key and storage.exists(old_key):
+                storage.delete_key(old_key)
+        artifacts: list[str] = []
+        stem = sanitize_storage_name(item.display_name)
 
-    sbuf = io.BytesIO()
-    subject.save(sbuf, format="PNG")
-    adjusted_key = f"{storage.processed_prefix(item.batch_id)}/{item.id}_adjusted_v{version}.png"
-    storage.put_bytes(adjusted_key, sbuf.getvalue(), content_type="image/png")
-    item.adjusted_key = adjusted_key
-    artifacts.append(adjusted_key)
+        sbuf = io.BytesIO()
+        subject.save(sbuf, format="PNG")
+        adjusted_key = f"{storage.processed_prefix(item.batch_id)}/{item.id}_adjusted_v{version}.png"
+        storage.put_bytes(adjusted_key, sbuf.getvalue(), content_type="image/png")
+        item.adjusted_key = adjusted_key
+        artifacts.append(adjusted_key)
 
-    bg_id = _batch_background_id(batch)
-    bg_bytes = _require_background_store().get_bytes(bg_id)
-    final_bytes = await asyncio.to_thread(
-        processor.render_adjusted,
-        subject,
-        bg_bytes,
-        scale=t["scale"],
-        offset_x=t["offset_x"],
-        offset_y=t["offset_y"],
-        **_watermark_render_kwargs(),
-    )
-    final_key = f"{storage.final_prefix(item.batch_id)}/{stem}__{sanitize_storage_name(bg_id)}__v{version}.jpg"
-    item.final_key = final_key
-    item.final_url = storage.put_bytes(final_key, final_bytes, content_type="image/jpeg")
-    item.background_id = bg_id
-    artifacts.append(final_key)
+        bg_id = _batch_background_id(batch)
+        bg_bytes = _require_background_store().get_bytes(bg_id)
+        final_bytes = await asyncio.to_thread(
+            processor.render_adjusted,
+            subject,
+            bg_bytes,
+            scale=t["scale"],
+            offset_x=t["offset_x"],
+            offset_y=t["offset_y"],
+            **_watermark_render_kwargs(),
+        )
+        final_key = f"{storage.final_prefix(item.batch_id)}/{stem}__{sanitize_storage_name(bg_id)}__v{version}.jpg"
+        item.final_key = final_key
+        item.final_url = storage.put_bytes(final_key, final_bytes, content_type="image/jpeg")
+        item.background_id = bg_id
+        artifacts.append(final_key)
 
-    # Regenerate ALL renditions from the adjusted cutout immediately (versioned).
-    spec = _rendition_spec_for_batch(batch)
-    renditions = await asyncio.to_thread(build_transparent_renditions, subject, spec)
-    rendition_urls: dict[str, str] = {}
-    for r in renditions:
-        key = f"{storage.final_prefix(item.batch_id)}/{stem}__{r.name}__v{version}.{r.ext}"
-        rendition_urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
-        artifacts.append(key)
-    item.rendition_urls = rendition_urls or None
+        # Regenerate ALL renditions from the adjusted cutout immediately (versioned).
+        spec = _rendition_spec_for_batch(batch)
+        renditions = await asyncio.to_thread(build_transparent_renditions, subject, spec)
+        rendition_urls: dict[str, str] = {}
+        for r in renditions:
+            key = f"{storage.final_prefix(item.batch_id)}/{stem}__{r.name}__v{version}.{r.ext}"
+            rendition_urls[f"{r.name}_{r.ext}"] = storage.put_bytes(key, r.data, content_type=r.content_type)
+            artifacts.append(key)
+        item.rendition_urls = rendition_urls or None
 
-    item.adjustments = {
-        "transform": t,
-        "mask_key": mask_key,
-        "updated_at": utc_now().isoformat(),
-        "artifacts": artifacts,
-        "version": version,
-    }
-    if item.status == ItemStatus.PROCESSED:
-        item.status = ItemStatus.REVIEWED
-    _require_repo().save_item(item)
-    # If already published, refresh the output record so edits show on Outputs.
-    if item.status == ItemStatus.FINALIZED:
-        try:
-            _require_repo().upsert_output(item, batch)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to refresh output after adjust for %s", item.id)
+        item.adjustments = {
+            "transform": t,
+            "mask_key": mask_key,
+            "updated_at": utc_now().isoformat(),
+            "artifacts": artifacts,
+            "version": version,
+        }
+        if item.status == ItemStatus.PROCESSED:
+            item.status = ItemStatus.REVIEWED
+        _require_repo().save_item(item)
+        # If already published, refresh the output record so edits show on Outputs.
+        if item.status == ItemStatus.FINALIZED:
+            try:
+                _require_repo().upsert_output(item, batch)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to refresh output after adjust for %s", item.id)
+    finally:
+        if ran_cutout:
+            await recycle_worker("adjust_cutout")
 
 
 def _build_processing_meta(*, background_id: str | None = None) -> dict:
@@ -513,71 +525,73 @@ async def _process_batch(batch_id: str) -> None:
     rembg_config = _rembg_config_for_batch(batch)
     import time as _time
 
-    for item in pending:
-        started = _time.perf_counter()
-        progress_registry.start_item(batch_id, item.id)
+    try:
+        for item in pending:
+            started = _time.perf_counter()
+            progress_registry.start_item(batch_id, item.id)
 
-        def _on_stage(stage: str, _id=item.id) -> None:
-            progress_registry.set_stage(batch_id, _id, stage)
+            try:
+                logger.info("Processing item %s (%s)", item.id, item.display_name)
+                item.status = ItemStatus.PROCESSING
+                item.stage = "preparing"
+                item.error = None
+                item.attempts = (item.attempts or 0) + 1
+                _require_repo().save_item(item)
+                batch.updated_at = utc_now()
+                _require_repo().save_batch(batch)
 
-        try:
-            logger.info("Processing item %s (%s)", item.id, item.display_name)
-            item.status = ItemStatus.PROCESSING
-            item.stage = "preparing"
-            item.error = None
-            item.attempts = (item.attempts or 0) + 1
-            _require_repo().save_item(item)
-            batch.updated_at = utc_now()
-            _require_repo().save_batch(batch)
+                # Coarse stage: rembg runs in a spawn child (no cross-process callbacks).
+                progress_registry.set_stage(batch_id, item.id, "segmentation")
+                item.stage = "segmentation"
+                processed_key = storage.processed_key(batch_id, item.id)
+                processed_url = await processor.process_original_async(
+                    item.original_key,
+                    processed_key,
+                    rembg_config,
+                )
+                item.processed_key = processed_key
+                item.processed_url = processed_url
 
-            processed_key = storage.processed_key(batch_id, item.id)
-            processed_url = await processor.process_original_async(
-                item.original_key,
-                processed_key,
-                rembg_config,
-                on_stage=_on_stage,
-            )
-            item.processed_key = processed_key
-            item.processed_url = processed_url
+                progress_registry.set_stage(batch_id, item.id, "branded_output")
+                item.stage = "branded_output"
+                await _render_item_final(item, batch_id, bg_id)
 
-            progress_registry.set_stage(batch_id, item.id, "branded_output")
-            item.stage = "branded_output"
-            await _render_item_final(item, batch_id, bg_id)
+                progress_registry.set_stage(batch_id, item.id, "saving")
+                item.processing_meta = _build_processing_meta(background_id=bg_id)
+                item.status = ItemStatus.PROCESSED
+                item.stage = "completed"
+                item.error = None
+                item.processing_ms = int((_time.perf_counter() - started) * 1000)
+                _require_repo().save_item(item)
+                progress_registry.finish_item(batch_id, item.id, "completed")
+                logger.info("Processed item %s in %sms", item.id, item.processing_ms)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed processing item %s", item.id)
+                item.status = ItemStatus.FAILED
+                item.stage = "failed"
+                item.error = str(exc)
+                item.processing_ms = int((_time.perf_counter() - started) * 1000)
+                _require_repo().save_item(item)
+                progress_registry.finish_item(batch_id, item.id, "failed", str(exc))
 
-            progress_registry.set_stage(batch_id, item.id, "saving")
-            item.processing_meta = _build_processing_meta(background_id=bg_id)
-            item.status = ItemStatus.PROCESSED
-            item.stage = "completed"
-            item.error = None
-            item.processing_ms = int((_time.perf_counter() - started) * 1000)
-            _require_repo().save_item(item)
-            progress_registry.finish_item(batch_id, item.id, "completed")
-            logger.info("Processed item %s in %sms", item.id, item.processing_ms)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed processing item %s", item.id)
-            item.status = ItemStatus.FAILED
-            item.stage = "failed"
-            item.error = str(exc)
-            item.processing_ms = int((_time.perf_counter() - started) * 1000)
-            _require_repo().save_item(item)
-            progress_registry.finish_item(batch_id, item.id, "failed", str(exc))
-
-    progress_registry.end_batch(batch_id)
-    items = _require_repo().list_items(batch_id)
-    failed = sum(1 for item in items if item.status == ItemStatus.FAILED)
-    ready = sum(
-        1
-        for item in items
-        if item.status
-        in {
-            ItemStatus.PROCESSED,
-            ItemStatus.REVIEWED,
-            ItemStatus.BACKGROUND_APPLIED,
-            ItemStatus.FINALIZED,
-        }
-    )
-    batch.status = BatchStatus.REVIEW if ready > 0 else BatchStatus.FAILED
-    _require_repo().save_batch(batch)
+        progress_registry.end_batch(batch_id)
+        items = _require_repo().list_items(batch_id)
+        ready = sum(
+            1
+            for item in items
+            if item.status
+            in {
+                ItemStatus.PROCESSED,
+                ItemStatus.REVIEWED,
+                ItemStatus.BACKGROUND_APPLIED,
+                ItemStatus.FINALIZED,
+            }
+        )
+        batch.status = BatchStatus.REVIEW if ready > 0 else BatchStatus.FAILED
+        _require_repo().save_batch(batch)
+    finally:
+        # Release ORT/rembg RSS held by the spawn worker after the batch spike.
+        await recycle_worker("batch_done")
 
 
 async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> None:
@@ -809,6 +823,15 @@ async def _run_cutout_dto(data: bytes, cfg: EngineConfig, *, branded: bool, defa
     return dto
 
 
+async def _run_cutout_dto_and_recycle(
+    data: bytes, cfg: EngineConfig, *, branded: bool, default_bg_bytes: bytes | None, reason: str
+) -> dict:
+    try:
+        return await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=default_bg_bytes)
+    finally:
+        await recycle_worker(reason)
+
+
 def _default_bg_bytes_or_none(enabled: bool) -> bytes | None:
     if not enabled:
         return None
@@ -841,7 +864,9 @@ async def cutout_preview(
             "managed_api_enabled": managed_api_enabled,
         }
     )
-    return await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=_default_bg_bytes_or_none(branded))
+    return await _run_cutout_dto_and_recycle(
+        data, cfg, branded=branded, default_bg_bytes=_default_bg_bytes_or_none(branded), reason="cutout_preview"
+    )
 
 
 @app.post("/api/v1/cutout/compare")
@@ -860,15 +885,18 @@ async def cutout_compare(
     requested = [m.strip().lower() for m in (modes or "balanced,premium").split(",") if m.strip()]
     default_bg_bytes = _default_bg_bytes_or_none(branded)
     results: list[dict] = []
-    for mode in requested:
-        cfg = _engine_config(_mode_to_overrides(mode))
-        try:
-            dto = await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=default_bg_bytes)
-            dto["mode"] = mode
-            results.append(dto)
-        except Exception as exc:  # noqa: BLE001
-            results.append({"mode": mode, "error": str(exc)})
-    return {"results": results}
+    try:
+        for mode in requested:
+            cfg = _engine_config(_mode_to_overrides(mode))
+            try:
+                dto = await _run_cutout_dto(data, cfg, branded=branded, default_bg_bytes=default_bg_bytes)
+                dto["mode"] = mode
+                results.append(dto)
+            except Exception as exc:  # noqa: BLE001
+                results.append({"mode": mode, "error": str(exc)})
+        return {"results": results}
+    finally:
+        await recycle_worker("cutout_compare")
 
 
 @app.get("/api/v1/backgrounds")
@@ -1208,6 +1236,8 @@ async def reprocess_item(item_id: str, background_tasks: BackgroundTasks) -> dic
             item.status = ItemStatus.FAILED
             item.error = str(exc)
             _require_repo().save_item(item)
+        finally:
+            await recycle_worker("reprocess_item")
 
     background_tasks.add_task(_run)
     return {"ok": True, "item_id": item_id}
@@ -1356,6 +1386,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
         bg_id,
     )
 
+    ran_cutout = False
     try:
         cutout_key = _resolve_cutout_key(item)
         if storage.exists(cutout_key):
@@ -1370,6 +1401,7 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
             )
             item.processed_key = cutout_key
             item.processing_meta = _build_processing_meta(background_id=bg_id)
+            ran_cutout = True
 
         if item.adjustments and item.adjusted_key and storage.exists(item.adjusted_key):
             # Preserve the user's touch-up when changing background.
@@ -1397,6 +1429,9 @@ async def change_output_background(item_id: str, payload: ChangeOutputBackground
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to change background for output %s", item_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if ran_cutout:
+            await recycle_worker("output_background_cutout")
 
     item.background_id = bg_id
     item.final_key = final_key

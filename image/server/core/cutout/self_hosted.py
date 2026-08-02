@@ -69,7 +69,11 @@ def estimate_confidence(alpha01: np.ndarray) -> float:
 # Dependency-free image ops (no scipy/opencv required)
 # --------------------------------------------------------------------------- #
 def _box_mean(arr: np.ndarray, radius: int) -> np.ndarray:
-    """Mean filter via integral image. arr is 2D float32."""
+    """Mean filter via integral image. arr is 2D float32.
+
+    Uses broadcasting instead of meshgrid so premium matting does not allocate
+    several full-resolution index arrays at once.
+    """
     if radius < 1:
         return arr
     h, w = arr.shape
@@ -82,10 +86,13 @@ def _box_mean(arr: np.ndarray, radius: int) -> np.ndarray:
     y1 = np.clip(ys + r + 1, 0, h)
     x0 = np.clip(xs - r, 0, w)
     x1 = np.clip(xs + r + 1, 0, w)
-    Y0, X0 = np.meshgrid(y0, x0, indexing="ij")
-    Y1, X1 = np.meshgrid(y1, x1, indexing="ij")
-    total = integral[Y1, X1] - integral[Y0, X1] - integral[Y1, X0] + integral[Y0, X0]
-    count = (Y1 - Y0) * (X1 - X0)
+    total = (
+        integral[y1[:, None], x1[None, :]]
+        - integral[y0[:, None], x1[None, :]]
+        - integral[y1[:, None], x0[None, :]]
+        + integral[y0[:, None], x0[None, :]]
+    )
+    count = (y1[:, None] - y0[:, None]) * (x1[None, :] - x0[None, :])
     return (total / np.maximum(count, 1)).astype(np.float32)
 
 

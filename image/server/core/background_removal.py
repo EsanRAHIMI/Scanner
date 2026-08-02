@@ -37,6 +37,7 @@ def _create_session(model_name: str):
 
 def warmup_model(config: RembgConfig) -> str:
     session = _get_session(config.model)
+    del session  # session retained in module globals; drop local ref
     loaded = _SESSION_MODEL or config.model
     logger.info("Rembg warmup complete: %s", loaded)
     return loaded
@@ -92,48 +93,83 @@ def _compose_from_mask(rgb: Image.Image, mask: Image.Image, dilate: int) -> Imag
     return cutout
 
 
+def _close_image(image: Image.Image | None) -> None:
+    if image is None:
+        return
+    try:
+        image.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def remove_background(data: bytes, config: RembgConfig) -> bytes:
     rembg_remove = _get_remove_fn()
     if rembg_remove is None:
         image = Image.open(io.BytesIO(data)).convert("RGBA")
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return buf.getvalue()
+        try:
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            return buf.getvalue()
+        finally:
+            _close_image(image)
 
-    image = Image.open(io.BytesIO(data))
-    if image.mode not in ("RGB", "RGBA"):
-        image = image.convert("RGB")
-    original_size = image.size
-    infer_image, scale = _prepare_for_inference(image, config)
-    session = _get_session(config.model)
+    image: Image.Image | None = None
+    infer_image: Image.Image | None = None
+    result: Image.Image | None = None
+    mask: Image.Image | None = None
+    try:
+        image = Image.open(io.BytesIO(data))
+        if image.mode not in ("RGB", "RGBA"):
+            converted = image.convert("RGB")
+            _close_image(image)
+            image = converted
+        original_size = image.size
+        infer_image, scale = _prepare_for_inference(image, config)
+        session = _get_session(config.model)
 
-    if config.preserve_detail:
-        mask = rembg_remove(infer_image, session=session, only_mask=True)
-        if not isinstance(mask, Image.Image):
-            mask = Image.open(io.BytesIO(mask))
-        result = _compose_from_mask(
-            infer_image.convert("RGB"),
-            mask,
-            config.mask_dilate,
-        )
-    else:
-        kwargs: dict[str, Any] = {"session": session}
-        if config.alpha_matting:
-            kwargs.update(
-                {
-                    "alpha_matting": True,
-                    "alpha_matting_foreground_threshold": config.foreground_threshold,
-                    "alpha_matting_background_threshold": config.background_threshold,
-                    "alpha_matting_erode_size": config.erode_size,
-                }
+        if config.preserve_detail:
+            mask_raw = rembg_remove(infer_image, session=session, only_mask=True)
+            if isinstance(mask_raw, Image.Image):
+                mask = mask_raw
+            else:
+                mask = Image.open(io.BytesIO(mask_raw))
+            result = _compose_from_mask(
+                infer_image.convert("RGB"),
+                mask,
+                config.mask_dilate,
             )
-        result = rembg_remove(infer_image, **kwargs)
-        if not isinstance(result, Image.Image):
-            result = Image.open(io.BytesIO(result))
+        else:
+            kwargs: dict[str, Any] = {"session": session}
+            if config.alpha_matting:
+                kwargs.update(
+                    {
+                        "alpha_matting": True,
+                        "alpha_matting_foreground_threshold": config.foreground_threshold,
+                        "alpha_matting_background_threshold": config.background_threshold,
+                        "alpha_matting_erode_size": config.erode_size,
+                    }
+                )
+            raw = rembg_remove(infer_image, **kwargs)
+            if isinstance(raw, Image.Image):
+                result = raw
+            else:
+                result = Image.open(io.BytesIO(raw))
 
-    if scale != 1.0 and result.size != original_size:
-        result = result.resize(original_size, Image.Resampling.LANCZOS)
+        if scale != 1.0 and result is not None and result.size != original_size:
+            resized = result.resize(original_size, Image.Resampling.LANCZOS)
+            if result is not infer_image and result is not image:
+                _close_image(result)
+            result = resized
 
-    buf = io.BytesIO()
-    result.save(buf, format="PNG")
-    return buf.getvalue()
+        buf = io.BytesIO()
+        assert result is not None
+        result.save(buf, format="PNG")
+        return buf.getvalue()
+    finally:
+        # Drop temporary PIL buffers early inside the worker process.
+        if infer_image is not None and infer_image is not image:
+            _close_image(infer_image)
+        _close_image(mask)
+        if result is not None and result is not image and result is not infer_image:
+            _close_image(result)
+        _close_image(image)

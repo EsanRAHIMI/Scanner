@@ -1,10 +1,13 @@
-"""Runs the cutout engine off the asyncio event loop (same process, no fork).
+"""Runs the cutout engine in the rembg spawn worker process.
 
 Routes through the provider-based engine (core.cutout). With the default
 configuration (IMAGE_CUTOUT_ENGINE=self_hosted, IMAGE_QUALITY_MODE=balanced)
 this reproduces the historical rembg + heuristic-refine output exactly.
 Stronger modes (premium / managed_api / hybrid / gpu) are opt-in via env or
 admin settings and require no code changes here.
+
+Stage callbacks are not used here — the parent process sets coarse progress
+stages because callables are not picklable across the spawn boundary.
 """
 
 from __future__ import annotations
