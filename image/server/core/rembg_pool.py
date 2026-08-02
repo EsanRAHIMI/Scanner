@@ -5,17 +5,20 @@ import logging
 import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import asynccontextmanager
 
 from .rembg_config import RembgConfig
 
 logger = logging.getLogger("image-service")
 
 # Spawn avoids fork-after-threads crashes under uvicorn; recycle kills the child
-# so ONNX/ORT arenas return RSS to the OS after heavy cutouts.
+# so ONNX/ORT arenas (bria-rmbg / birefnet / …) return RSS to the OS.
 _MP_CONTEXT = mp.get_context("spawn")
 _executor: ProcessPoolExecutor | None = None
 _last_loaded_model: str | None = None
 _recycle_lock: asyncio.Lock | None = None
+# When > 0, run_cutout/run_engine keep the worker alive (batch / compare reuse).
+_hold_depth = 0
 
 
 class RembgProcessingError(RuntimeError):
@@ -92,8 +95,29 @@ async def recycle_worker(reason: str = "") -> None:
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(None, _shutdown_executor_sync, executor)
+            logger.info("Rembg worker recycled (%s)", reason or "manual")
         except Exception:  # noqa: BLE001
             logger.exception("Rembg worker recycle failed")
+
+
+async def _maybe_recycle_after_job(reason: str) -> None:
+    """Free the ONNX worker unless a batch/compare hold is active."""
+    if _hold_depth > 0:
+        return
+    await recycle_worker(reason)
+
+
+@asynccontextmanager
+async def hold_rembg_worker(reason: str = "hold"):
+    """Keep the spawn worker warm across multiple cutouts; recycle when the block exits."""
+    global _hold_depth
+    _hold_depth += 1
+    try:
+        yield
+    finally:
+        _hold_depth = max(0, _hold_depth - 1)
+        if _hold_depth == 0:
+            await recycle_worker(reason)
 
 
 async def run_cutout(image_bytes: bytes, config: RembgConfig, on_stage=None) -> tuple[bytes, str | None]:
@@ -126,10 +150,12 @@ async def run_cutout(image_bytes: bytes, config: RembgConfig, on_stage=None) -> 
                 "Out of memory during background removal. "
                 "Lower Infer size or switch to a lighter model (isnet / u2net)."
             ) from exc
+        await _maybe_recycle_after_job("cutout_error")
         raise RembgProcessingError(f"Background removal failed: {exc}") from exc
 
     if loaded:
         _last_loaded_model = loaded
+    await _maybe_recycle_after_job("after_cutout")
     return png_bytes, loaded
 
 
@@ -156,14 +182,20 @@ async def run_engine(image_bytes: bytes, engine_config):
                 "Use quality=fast or a lighter model, lower Infer size, or give the "
                 "Image API container at least 2GB RAM."
             ) from exc
+        await _maybe_recycle_after_job("engine_error")
         raise RembgProcessingError(f"Background removal failed: {exc}") from exc
 
     if getattr(result, "model", None):
         _last_loaded_model = result.model
+    await _maybe_recycle_after_job("after_engine")
     return result
 
 
 async def warmup_worker(config: RembgConfig) -> str | None:
+    """Verify the model can load, then kill the worker so idle RSS stays low.
+
+    Keeping bria-rmbg / birefnet resident after warmup alone holds ~1.5–2GB.
+    """
     loop = asyncio.get_running_loop()
     try:
         async with _get_recycle_lock():
@@ -175,8 +207,11 @@ async def warmup_worker(config: RembgConfig) -> str | None:
         )
         global _last_loaded_model
         _last_loaded_model = loaded
-        logger.info("Rembg model loaded: %s", loaded)
+        logger.info("Rembg model verified: %s (recycling worker to free RAM)", loaded)
         return loaded
     except Exception:  # noqa: BLE001
         logger.exception("Rembg warmup failed — model will load on first image")
         return None
+    finally:
+        # Never leave the ONNX session resident after startup warmup.
+        await recycle_worker("post_warmup")

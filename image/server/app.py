@@ -44,7 +44,7 @@ from core.processor import ImageProcessor, WatermarkConfig
 from core.cutout.base import EngineConfig
 from core.progress import STAGE_LABELS, registry as progress_registry, stage_percent
 from core.rembg_config import rembg_config_from_system, rembg_meta_dict
-from core.rembg_pool import pool_loaded_model, recycle_worker, run_engine, warmup_worker
+from core.rembg_pool import hold_rembg_worker, pool_loaded_model, recycle_worker, run_engine, warmup_worker
 from core.renditions import RenditionSpec, build_transparent_renditions
 from core.repository import ImageRepository
 from core.storage import StorageBackend, sanitize_storage_name
@@ -525,7 +525,9 @@ async def _process_batch(batch_id: str) -> None:
     rembg_config = _rembg_config_for_batch(batch)
     import time as _time
 
-    try:
+    # Hold the spawn worker across items so the ONNX model loads once per batch,
+    # then recycle on exit to release ~1.5–2GB RSS (bria-rmbg / birefnet).
+    async with hold_rembg_worker("batch_done"):
         for item in pending:
             started = _time.perf_counter()
             progress_registry.start_item(batch_id, item.id)
@@ -589,9 +591,6 @@ async def _process_batch(batch_id: str) -> None:
         )
         batch.status = BatchStatus.REVIEW if ready > 0 else BatchStatus.FAILED
         _require_repo().save_batch(batch)
-    finally:
-        # Release ORT/rembg RSS held by the spawn worker after the batch spike.
-        await recycle_worker("batch_done")
 
 
 async def _apply_backgrounds(batch_id: str, payload: ApplyBackgroundRequest) -> None:
@@ -885,7 +884,7 @@ async def cutout_compare(
     requested = [m.strip().lower() for m in (modes or "balanced,premium").split(",") if m.strip()]
     default_bg_bytes = _default_bg_bytes_or_none(branded)
     results: list[dict] = []
-    try:
+    async with hold_rembg_worker("cutout_compare"):
         for mode in requested:
             cfg = _engine_config(_mode_to_overrides(mode))
             try:
@@ -894,9 +893,7 @@ async def cutout_compare(
                 results.append(dto)
             except Exception as exc:  # noqa: BLE001
                 results.append({"mode": mode, "error": str(exc)})
-        return {"results": results}
-    finally:
-        await recycle_worker("cutout_compare")
+    return {"results": results}
 
 
 @app.get("/api/v1/backgrounds")
