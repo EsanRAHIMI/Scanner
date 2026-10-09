@@ -27,6 +27,10 @@ async def run_sync() -> dict:
             await database["marketing_os_records"].replace_one({"_id": record["_id"]}, record, upsert=True)
         for connector in outcome["connectors"]:
             await database["marketing_os_connectors"].replace_one({"_id": connector["_id"]}, connector, upsert=True)
+        # Older error states used lower-case IDs and otherwise remain as duplicate sources.
+        await database["marketing_os_connectors"].delete_many(
+            {"_id": {"$in": ["meta", "google_ads", "linkedin", "pinterest", "tiktok", "snapchat"]}}
+        )
 
         try:
             odoo = await asyncio.to_thread(

@@ -594,7 +594,8 @@ async def run_connectors(settings: Settings, day: date | None = None, fx: float 
             try:
                 result = await coro
             except Exception as exc:  # noqa: BLE001
-                result = {"name": _key, "state": "error", "detail": str(exc)}
+                names = {"meta": "Meta", "google_ads": "Google Ads", "linkedin": "LinkedIn", "pinterest": "Pinterest", "tiktok": "TikTok", "snapchat": "Snapchat"}
+                result = {"name": names[_key], "state": "error", "detail": str(exc)}
             records.extend(result.pop("records", []) or [])
             connectors.append(
                 {
