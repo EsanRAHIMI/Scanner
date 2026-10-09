@@ -1,57 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 import { useLiveDashboard } from '@/hooks/use-live-dashboard';
 import { aed, monthLabel, num, pct, type ChannelRow, type DashboardPayload } from '@/lib/os/types';
 
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="dash-metric">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-medium-gray">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-brand-black">{value}</div>
-      {hint ? <div className="mt-1 text-xs text-brand-dark-gray">{hint}</div> : null}
-    </div>
-  );
-}
+type Move = { label: string; href: string; quiet?: boolean };
 
-function Bar({ value }: { value: number | null }) {
-  const width = value == null ? 0 : Math.max(0, Math.min(100, value * 100));
-  const over = value != null && value > 1;
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-light-gray">
-      <div
-        className={`h-full rounded-full ${over ? 'bg-red-700' : 'bg-brand-burgundy'}`}
-        style={{ width: `${width}%` }}
-      />
-    </div>
-  );
-}
-
-function Trend({ points }: { points: DashboardPayload['trend'] }) {
-  const known = points.map((point) => point.spend).filter((value): value is number => value != null);
-  const max = Math.max(...known, 1);
-  return (
-    <div className="flex h-36 items-end gap-2">
-      {points.map((point) => (
-        <div key={point.month} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-          <div className="flex h-24 w-full items-end">
-            {point.spend == null ? (
-              <div className="h-full w-full rounded-t-md border border-dashed border-brand-medium-gray/50" title="Unknown" />
-            ) : (
-              <div
-                className="w-full rounded-t-md bg-brand-burgundy/80"
-                style={{ height: `${Math.max(4, (point.spend / max) * 100)}%` }}
-                title={aed(point.spend)}
-              />
-            )}
-          </div>
-          <div className="truncate text-[10px] font-medium text-brand-medium-gray">{monthLabel(point.month).split(' ')[0]}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
+type Work = {
+  brief: number | null;
+  making: number | null;
+  ready: number | null;
+  out: number | null;
+  collections: Array<{ name: string; count: number }>;
+  campaigns: Array<{ id: string; name: string; channels: string; when: string }>;
+};
 
 function currentMonth(): string {
   const now = new Date();
@@ -81,11 +45,123 @@ function updatedLabel(iso?: string) {
   return `Updated ${Math.round(hours / 24)}d ago`;
 }
 
+function sumKnown(values: Array<number | null | undefined>): number | null {
+  const known = values.filter((value): value is number => value != null && !Number.isNaN(value));
+  if (!known.length) return null;
+  return known.reduce((total, value) => total + value, 0);
+}
+
+function moveFor(row: ChannelRow, state?: string): Move {
+  if (state === 'error') return { label: 'Fix', href: '/connections' };
+  if (state !== 'ok') return { label: 'Connect', href: '/connections' };
+  if (row.utilization != null && row.utilization > 1) return { label: 'Cut', href: '/budgets' };
+  if (row.status === 'Draft') return { label: 'Set budget', href: '/budgets' };
+  if (row.qualified == null) return { label: 'Hold', href: '/budgets' };
+  return { label: 'Keep', href: '/budgets', quiet: true };
+}
+
+function monthEnd(month: string): string {
+  const [year, part] = month.split('-').map(Number);
+  const last = new Date(year, part, 0).getDate();
+  return `${month}-${String(last).padStart(2, '0')}`;
+}
+
+function overlapsMonth(start: string, end: string | null, month: string): boolean {
+  const from = `${month}-01`;
+  const to = monthEnd(month);
+  const stop = (end || start).slice(0, 10);
+  return start.slice(0, 10) <= to && stop >= from;
+}
+
+function Pill({ state }: { state?: string }) {
+  const tone = sourceState(state);
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+      {tone.label}
+    </span>
+  );
+}
+
+function PathStep({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="min-w-[8.25rem] flex-1 rounded-2xl border border-brand-medium-gray/30 bg-brand-white px-4 py-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-brand-black">{value}</div>
+      <p className="mt-1 text-xs text-brand-dark-gray">{hint}</p>
+    </div>
+  );
+}
+
 export function LiveDashboard() {
   const [month, setMonth] = useState(currentMonth);
   const { data, authRequired, error, syncing, refresh, signIn } = useLiveDashboard(month);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [work, setWork] = useState<Work | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const ready = Boolean(data);
+  useEffect(() => {
+    if (!ready) return;
+    let cancel = false;
+    void (async () => {
+      const [postsRes, campaignsRes] = await Promise.all([
+        fetch('/api/content-calendar', { cache: 'no-store' }),
+        fetch('/api/marketing-campaigns', { cache: 'no-store' }),
+      ]);
+      if (cancel) return;
+      if (!postsRes.ok || !campaignsRes.ok) {
+        setWork(null);
+        return;
+      }
+      const postsBody = await postsRes.json();
+      const campaignsBody = await campaignsRes.json();
+      if (cancel) return;
+      const items = Array.isArray(postsBody.items) ? postsBody.items : [];
+      const inMonth = items.filter((item: { publish_date?: string | null }) =>
+        String(item.publish_date || '').slice(0, 7) === month,
+      );
+      const count = (names: string[]) =>
+        inMonth.filter((item: { fields?: Record<string, string> }) =>
+          names.includes(String(item.fields?.Status ?? '').trim()),
+        ).length;
+      const byProduct = new Map<string, number>();
+      for (const item of inMonth) {
+        const name = String(item.fields?.Product ?? '').trim();
+        if (!name) continue;
+        byProduct.set(name, (byProduct.get(name) ?? 0) + 1);
+      }
+      const campaigns = (Array.isArray(campaignsBody.items) ? campaignsBody.items : [])
+        .filter((item: { start_date?: string; effective_end_date?: string | null; end_date?: string | null }) =>
+          overlapsMonth(String(item.start_date || ''), item.effective_end_date || item.end_date || null, month),
+        )
+        .map((item: { id: string; name: string; channels?: string; start_date?: string; end_date?: string | null }) => ({
+          id: item.id,
+          name: item.name,
+          channels: item.channels || '—',
+          when: item.end_date ? `${item.start_date} → ${item.end_date}` : String(item.start_date || ''),
+        }));
+      setWork({
+        brief: count(['Drafts', 'Needs plan', '']),
+        making: count(['In Progress']),
+        ready: count(['Scheduled']),
+        out: count(['Published']),
+        collections: [...byProduct.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([name, count]) => ({ name, count })),
+        campaigns,
+      });
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [ready, month]);
 
   if (authRequired) {
     return (
@@ -118,12 +194,10 @@ export function LiveDashboard() {
           <div>
             <p className="dash-eyebrow">Marketing OS</p>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">
-              {viewingToday ? todayLabel() : monthLabel(month)}
+              {mounted && viewingToday ? todayLabel() : monthLabel(month)}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-brand-light-gray/90">
-              {viewingToday
-                ? 'Month to date through today. A blank figure is unknown, not zero.'
-                : 'A blank figure is unknown, not zero.'}
+              Seen, click, WhatsApp, quote, showroom, order. A blank figure is unknown, not zero.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:items-end">
@@ -156,121 +230,224 @@ export function LiveDashboard() {
       </section>
 
       {error ? <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-      {!data ? <div className="dash-panel h-40 animate-pulse" /> : null}
-
-      {data ? (
-        <>
-          <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Tile label="Spend" value={aed(data.spend)} hint={`Budget ${aed(data.budget)}`} />
-            <Tile label="Qualified leads" value={num(data.qualified)} hint="From Odoo" />
-            <Tile label="Quotations" value={num(data.quotes)} hint="From Odoo" />
-            <Tile label="90-day revenue" value={aed(data.revenue_90d)} hint={`${num(data.orders_90d)} paid orders`} />
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-[1.45fr_0.75fr]">
-            <div className="dash-panel overflow-hidden">
-              <div className="border-b border-brand-light-gray px-5 py-4">
-                <h2 className="text-lg font-semibold">Channels</h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-[10px] uppercase tracking-wider text-brand-medium-gray">
-                    <tr>
-                      {['Channel', 'Status', 'Spend', 'Left', 'Impr.', 'Clicks', 'CTR', 'Raw', 'Qualified'].map((heading) => (
-                        <th key={heading} className="px-4 py-3 font-semibold">{heading}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.channels.map((row: ChannelRow) => {
-                      const tone = sourceState(connectorByName.get(row.channel.toLowerCase())?.state);
-                      return (
-                      <tr key={row.channel} className="border-t border-brand-light-gray align-top">
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-brand-black">{row.channel}</span>
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
-                              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-                              {tone.label}
-                            </span>
-                          </div>
-                          <div className="mt-2 w-28"><Bar value={row.utilization} /></div>
-                          <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div>{row.status}</div>
-                          {row.approval ? <div className="mt-1 text-[10px] uppercase tracking-wider text-brand-medium-gray">{row.approval}</div> : null}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums">{aed(row.spend)}</td>
-                        <td className="px-4 py-3 tabular-nums">{aed(row.remaining)}</td>
-                        <td className="px-4 py-3 tabular-nums">{num(row.impressions)}</td>
-                        <td className="px-4 py-3 tabular-nums">{num(row.clicks)}</td>
-                        <td className="px-4 py-3 tabular-nums">{pct(row.ctr)}</td>
-                        <td className="px-4 py-3 tabular-nums">{num(row.raw_results)}</td>
-                        <td className="px-4 py-3 tabular-nums">
-                          {num(row.qualified)}
-                          <div className="mt-1 text-[10px] text-brand-medium-gray">WA {num(row.whatsapp)}</div>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="dash-panel p-5">
-              <h2 className="text-lg font-semibold">Monthly spend</h2>
-              <p className="mt-1 text-xs text-brand-medium-gray">Only months with a known total. A dashed column is unknown.</p>
-              <div className="mt-4">
-                <Trend points={data.trend} />
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-4 md:grid-cols-5">
-            {[
-              ['Website', data.site.ga4?.state, data.site.ga4?.sessions != null ? `${num(data.site.ga4.sessions)} sessions` : data.site.ga4?.detail],
-              ['Google search', data.site.search?.state, data.site.search?.impressions != null ? `${num(data.site.search.impressions)} impressions` : data.site.search?.detail],
-              ['Reviews', data.site.reviews?.state, data.site.reviews?.rating != null ? `${data.site.reviews.rating} · ${num(data.site.reviews.count)}` : data.site.reviews?.detail],
-              ['Tag Manager', data.site.gtm?.state, data.site.gtm?.detail || 'Health check only'],
-              ['Odoo', data.site.odoo?.state, data.site.odoo?.detail],
-            ].map(([title, state, detail]) => {
-              const tone = sourceState(state as string);
-              return (
-              <div key={String(title)} className="dash-card p-5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{title}</div>
-                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-                    {tone.label}
-                  </span>
-                </div>
-                <p className="mt-2 text-sm text-brand-dark-gray">{detail || '—'}</p>
-              </div>
-              );
-            })}
-          </section>
-
-          {data.alerts.length ? (
-            <section className="dash-panel p-5">
-              <h2 className="text-lg font-semibold">Needs attention</h2>
-              <ul className="mt-3 space-y-2">
-                {data.alerts.map((alert) => (
-                  <li
-                    key={alert.text}
-                    className={`rounded-xl px-3 py-2 text-sm text-brand-black ${
-                      alert.level === 'high' ? 'bg-red-500/10' : 'bg-brand-light-gray/40'
-                    }`}
-                  >
-                    {alert.text}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-        </>
-      ) : null}
+      {!data ? <div className="dash-panel h-40 animate-pulse" /> : <Board data={data} work={work} connectorByName={connectorByName} />}
     </div>
+  );
+}
+
+function Board({
+  data,
+  work,
+  connectorByName,
+}: {
+  data: DashboardPayload;
+  work: Work | null;
+  connectorByName: Map<string, { name: string; state: string; detail?: string }>;
+}) {
+  const seen = sumKnown([
+    ...data.channels.map((row) => row.impressions),
+    data.site.search?.impressions,
+  ]);
+  const clicks = sumKnown([
+    ...data.channels.map((row) => row.clicks),
+    data.site.search?.clicks,
+  ]);
+  const whatsapp = sumKnown(data.channels.map((row) => row.whatsapp));
+  const moves = data.channels.map((row) => ({
+    row,
+    move: moveFor(row, connectorByName.get(row.channel.toLowerCase())?.state),
+  }));
+  const todo = moves.filter((item) => !item.move.quiet);
+  const odoo = sourceState(data.site.odoo?.state);
+
+  const steps = [
+    { label: 'Seen', value: num(seen), hint: 'Ads and search' },
+    { label: 'Click', value: num(clicks), hint: 'Ads and search' },
+    { label: 'WhatsApp', value: num(whatsapp), hint: whatsapp == null ? 'Not in the feed' : 'Conversations' },
+    { label: 'Qualified', value: num(data.qualified), hint: data.qualified == null ? 'From Odoo' : 'From Odoo' },
+    { label: 'Quote', value: num(data.quotes), hint: odoo.label },
+    { label: 'Showroom', value: '—', hint: 'Visits not tracked' },
+    { label: 'Order', value: num(data.orders_90d), hint: data.revenue_90d == null ? 'Paid orders' : aed(data.revenue_90d) },
+  ];
+
+  return (
+    <>
+      <section>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="text-lg font-semibold">The path</h2>
+          <p className="text-xs text-brand-medium-gray">Spend {aed(data.spend)} of {aed(data.budget)}</p>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {steps.map((step, index) => (
+            <div key={step.label} className="flex min-w-0 flex-1 items-stretch gap-2">
+              <PathStep label={step.label} value={step.value} hint={step.hint} />
+              {index < steps.length - 1 ? (
+                <span className="self-center text-brand-medium-gray" aria-hidden="true">→</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {todo.length ? (
+        <section className="dash-panel p-5">
+          <h2 className="text-lg font-semibold">This week</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {todo.map(({ row, move }) => (
+              <Link
+                key={row.channel}
+                href={move.href}
+                className="inline-flex items-center gap-2 rounded-full bg-brand-light-gray/60 px-3 py-1.5 text-sm font-semibold text-brand-black hover:bg-brand-burgundy/10"
+              >
+                {move.label}
+                <span className="font-medium text-brand-dark-gray">{row.channel}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="dash-panel overflow-hidden">
+        <div className="flex items-baseline justify-between gap-3 border-b border-brand-light-gray px-5 py-4">
+          <h2 className="text-lg font-semibold">Channels</h2>
+          <Link href="/budgets" className="text-xs font-semibold text-brand-burgundy">Budgets</Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-left text-[10px] uppercase tracking-wider text-brand-medium-gray">
+              <tr>
+                {['Channel', 'Spend', 'Seen', 'Click', 'WhatsApp', 'Qualified', 'Quote', 'Do'].map((heading) => (
+                  <th key={heading} className="px-4 py-3 font-semibold">{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {moves.map(({ row, move }) => {
+                const tone = connectorByName.get(row.channel.toLowerCase())?.state;
+                return (
+                  <tr key={row.channel} className="border-t border-brand-light-gray align-top">
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-brand-black">{row.channel}</span>
+                        <Pill state={tone} />
+                      </div>
+                      <div className="mt-2 w-28">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-light-gray">
+                          <div
+                            className={`h-full rounded-full ${row.utilization != null && row.utilization > 1 ? 'bg-red-700' : 'bg-brand-burgundy'}`}
+                            style={{ width: `${row.utilization == null ? 0 : Math.max(0, Math.min(100, row.utilization * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">{aed(row.spend)}</td>
+                    <td className="px-4 py-3 tabular-nums">{num(row.impressions)}</td>
+                    <td className="px-4 py-3 tabular-nums">{num(row.clicks)}</td>
+                    <td className="px-4 py-3 tabular-nums">{num(row.whatsapp)}</td>
+                    <td className="px-4 py-3 tabular-nums">{num(row.qualified)}</td>
+                    <td className="px-4 py-3 tabular-nums">{num(row.quotes)}</td>
+                    <td className="px-4 py-3">
+                      <Link href={move.href} className={`text-sm font-semibold ${move.quiet ? 'text-brand-dark-gray' : 'text-brand-burgundy'}`}>
+                        {move.label}
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="dash-panel p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold">Content</h2>
+            <Link href="/calendar" className="text-xs font-semibold text-brand-burgundy">Open calendar</Link>
+          </div>
+          <p className="mt-1 text-xs text-brand-medium-gray">Brief, make, schedule, publish. Counts are posts dated this month.</p>
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {[
+              ['Brief', work?.brief],
+              ['Making', work?.making],
+              ['Ready', work?.ready],
+              ['Out', work?.out],
+            ].map(([label, value], index, list) => (
+              <div key={String(label)} className="relative rounded-xl border border-brand-light-gray px-3 py-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{label}</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">{value == null ? '—' : num(value as number)}</div>
+                {index < list.length - 1 ? <span className="absolute -right-2 top-1/2 hidden -translate-y-1/2 text-brand-medium-gray sm:block" aria-hidden="true">→</span> : null}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">Collections</div>
+            {work && work.collections.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {work.collections.map((item) => (
+                  <span key={item.name} className="rounded-full bg-brand-light-gray/60 px-3 py-1 text-xs font-semibold text-brand-black">
+                    {item.name}
+                    <span className="ml-1 font-medium text-brand-dark-gray">{item.count}</span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-brand-dark-gray">{work ? 'No collection tagged this month.' : '—'}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="dash-panel p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold">Campaigns</h2>
+            <Link href="/calendar" className="text-xs font-semibold text-brand-burgundy">Open calendar</Link>
+          </div>
+          <p className="mt-1 text-xs text-brand-medium-gray">What is in market this month, and on which channels.</p>
+          {work && work.campaigns.length ? (
+            <ul className="mt-4 space-y-3">
+              {work.campaigns.map((item) => (
+                <li key={item.id} className="flex items-start justify-between gap-3 border-t border-brand-light-gray pt-3 first:border-t-0 first:pt-0">
+                  <div>
+                    <div className="font-semibold text-brand-black">{item.name}</div>
+                    <div className="mt-1 text-xs text-brand-dark-gray">{item.when}</div>
+                  </div>
+                  <div className="max-w-[12rem] text-right text-xs font-medium text-brand-dark-gray">{item.channels}</div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-brand-dark-gray">{work ? 'No campaign scheduled this month.' : '—'}</p>
+          )}
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {[
+          ['Website', data.site.ga4?.state, data.site.ga4?.sessions != null ? `${num(data.site.ga4.sessions)} sessions` : 'Sessions unknown', '/connections'],
+          ['Google search', data.site.search?.state, data.site.search?.impressions != null ? `${num(data.site.search.impressions)} impressions` : 'Impressions unknown', '/connections'],
+          ['Reviews', data.site.reviews?.state, data.site.reviews?.rating != null ? `${data.site.reviews.rating} · ${num(data.site.reviews.count)}` : 'Rating unknown', '/connections'],
+          ['Instagram', undefined, 'Posts are managed on the calendar', '/calendar'],
+          ['Showroom', undefined, 'Appointments, walk-ins and events are not tracked', ''],
+          ['Odoo', data.site.odoo?.state, data.site.odoo?.detail || 'Quotes and orders', '/connections'],
+          ['Tag Manager', data.site.gtm?.state, data.site.gtm?.detail || 'Tag check only', '/connections'],
+        ].map(([title, state, detail, href]) => {
+          const body = (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{title}</div>
+                {state ? <Pill state={String(state)} /> : null}
+              </div>
+              <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
+            </>
+          );
+          return href ? (
+            <Link key={String(title)} href={String(href)} className="dash-card p-5">{body}</Link>
+          ) : (
+            <div key={String(title)} className="dash-card p-5">{body}</div>
+          );
+        })}
+      </section>
+    </>
   );
 }
