@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from .seed import CHANNELS
+from .seed import CHANNELS, calendar_months
 
 
 def _num(value: Any) -> float | None:
@@ -147,15 +147,20 @@ def build_dashboard(
             }
         )
 
-    months = sorted({str(t.get("month")) for t in trend if t.get("month")})
+    months = set(calendar_months(today.year))
+    months.update(calendar_months(int(month[:4])) if len(month) >= 4 and month[:4].isdigit() else [])
+    for point in trend:
+        if point.get("month"):
+            months.add(str(point["month"]))
     for row in records:
         start = str(row.get("period_start") or "")
         if len(start) >= 7 and row.get("record_type") == "Monthly MTD":
-            months.append(start[:7])
-    months = sorted(set(months))
+            months.add(start[:7])
+    months = sorted(months)
 
     return {
         "month": month,
+        "horizon_end": f"{today.year}-12",
         "currency": "AED",
         "fx_usd_aed": fx,
         "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",

@@ -13,7 +13,7 @@ from core.auth import get_current_user, require_admin
 from core.config import get_settings
 from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
-from core.store import dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
+from core.store import complete_budget_rows, dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
 from core.sync import run_sync, sync_loop
 
 
@@ -155,10 +155,8 @@ async def write_targets(body: list[TargetRow], _admin: dict = Depends(require_ad
 async def read_budgets(month: str | None = None, _user: dict = Depends(get_current_user)) -> dict:
     database = require_db()
     query = {"month": month} if month else {}
-    rows = await database["marketing_os_budgets"].find(query).sort("month", 1).to_list(length=200)
-    for row in rows:
-        row.pop("_id", None)
-    return {"items": rows}
+    rows = await database["marketing_os_budgets"].find(query).sort("month", 1).to_list(length=500)
+    return {"items": complete_budget_rows(rows)}
 
 
 @app.put("/api/v1/budgets")

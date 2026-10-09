@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from typing import Any
 
 from .aggregate import build_dashboard
@@ -8,6 +9,7 @@ from .db import db, require_db
 from .seed import (
     CHANNELS,
     DEFAULT_SETTINGS,
+    calendar_months,
     budget_rows,
     empty_site,
     mtd_records,
@@ -15,6 +17,40 @@ from .seed import (
     target_rows,
     trend_rows,
 )
+
+def current_month() -> str:
+    return date.today().strftime("%Y-%m")
+
+
+def cache_is_current(payload: dict[str, Any]) -> bool:
+    names = [row.get("channel") for row in payload.get("channels") or []]
+    return names == CHANNELS and payload.get("horizon_end") == f"{date.today().year}-12"
+
+
+def complete_budget_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every catalog channel appears in every month of each planned year."""
+    stored: dict[tuple[str, str], dict[str, Any]] = {}
+    years: set[int] = {date.today().year}
+    for row in rows:
+        month = str(row.get("month") or "")[:7]
+        channel = str(row.get("channel") or "")
+        if len(month) == 7 and month[:4].isdigit() and channel:
+            stored[(month, channel)] = row
+            years.add(int(month[:4]))
+    items: list[dict[str, Any]] = []
+    for year in sorted(years):
+        for month in calendar_months(year):
+            for channel in CHANNELS:
+                row = stored.get((month, channel)) or {
+                    "month": month,
+                    "channel": channel,
+                    "budget_aed": None,
+                    "approval": "Draft",
+                    "note": "",
+                }
+                items.append({key: value for key, value in row.items() if key != "_id"})
+    return items
+
 
 _version = 0
 _lock = asyncio.Lock()
@@ -99,7 +135,7 @@ async def ensure_channels() -> None:
     for row in target_rows():
         await database["marketing_os_targets"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
 
-    months = {"2026-09", "2026-10"}
+    months = set(calendar_months(date.today().year))
     async for doc in database["marketing_os_crm"].find({}, {"month": 1}):
         if doc.get("month"):
             months.add(doc["month"])
@@ -132,6 +168,10 @@ async def ensure_channels() -> None:
             {"$set": {"detail": detail}},
         )
 
+    async for doc in database["marketing_os_cache"].find({}, {"channels.channel": 1, "horizon_end": 1}):
+        if not cache_is_current(doc):
+            await database["marketing_os_cache"].delete_one({"_id": doc["_id"]})
+
 
 async def settings_doc() -> dict[str, Any]:
     database = require_db()
@@ -143,9 +183,9 @@ async def rebuild(month: str | None = None) -> dict[str, Any]:
     global _version
     database = require_db()
     settings = await settings_doc()
-    month = month or settings.get("selected_month") or "2026-09"
+    month = month or current_month()
     records = await database["marketing_os_records"].find({}).to_list(length=5000)
-    budgets = await database["marketing_os_budgets"].find({}).to_list(length=200)
+    budgets = await database["marketing_os_budgets"].find({}).to_list(length=1000)
     statuses = await database["marketing_os_status"].find({}).to_list(length=20)
     targets = await database["marketing_os_targets"].find({}).to_list(length=100)
     crm_rows = await database["marketing_os_crm"].find({}).to_list(length=500)
@@ -174,13 +214,20 @@ async def rebuild(month: str | None = None) -> dict[str, Any]:
 
 async def dashboard(month: str | None = None) -> dict[str, Any]:
     database = require_db()
-    settings = await settings_doc()
-    month = month or settings.get("selected_month") or "2026-09"
+    month = month or current_month()
     cached = await database["marketing_os_cache"].find_one({"_id": month})
-    if cached and cached.get("version"):
+    if cached and cached.get("version") and cache_is_current(cached):
         cached.pop("_id", None)
-        return cached
-    return await rebuild(month)
+        payload = cached
+    else:
+        payload = await rebuild(month)
+    connectors = await database["marketing_os_connectors"].find({}).to_list(length=30)
+    site = await database["marketing_os_site"].find_one({"_id": "current"})
+    payload["connectors"] = [{key: value for key, value in row.items() if key != "_id"} for row in connectors]
+    if site:
+        payload["site"] = {key: value for key, value in site.items() if key != "_id"}
+    payload["month"] = month
+    return payload
 
 
 async def save_settings(patch: dict[str, Any]) -> dict[str, Any]:

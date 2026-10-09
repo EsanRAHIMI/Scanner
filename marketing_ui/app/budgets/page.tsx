@@ -15,7 +15,10 @@ type Budget = {
 const APPROVALS = ['Proposed', 'Approved', 'Draft'];
 
 export default function BudgetsPage() {
-  const [month, setMonth] = useState('2026-09');
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [months, setMonths] = useState<string[]>([]);
   const [items, setItems] = useState<Budget[]>([]);
   const [message, setMessage] = useState<string | null>(null);

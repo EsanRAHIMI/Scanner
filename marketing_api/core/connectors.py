@@ -583,24 +583,23 @@ async def run_connectors(settings: Settings, day: date | None = None, fx: float 
             token_error = str(exc)
 
         jobs = [
-            ("meta", sync_meta(client, settings, day)),
-            ("google_ads", sync_google_ads(client, settings, day, token if not token_error else None)),
-            ("linkedin", sync_linkedin(client, settings, day)),
-            ("pinterest", sync_pinterest(client, settings, day, fx)),
-            ("tiktok", sync_tiktok(client, settings, day, fx)),
-            ("snapchat", sync_snapchat(client, settings, day, fx)),
+            ("Meta", sync_meta(client, settings, day)),
+            ("Google Ads", sync_google_ads(client, settings, day, token if not token_error else None)),
+            ("LinkedIn", sync_linkedin(client, settings, day)),
+            ("Pinterest", sync_pinterest(client, settings, day, fx)),
+            ("TikTok", sync_tiktok(client, settings, day, fx)),
+            ("Snapchat", sync_snapchat(client, settings, day, fx)),
         ]
-        for _key, coro in jobs:
+        for name, coro in jobs:
             try:
                 result = await coro
             except Exception as exc:  # noqa: BLE001
-                names = {"meta": "Meta", "google_ads": "Google Ads", "linkedin": "LinkedIn", "pinterest": "Pinterest", "tiktok": "TikTok", "snapchat": "Snapchat"}
-                result = {"name": names[_key], "state": "error", "detail": str(exc)}
+                result = {"name": name, "state": "error", "detail": str(exc)}
             records.extend(result.pop("records", []) or [])
             connectors.append(
                 {
-                    "_id": result.get("name") or _key,
-                    "name": result.get("name") or _key,
+                    "_id": result.get("name") or name,
+                    "name": result.get("name") or name,
                     "state": result.get("state"),
                     "detail": result.get("detail"),
                     "checked_on": day.isoformat(),

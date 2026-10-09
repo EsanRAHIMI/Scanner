@@ -4,6 +4,10 @@ from __future__ import annotations
 
 CHANNELS = ["Meta", "Google Ads", "LinkedIn", "Pinterest", "TikTok", "Snapchat"]
 
+
+def calendar_months(year: int) -> list[str]:
+    return [f"{year}-{month:02d}" for month in range(1, 13)]
+
 DEFAULT_SETTINGS = {
     "_id": "current",
     "fx_usd_aed": 3.6725,

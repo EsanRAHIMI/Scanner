@@ -53,11 +53,20 @@ function Trend({ points }: { points: DashboardPayload['trend'] }) {
   );
 }
 
-function stateLabel(state?: string) {
-  if (state === 'ok') return 'Live';
-  if (state === 'error') return 'Error';
-  if (state === 'unconfigured') return 'Not connected';
-  return 'Waiting';
+function currentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function todayLabel(): string {
+  return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function sourceState(state?: string) {
+  if (state === 'ok') return { label: 'Live', dot: 'bg-emerald-500', chip: 'bg-emerald-500/10 text-emerald-800' };
+  if (state === 'error') return { label: 'Error', dot: 'bg-red-600', chip: 'bg-red-500/10 text-red-800' };
+  if (state === 'unconfigured') return { label: 'Not connected', dot: 'bg-brand-medium-gray', chip: 'bg-brand-light-gray text-brand-dark-gray' };
+  return { label: 'Waiting', dot: 'bg-amber-500', chip: 'bg-amber-500/10 text-amber-900' };
 }
 
 function updatedLabel(iso?: string) {
@@ -73,7 +82,7 @@ function updatedLabel(iso?: string) {
 }
 
 export function LiveDashboard() {
-  const [month, setMonth] = useState<string | null>(null);
+  const [month, setMonth] = useState(currentMonth);
   const { data, authRequired, error, syncing, refresh, signIn } = useLiveDashboard(month);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -97,7 +106,10 @@ export function LiveDashboard() {
     );
   }
 
-  const liveCount = data?.connectors.filter((item) => item.state === 'ok').length ?? 0;
+  const today = currentMonth();
+  const viewingToday = month === today;
+  const months = [...new Set([...(data?.months ?? []), today])].sort();
+  const connectorByName = new Map((data?.connectors ?? []).map((item) => [item.name.toLowerCase(), item]));
 
   return (
     <div className="space-y-8">
@@ -106,10 +118,12 @@ export function LiveDashboard() {
           <div>
             <p className="dash-eyebrow">Marketing OS</p>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">
-              {data ? monthLabel(data.month) : 'Live performance'}
+              {viewingToday ? todayLabel() : monthLabel(month)}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-brand-light-gray/90">
-              Paid channels, site, search, and reviews. A blank figure means the number is unknown, not zero.
+              {viewingToday
+                ? 'Month to date through today. A blank figure is unknown, not zero.'
+                : 'A blank figure is unknown, not zero.'}
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:items-end">
@@ -119,19 +133,18 @@ export function LiveDashboard() {
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
               </span>
               {updatedLabel(data?.generated_at)}
-              {liveCount ? ` · ${liveCount} live` : ''}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {(data?.months ?? []).map((item) => (
+              {months.map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setMonth(item)}
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    (month ?? data?.month) === item ? 'bg-white text-brand-burgundy' : 'bg-white/10 text-white'
+                    month === item ? 'bg-white text-brand-burgundy' : 'bg-white/10 text-white'
                   }`}
                 >
-                  {monthLabel(item)}
+                  {item === today ? 'Today' : monthLabel(item)}
                 </button>
               ))}
               <button type="button" onClick={() => void refresh()} disabled={syncing} className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-brand-burgundy disabled:opacity-60">
@@ -147,19 +160,6 @@ export function LiveDashboard() {
 
       {data ? (
         <>
-          {data.connectors.length ? (
-            <div className="flex flex-wrap gap-2">
-              {data.connectors.map((item) => (
-                <span key={item.name} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-brand-dark-gray shadow-brand-card">
-                  {item.name}
-                  <span className="ml-2 font-semibold text-brand-burgundy">{stateLabel(item.state)}</span>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-brand-dark-gray">Showing the saved workbook until a source is connected.</p>
-          )}
-
           <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Tile label="Spend" value={aed(data.spend)} hint={`Budget ${aed(data.budget)}`} />
             <Tile label="Qualified leads" value={num(data.qualified)} hint="From Odoo" />
@@ -182,10 +182,18 @@ export function LiveDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.channels.map((row: ChannelRow) => (
+                    {data.channels.map((row: ChannelRow) => {
+                      const tone = sourceState(connectorByName.get(row.channel.toLowerCase())?.state);
+                      return (
                       <tr key={row.channel} className="border-t border-brand-light-gray align-top">
                         <td className="px-4 py-3">
-                          <div className="font-semibold text-brand-black">{row.channel}</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-brand-black">{row.channel}</span>
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+                              {tone.label}
+                            </span>
+                          </div>
                           <div className="mt-2 w-28"><Bar value={row.utilization} /></div>
                           <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
                         </td>
@@ -204,7 +212,8 @@ export function LiveDashboard() {
                           <div className="mt-1 text-[10px] text-brand-medium-gray">WA {num(row.whatsapp)}</div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -219,19 +228,28 @@ export function LiveDashboard() {
             </div>
           </section>
 
-          <section className="grid gap-4 md:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-5">
             {[
               ['Website', data.site.ga4?.state, data.site.ga4?.sessions != null ? `${num(data.site.ga4.sessions)} sessions` : data.site.ga4?.detail],
               ['Google search', data.site.search?.state, data.site.search?.impressions != null ? `${num(data.site.search.impressions)} impressions` : data.site.search?.detail],
               ['Reviews', data.site.reviews?.state, data.site.reviews?.rating != null ? `${data.site.reviews.rating} · ${num(data.site.reviews.count)}` : data.site.reviews?.detail],
               ['Tag Manager', data.site.gtm?.state, data.site.gtm?.detail || 'Health check only'],
-            ].map(([title, state, detail]) => (
+              ['Odoo', data.site.odoo?.state, data.site.odoo?.detail],
+            ].map(([title, state, detail]) => {
+              const tone = sourceState(state as string);
+              return (
               <div key={String(title)} className="dash-card p-5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{title}</div>
-                <div className="mt-2 text-sm font-semibold text-brand-burgundy">{stateLabel(state as string)}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{title}</div>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tone.chip}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+                    {tone.label}
+                  </span>
+                </div>
                 <p className="mt-2 text-sm text-brand-dark-gray">{detail || '—'}</p>
               </div>
-            ))}
+              );
+            })}
           </section>
 
           {data.alerts.length ? (
