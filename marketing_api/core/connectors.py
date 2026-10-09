@@ -299,7 +299,16 @@ def snapchat_total_stats(body: dict[str, Any]) -> dict[str, Any]:
         return {}
     block = rows[0].get("total_stat") if isinstance(rows[0].get("total_stat"), dict) else rows[0]
     stats = block.get("stats") if isinstance(block, dict) else None
-    return stats if isinstance(stats, dict) else {}
+    if isinstance(stats, dict):
+        return stats
+    campaigns = (block.get("breakdown_stats") or {}).get("campaign") or []
+    totals: dict[str, float] = {}
+    for campaign in campaigns:
+        for key, value in (campaign.get("stats") or {}).items():
+            numeric = _num(value)
+            if numeric is not None:
+                totals[key] = totals.get(key, 0.0) + numeric
+    return totals
 
 
 def _iso_offset(moment: datetime) -> str:
@@ -427,6 +436,7 @@ async def sync_snapchat(client: httpx.AsyncClient, settings: Settings, day: date
             "start_time": window_start,
             "end_time": window_end,
             "fields": "impressions,swipes,spend,conversion_purchases",
+            "breakdown": "campaign",
         },
         timeout=30,
     )
