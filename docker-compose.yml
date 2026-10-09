@@ -74,6 +74,24 @@ services:
     expose:
       - "8040"
 
+  marketing-api:
+    build:
+      context: ./marketing_api
+    environment:
+      - MONGODB_DB_NAME=lorenzodb
+      # Set MONGODB_URI / TRAINER_JWT_SECRET / channel keys via Dokploy env, not here.
+    expose:
+      - "8050"
+
+  marketing-ui:
+    build:
+      context: ./marketing_ui
+    environment:
+      - NODE_ENV=production
+      - MARKETING_API_BASE=http://marketing-api:8050
+    expose:
+      - "3005"
+
 volumes:
   image_data:
   proposals_data:

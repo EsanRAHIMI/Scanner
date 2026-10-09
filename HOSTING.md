@@ -9,7 +9,8 @@
 | Trainer Web | `trainer/web/` | `trainer.{DOMAIN}` | 3010 |
 | Trainer Server | `trainer/server/` | `trainer.{DOMAIN}` → path `/api/*` | 8010 |
 | Products | `products/` | `products.{DOMAIN}` | 3004 |
-| Marketing | `marketing/` | `marketing.{DOMAIN}` | 3005 |
+| Marketing UI | `marketing_ui/` | `marketing.{DOMAIN}` | 3005 |
+| Marketing API | `marketing_api/` | internal (`MARKETING_API_BASE`) | 8050 |
 | Proposals Web | `proposals/web/` | `proposals.{DOMAIN}` | 3007 |
 | Proposals Server | `proposals/server/` | internal (یا `proposals.{DOMAIN}` → path `/api/proposals/*` برای لینک‌های اشتراک عمومی) | 8030 |
 

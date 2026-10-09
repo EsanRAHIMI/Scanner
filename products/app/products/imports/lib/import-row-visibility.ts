@@ -26,7 +26,33 @@ function fieldValueText(value: unknown): string {
   return String(value).trim();
 }
 
-/** Detect Crystal/custom from any staged cell (not Row). */
+function normalizeImportHeaderKey(key: string): string {
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-/:(){}\[\]#]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const EXCEL_STAGING_LABEL_HEADERS = new Set(['label', 'labels', 'row label']);
+
+export function isExcelStagingLabelHeader(key: string): boolean {
+  return EXCEL_STAGING_LABEL_HEADERS.has(normalizeImportHeaderKey(key));
+}
+
+/** Read Label / Labels / Row Label from staged Excel fields (before they are saved to row_label). */
+export function getExcelFieldLabel(fields: Record<string, unknown> | undefined): string {
+  if (!fields) return '';
+  for (const [key, value] of Object.entries(fields)) {
+    if (!isExcelStagingLabelHeader(key)) continue;
+    const text = fieldValueText(value);
+    if (text) return text.slice(0, 240);
+  }
+  return '';
+}
+
+/** Detect Crystal/custom from any staged cell (not Row, not Excel Label column). */
 export function detectCrystalCustomLabel(
   fields: Record<string, unknown> | undefined,
 ): 'Crystal' | 'custom' | null {
@@ -35,6 +61,7 @@ export function detectCrystalCustomLabel(
   let hasCustom = false;
   for (const [key, value] of Object.entries(fields)) {
     if (key === 'Row') continue;
+    if (isExcelStagingLabelHeader(key)) continue;
     const text = fieldValueText(value).toLowerCase();
     if (!text) continue;
     if (text.includes('crystal')) hasCrystal = true;
@@ -48,6 +75,8 @@ export function detectCrystalCustomLabel(
 export function getImportRowDisplayLabel(row: ImportRowLike): string {
   const saved = (row.row_label ?? '').trim();
   if (saved) return saved;
+  const fromExcel = getExcelFieldLabel(row.fields);
+  if (fromExcel) return fromExcel;
   return detectCrystalCustomLabel(row.fields) ?? '';
 }
 

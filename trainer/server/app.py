@@ -623,6 +623,35 @@ def _normalize_import_row(headers: list[str], values: tuple[Any, ...]) -> tuple[
   return fields, raw_fields, warnings
 
 
+# Excel "Label" / "Labels" / "Row Label" → staging-only row_label (not transferred to Products).
+_IMPORT_STAGING_LABEL_HEADERS = frozenset({"label", "labels", "row label"})
+
+
+def _is_import_staging_label_header(header: Any) -> bool:
+  return _normalize_import_header(header) in _IMPORT_STAGING_LABEL_HEADERS
+
+
+def _extract_staging_row_label(
+  fields: dict[str, Any],
+  raw_fields: dict[str, Any] | None = None,
+) -> str:
+  """Pop Excel Label column(s) into a staging row_label; remove from transfer fields."""
+  label = ""
+  for key in list(fields.keys()):
+    if not _is_import_staging_label_header(key):
+      continue
+    if not label:
+      label = _import_value_to_text(fields.get(key)).strip()[:240]
+    fields.pop(key, None)
+    if isinstance(raw_fields, dict):
+      raw_fields.pop(key, None)
+  if isinstance(raw_fields, dict):
+    for key in list(raw_fields.keys()):
+      if _is_import_staging_label_header(key):
+        raw_fields.pop(key, None)
+  return label
+
+
 def _product_compare_value(value: Any) -> str:
   text = _import_value_to_text(value)
   if not text:
@@ -1010,6 +1039,11 @@ def _product_fields_from_import_fields(
   selected_columns: set[str] | None = None,
   column_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+  """Build product field patch from staged import values.
+
+  Blank import cells are never transferred: missing/None/""/whitespace values are
+  skipped so Apply will not clear existing Products content.
+  """
   product_fields: dict[str, Any] = {}
   existing_image = _product_compare_value((existing_fields or {}).get("Image"))
 
@@ -1029,7 +1063,8 @@ def _product_fields_from_import_fields(
         continue
 
       value = fields.get(import_column)
-      if value == "" or value is None:
+      # Empty/missing import values must not overwrite Products.
+      if not _product_compare_value(value):
         continue
       if import_column == "Row" and product_column.casefold() == "num":
         product_fields["Num"] = value
@@ -1041,14 +1076,14 @@ def _product_fields_from_import_fields(
     if field_name == "Row":
       if selected_columns is not None and "Row" not in selected_columns:
         continue
-      if value != "":
+      if _product_compare_value(value):
         product_fields["Num"] = value
       continue
     if field_name == "Image1":
       continue
     if selected_columns is not None and field_name not in selected_columns:
       continue
-    if value == "":
+    if not _product_compare_value(value):
       continue
     product_fields[field_name] = value
 
@@ -1289,13 +1324,15 @@ def _parse_product_import_workbook(content: bytes, filename: str, import_id: str
         fields[image_field] = image_url
         raw_fields[image_field] = image_url
 
-      if not fields:
+      row_label = _extract_staging_row_label(fields, raw_fields)
+
+      if not fields and not row_label:
         continue
 
       for key in fields.keys():
         columns_seen.add(key)
 
-      rows_to_insert.append({
+      row_doc: dict[str, Any] = {
         "_id": uuid.uuid4().hex,
         "source_sheet": worksheet.title,
         "source_row_number": row_offset,
@@ -1303,7 +1340,10 @@ def _parse_product_import_workbook(content: bytes, filename: str, import_id: str
         "raw_fields": raw_fields,
         "warnings": warnings,
         "status": "staged",
-      })
+      }
+      if row_label:
+        row_doc["row_label"] = row_label
+      rows_to_insert.append(row_doc)
       sheet_count += 1
 
     sheets.append({

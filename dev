@@ -5,6 +5,7 @@
 #   ./dev              # start all services + live logs (Ctrl+C stops all)
 #   ./dev up           # same as above
 #   ./dev up backend frontend   # start only selected services
+#   ./dev marketing-ui marketing-api   # same, service names without "up"
 #   ./dev stop         # stop every service
 #   ./dev status       # show which ports are in use
 #   ./dev setup        # create/repair venvs + install Python/Node deps
@@ -17,9 +18,9 @@ cd "$ROOT"
 
 DEV_DIR="$ROOT/.dev"
 
-ALL_SERVICES="backend frontend trainer-server trainer-web products marketing image-server image-web proposals-server proposals-web agent-server"
+ALL_SERVICES="backend frontend trainer-server trainer-web products marketing-ui marketing-api image-server image-web proposals-server proposals-web agent-server"
 
-CONCURRENTLY_COLORS="blue,green,magenta,cyan,yellow,red,white,gray,blueBright,greenBright,magentaBright"
+CONCURRENTLY_COLORS="blue,green,magenta,cyan,yellow,red,white,gray,blueBright,greenBright,magentaBright,cyanBright"
 
 service_port() {
   case "$1" in
@@ -28,7 +29,8 @@ service_port() {
     trainer-server) echo 8010 ;;
     trainer-web) echo 3010 ;;
     products) echo 3004 ;;
-    marketing) echo 3005 ;;
+    marketing-ui) echo 3005 ;;
+    marketing-api) echo 8050 ;;
     image-server) echo 8020 ;;
     image-web) echo 3006 ;;
     proposals-server) echo 8030 ;;
@@ -172,7 +174,8 @@ concurrently_name() {
     trainer-server) echo trainer-api ;;
     trainer-web) echo trainer-web ;;
     products) echo products ;;
-    marketing) echo marketing ;;
+    marketing-ui) echo marketing-ui ;;
+    marketing-api) echo marketing-api ;;
     image-server) echo image-api ;;
     image-web) echo image-web ;;
     proposals-server) echo proposals-api ;;
@@ -198,8 +201,11 @@ service_cmd() {
     products)
       run_npm_dev products
       ;;
-    marketing)
-      run_npm_dev marketing
+    marketing-ui)
+      run_npm_dev marketing_ui
+      ;;
+    marketing-api)
+      run_python_api marketing_api .venv 8050
       ;;
     image-server)
       run_python_api image/server .venv 8020
@@ -278,6 +284,7 @@ cmd_status() {
   echo "  Trainer Web      http://localhost:3010"
   echo "  Products         http://localhost:3004"
   echo "  Marketing        http://localhost:3005"
+  echo "  Marketing API    http://127.0.0.1:8050/docs"
   echo "  Image Web        http://localhost:3006"
   echo "  Proposals Web    http://localhost:3007"
   echo "  Backend API      http://127.0.0.1:8000/docs"
@@ -297,7 +304,8 @@ cmd_setup() {
     "trainer/server:.venv" \
     "image/server:.venv" \
     "proposals/server:.venv" \
-    "agent/server:.venv"
+    "agent/server:.venv" \
+    "marketing_api:.venv"
   do
     local dir="${entry%%:*}"
     local venv="${entry##*:}"
@@ -309,7 +317,7 @@ cmd_setup() {
   echo "→ playwright chromium (proposals PDF export)"
   (cd proposals/server && .venv/bin/python -m playwright install chromium)
 
-  for dir in frontend trainer/web products marketing image/web proposals/web; do
+  for dir in frontend trainer/web products marketing_ui image/web proposals/web; do
     if [[ ! -d "$dir/node_modules" ]]; then
       echo "→ npm install in $dir"
       (cd "$dir" && npm install)
@@ -318,7 +326,7 @@ cmd_setup() {
     fi
   done
 
-  for f in proposals/server/.env agent/server/.env image/server/.env; do
+  for f in proposals/server/.env agent/server/.env image/server/.env marketing_api/.env; do
     if [[ ! -f "$f" && -f "${f}.example" ]]; then
       cp "${f}.example" "$f"
       echo "→ created $f from example"
@@ -345,7 +353,8 @@ cmd_up() {
     "trainer/server:.venv" \
     "image/server:.venv" \
     "proposals/server:.venv" \
-    "agent/server:.venv"
+    "agent/server:.venv" \
+    "marketing_api:.venv"
   do
     ensure_venv "${entry%%:*}" "${entry##*:}"
   done
@@ -412,9 +421,13 @@ main() {
       usage
       ;;
     *)
-      echo "error: unknown command '$cmd'" >&2
-      usage
-      exit 1
+      if service_port "$cmd" >/dev/null 2>&1; then
+        cmd_up "$cmd" "$@"
+      else
+        echo "error: unknown command '$cmd'" >&2
+        usage
+        exit 1
+      fi
       ;;
   esac
 }

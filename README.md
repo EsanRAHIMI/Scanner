@@ -103,6 +103,8 @@ Routing is handled by Nginx in Docker and by the reverse proxy in production.
 | Image Admin UI | `image/web/` | 3006 |
 | Proposals API | `proposals/server/` | 8030 |
 | Proposals Web | `proposals/web/` | 3007 |
+| Marketing UI | `marketing_ui/` | 3005 |
+| Marketing API | `marketing_api/` | 8050 |
 
 ---
 
@@ -192,12 +194,25 @@ npm run dev
 
 ---
 
-## Terminal 6 — Marketing
+## Terminal 6 — Marketing UI
 
 ```bash
-cd marketing
+cd marketing_ui
 npm install
 npm run dev
+```
+
+---
+
+## Terminal 6b — Marketing API
+
+```bash
+cd marketing_api
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app:app --host 127.0.0.1 --port 8050 --reload
 ```
 
 ---
@@ -267,6 +282,7 @@ python -m uvicorn app:app --port 8040
 | Trainer API | http://127.0.0.1:8010 |
 | Products | http://localhost:3004 |
 | Marketing | http://localhost:3005 |
+| Marketing API | http://127.0.0.1:8050 |
 | Image Web | http://localhost:3006 |
 | Image API | http://127.0.0.1:8020 |
 | Proposals Web | http://localhost:3007 |
@@ -425,7 +441,7 @@ NEXT_PUBLIC_TRAINER_API_BASE=/trainer/api
 
 # Local Dev — One Command (`./dev`)
 
-Run **all 11 local services** from the repo root in **one terminal** — with labeled, color-coded logs.
+Run **all 12 local services** from the repo root in **one terminal** — with labeled, color-coded logs.
 
 **Prerequisites:** Node.js 20+, Python 3.11 (same as [Local Execution](#local-execution-without-docker)).
 
@@ -471,14 +487,15 @@ Use this from **another terminal** while `./dev` is running, or after a crash le
 | trainer-server | 8010 | `trainer/server/` |
 | trainer-web | 3010 | `trainer/web/` |
 | products | 3004 | `products/` |
-| marketing | 3005 | `marketing/` |
+| marketing-ui | 3005 | `marketing_ui/` |
+| marketing-api | 8050 | `marketing_api/` |
 | image-server | 8020 | `image/server/` |
 | image-web | 3006 | `image/web/` |
 | proposals-server | 8030 | `proposals/server/` |
 | proposals-web | 3007 | `proposals/web/` |
 | agent-server | 8040 | `agent/server/` |
 
-**Quick URLs after start:** Scanner `http://localhost:3003/scanner` · Trainer `http://localhost:3010` · Products `http://localhost:3004` · Image `http://localhost:3006` · Proposals `http://localhost:3007`
+**Quick URLs after start:** Scanner `http://localhost:3003/scanner` · Trainer `http://localhost:3010` · Products `http://localhost:3004` · Marketing `http://localhost:3005` · Image `http://localhost:3006` · Proposals `http://localhost:3007`
 
 The per-terminal steps in [Local Execution (Without Docker)](#local-execution-without-docker) are still valid if you prefer to run services separately.
 

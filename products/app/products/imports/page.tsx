@@ -14,7 +14,9 @@ import {
   SUGGESTED_SHOW_LABELS,
   detectCrystalCustomLabel,
   formatShowLabelChip,
+  getExcelFieldLabel,
   getImportRowDisplayLabel,
+  isExcelStagingLabelHeader,
   isExcludedByShowLabels,
   isLabelAllowedByShowFilter,
   normalizeShowLabelToken,
@@ -158,7 +160,8 @@ function collectImportColumnsFromRows(records: ProductImportRow[]): string[] {
   const present = new Set<string>();
   for (const row of records) {
     for (const key of Object.keys(row.fields ?? {})) {
-      if (key !== 'Row') present.add(key);
+      if (key === 'Row' || isExcelStagingLabelHeader(key)) continue;
+      present.add(key);
     }
   }
   return [
@@ -994,7 +997,8 @@ export default function ProductImportsPage() {
     for (const row of rowsData.records) {
       if (autoLabeledRowIdsRef.current.has(row.id)) continue;
       if ((row.row_label ?? '').trim()) continue;
-      const detected = detectCrystalCustomLabel(row.fields);
+      const fromExcel = getExcelFieldLabel(row.fields);
+      const detected = fromExcel || detectCrystalCustomLabel(row.fields);
       if (!detected) continue;
       autoLabeledRowIdsRef.current.add(row.id);
       void saveRowLabel(row.id, detected, { silent: true });
