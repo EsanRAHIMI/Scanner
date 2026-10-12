@@ -156,22 +156,17 @@ async def sync_linkedin(client: httpx.AsyncClient, settings: Settings, day: date
     start_parts = start.split("-")
     end_parts = end.split("-")
     res = await client.get(
-        "https://api.linkedin.com/rest/adAnalytics",
+        (
+            "https://api.linkedin.com/rest/adAnalytics?q=analytics&pivot=ACCOUNT&timeGranularity=ALL"
+            f"&dateRange=(start:(year:{start_parts[0]},month:{int(start_parts[1])},day:{int(start_parts[2])}),"
+            f"end:(year:{end_parts[0]},month:{int(end_parts[1])},day:{int(end_parts[2])}))"
+            f"&accounts=List(urn%3Ali%3AsponsoredAccount%3A{settings.linkedin_ad_account_id})"
+            "&fields=costInLocalCurrency,impressions,clicks,externalWebsiteConversions"
+        ),
         headers={
             "Authorization": f"Bearer {settings.linkedin_access_token}",
             "LinkedIn-Version": "202511",
             "X-Restli-Protocol-Version": "2.0.0",
-        },
-        params={
-            "q": "analytics",
-            "pivot": "ACCOUNT",
-            "timeGranularity": "ALL",
-            "dateRange": (
-                f"(start:(year:{start_parts[0]},month:{int(start_parts[1])},day:{int(start_parts[2])}),"
-                f"end:(year:{end_parts[0]},month:{int(end_parts[1])},day:{int(end_parts[2])}))"
-            ),
-            "accounts": f"List(urn:li:sponsoredAccount:{settings.linkedin_ad_account_id})",
-            "fields": "costInLocalCurrency,impressions,clicks,externalWebsiteConversions",
         },
         timeout=30,
     )
