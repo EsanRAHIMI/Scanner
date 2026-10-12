@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     gsc_site_url: str = "https://lorenzolighting.com/"
     gtm_container_path: str | None = None
     gbp_location_name: str | None = None
+    google_cloud_project: str | None = None
 
     linkedin_access_token: str | None = None
     linkedin_ad_account_id: str = "554320120"

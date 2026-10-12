@@ -542,6 +542,21 @@ async def sync_gtm(client: httpx.AsyncClient, settings: Settings, token: str | N
     return {"state": "ok", "detail": f"Container {name} is reachable. GTM is a tag check, not a metrics source.", "as_of": date.today().isoformat()}
 
 
+async def sync_cloud(settings: Settings) -> dict[str, Any]:
+    project = (settings.google_cloud_project or "").strip()
+    if not project:
+        return {
+            "state": "unconfigured",
+            "detail": "GOOGLE_CLOUD_PROJECT is not set. BigQuery is the store for GA4 events.",
+            "project": None,
+        }
+    return {
+        "state": "waiting",
+        "detail": f"Project {project} is named. The BigQuery export check is the next step.",
+        "project": project,
+    }
+
+
 async def sync_reviews(client: httpx.AsyncClient, settings: Settings, token: str | None) -> dict[str, Any]:
     if not token or not settings.gbp_location_name:
         return {"state": "unconfigured", "detail": "Google Business location or OAuth is not set.", "rating": None, "count": None}
@@ -613,6 +628,7 @@ async def run_connectors(settings: Settings, day: date | None = None, fx: float 
                 site_patch[key] = {"state": "error", "detail": str(exc)}
             if token_error and site_patch[key].get("state") != "ok":
                 site_patch[key]["detail"] = token_error
+        site_patch["cloud"] = await sync_cloud(settings)
 
     if token_error:
         for item in connectors:

@@ -51,3 +51,5 @@ async def ensure_indexes() -> None:
     await database["marketing_os_budgets"].create_index([("month", 1), ("channel", 1)], unique=True)
     await database["marketing_os_crm"].create_index([("month", 1), ("channel", 1)], unique=True)
     await database["marketing_os_targets"].create_index([("channel", 1), ("metric", 1)], unique=True)
+    await database["marketing_os_work"].create_index([("open", 1), ("stage", 1)])
+    await database["marketing_os_work_log"].create_index([("closed_on", -1)])

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { useLiveDashboard } from '@/hooks/use-live-dashboard';
+import { WorkBoard } from '@/components/os/work-board';
+import { DASHBOARD_SECTIONS, PAID_LEAD, readSiteSource } from '@/lib/os/catalog';
 import { aed, monthLabel, num, pct, type ChannelRow, type DashboardPayload } from '@/lib/os/types';
 
 type Move = { label: string; href: string; quiet?: boolean };
@@ -289,6 +291,8 @@ function Board({
         </div>
       </section>
 
+      <WorkBoard />
+
       {todo.length ? (
         <section className="dash-panel p-5">
           <h2 className="text-lg font-semibold">This week</h2>
@@ -309,7 +313,10 @@ function Board({
 
       <section className="dash-panel overflow-hidden">
         <div className="flex items-baseline justify-between gap-3 border-b border-brand-light-gray px-5 py-4">
-          <h2 className="text-lg font-semibold">Channels</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Paid channels</h2>
+            <p className="mt-1 text-xs text-brand-medium-gray">Meta, Google Ads, and LinkedIn lead. Every other channel stays in this list.</p>
+          </div>
           <Link href="/budgets" className="text-xs font-semibold text-brand-burgundy">Budgets</Link>
         </div>
         <div className="overflow-x-auto">
@@ -322,39 +329,8 @@ function Board({
               </tr>
             </thead>
             <tbody>
-              {moves.map(({ row, move }) => {
-                const tone = connectorByName.get(row.channel.toLowerCase())?.state;
-                return (
-                  <tr key={row.channel} className="border-t border-brand-light-gray align-top">
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-brand-black">{row.channel}</span>
-                        <Pill state={tone} />
-                      </div>
-                      <div className="mt-2 w-28">
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-light-gray">
-                          <div
-                            className={`h-full rounded-full ${row.utilization != null && row.utilization > 1 ? 'bg-red-700' : 'bg-brand-burgundy'}`}
-                            style={{ width: `${row.utilization == null ? 0 : Math.max(0, Math.min(100, row.utilization * 100))}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
-                    </td>
-                    <td className="px-4 py-3 tabular-nums">{aed(row.spend)}</td>
-                    <td className="px-4 py-3 tabular-nums">{num(row.impressions)}</td>
-                    <td className="px-4 py-3 tabular-nums">{num(row.clicks)}</td>
-                    <td className="px-4 py-3 tabular-nums">{num(row.whatsapp)}</td>
-                    <td className="px-4 py-3 tabular-nums">{num(row.qualified)}</td>
-                    <td className="px-4 py-3 tabular-nums">{num(row.quotes)}</td>
-                    <td className="px-4 py-3">
-                      <Link href={move.href} className={`text-sm font-semibold ${move.quiet ? 'text-brand-dark-gray' : 'text-brand-burgundy'}`}>
-                        {move.label}
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
+              <ChannelGroup label="Primary" rows={moves.filter(({ row }) => (PAID_LEAD as readonly string[]).includes(row.channel))} connectorByName={connectorByName} />
+              <ChannelGroup label="Also in market" rows={moves.filter(({ row }) => !(PAID_LEAD as readonly string[]).includes(row.channel))} connectorByName={connectorByName} />
             </tbody>
           </table>
         </div>
@@ -422,32 +398,89 @@ function Board({
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {[
-          ['Website', data.site.ga4?.state, data.site.ga4?.sessions != null ? `${num(data.site.ga4.sessions)} sessions` : 'Sessions unknown', '/connections'],
-          ['Google search', data.site.search?.state, data.site.search?.impressions != null ? `${num(data.site.search.impressions)} impressions` : 'Impressions unknown', '/connections'],
-          ['Reviews', data.site.reviews?.state, data.site.reviews?.rating != null ? `${data.site.reviews.rating} · ${num(data.site.reviews.count)}` : 'Rating unknown', '/connections'],
-          ['Instagram', undefined, 'Posts are managed on the calendar', '/calendar'],
-          ['Showroom', undefined, 'Appointments, walk-ins and events are not tracked', ''],
-          ['Odoo', data.site.odoo?.state, data.site.odoo?.detail || 'Quotes and orders', '/connections'],
-          ['Tag Manager', data.site.gtm?.state, data.site.gtm?.detail || 'Tag check only', '/connections'],
-        ].map(([title, state, detail, href]) => {
-          const body = (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{title}</div>
-                {state ? <Pill state={String(state)} /> : null}
+      {DASHBOARD_SECTIONS.map((section) => (
+        <section key={section.id}>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold">{section.title}</h2>
+            <p className="mt-1 max-w-2xl text-xs text-brand-medium-gray">{section.summary}</p>
+          </div>
+          <div className={`grid gap-4 ${section.sources.length > 2 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+            {section.sources.map((source) => {
+              const reading = readSiteSource(source.id, data.site);
+              const figure = reading.figure === '—' ? source.role : reading.figure;
+              const body = (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{source.title}</div>
+                    {reading.state ? <Pill state={reading.state} /> : null}
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-brand-black">{figure}</p>
+                  <p className="mt-1 text-xs text-brand-dark-gray">{source.role}</p>
+                </>
+              );
+              return (
+                <Link key={source.id} href={source.href} className="dash-card p-5">
+                  {body}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
+function ChannelGroup({
+  label,
+  rows,
+  connectorByName,
+}: {
+  label: string;
+  rows: Array<{ row: ChannelRow; move: Move }>;
+  connectorByName: Map<string, { name: string; state: string; detail?: string }>;
+}) {
+  if (!rows.length) return null;
+  return (
+    <>
+      <tr>
+        <td colSpan={8} className="border-t border-brand-light-gray bg-brand-light-gray/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-dark-gray">
+          {label}
+        </td>
+      </tr>
+      {rows.map(({ row, move }) => {
+        const tone = connectorByName.get(row.channel.toLowerCase())?.state;
+        return (
+          <tr key={row.channel} className="border-t border-brand-light-gray align-top">
+            <td className="px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-brand-black">{row.channel}</span>
+                <Pill state={tone} />
               </div>
-              <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
-            </>
-          );
-          return href ? (
-            <Link key={String(title)} href={String(href)} className="dash-card p-5">{body}</Link>
-          ) : (
-            <div key={String(title)} className="dash-card p-5">{body}</div>
-          );
-        })}
-      </section>
+              <div className="mt-2 w-28">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-light-gray">
+                  <div
+                    className={`h-full rounded-full ${row.utilization != null && row.utilization > 1 ? 'bg-red-700' : 'bg-brand-burgundy'}`}
+                    style={{ width: `${row.utilization == null ? 0 : Math.max(0, Math.min(100, row.utilization * 100))}%` }}
+                  />
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
+            </td>
+            <td className="px-4 py-3 tabular-nums">{aed(row.spend)}</td>
+            <td className="px-4 py-3 tabular-nums">{num(row.impressions)}</td>
+            <td className="px-4 py-3 tabular-nums">{num(row.clicks)}</td>
+            <td className="px-4 py-3 tabular-nums">{num(row.whatsapp)}</td>
+            <td className="px-4 py-3 tabular-nums">{num(row.qualified)}</td>
+            <td className="px-4 py-3 tabular-nums">{num(row.quotes)}</td>
+            <td className="px-4 py-3">
+              <Link href={move.href} className={`text-sm font-semibold ${move.quiet ? 'text-brand-dark-gray' : 'text-brand-burgundy'}`}>
+                {move.label}
+              </Link>
+            </td>
+          </tr>
+        );
+      })}
     </>
   );
 }

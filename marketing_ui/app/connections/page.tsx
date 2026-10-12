@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { DASHBOARD_SECTIONS, PAID_ALSO, PAID_LEAD } from '@/lib/os/catalog';
+
 type Connector = { name: string; state: string; detail?: string; checked_on?: string };
 type SiteBlock = { state?: string; detail?: string };
 
@@ -46,45 +48,57 @@ export default function ConnectionsPage() {
     window.setTimeout(() => void load(), 2500);
   }
 
-  const blocks = [
-    ['Odoo', site.odoo],
-    ['GA4', site.ga4],
-    ['Search Console', site.search],
-    ['Reviews', site.reviews],
-    ['Tag Manager', site.gtm],
-  ] as const;
+  const byName = new Map(connectors.map((item) => [item.name, item]));
+  const listed = new Set<string>([...PAID_LEAD, ...PAID_ALSO]);
+  const extra = connectors.map((item) => item.name).filter((name) => !listed.has(name));
+  const paidGroups = [
+    { label: 'Primary', names: [...PAID_LEAD] },
+    { label: 'Also in market', names: [...PAID_ALSO, ...extra] },
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="dash-eyebrow">Connections</p>
           <h1 className="dash-title">Sources</h1>
-          <p className="dash-desc">Keys stay on the marketing API. This page only shows whether each source is connected.</p>
+          <p className="dash-desc">Keys stay on the marketing API. Each source sits in the same group as on the dashboard.</p>
         </div>
         <button type="button" className="btn-primary px-5 py-2.5" onClick={() => void syncNow()}>Sync now</button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {connectors.map((item) => (
-          <div key={item.name} className="dash-card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{item.name}</h2>
-              <span className="text-xs font-semibold uppercase text-brand-burgundy">{item.state}</span>
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Paid channels</h2>
+          <p className="mt-1 text-xs text-brand-medium-gray">Meta, Google Ads, and LinkedIn lead. The other ad accounts stay listed.</p>
+        </div>
+        {paidGroups.map((group) => (
+          <div key={group.label}>
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-dark-gray">{group.label}</h3>
+            <div className="grid gap-4 md:grid-cols-2">
+              {group.names.map((name) => {
+                const item = byName.get(name);
+                return <SourceCard key={name} title={name} state={item?.state} detail={item?.detail || 'Not checked yet.'} />;
+              })}
             </div>
-            <p className="mt-2 text-sm text-brand-dark-gray">{item.detail || '—'}</p>
           </div>
         ))}
-        {blocks.map(([name, block]) => (
-          <div key={name} className="dash-card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{name}</h2>
-              <span className="text-xs font-semibold uppercase text-brand-burgundy">{block?.state || 'waiting'}</span>
-            </div>
-            <p className="mt-2 text-sm text-brand-dark-gray">{block?.detail || 'Not checked yet.'}</p>
+      </section>
+
+      {DASHBOARD_SECTIONS.map((section) => (
+        <section key={section.id} className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">{section.title}</h2>
+            <p className="mt-1 text-xs text-brand-medium-gray">{section.summary}</p>
           </div>
-        ))}
-      </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {section.sources.map((source) => {
+              const block = site[source.id];
+              return <SourceCard key={source.id} title={source.title} state={block?.state} detail={block?.detail || source.role} />;
+            })}
+          </div>
+        </section>
+      ))}
 
       <div className="dash-panel flex flex-wrap items-end gap-3 p-5">
         <label className="text-sm">
@@ -94,6 +108,18 @@ export default function ConnectionsPage() {
         <button type="button" className="btn-primary px-4 py-2" onClick={() => void saveFx()}>Save rate</button>
       </div>
       {message ? <p className="text-sm text-brand-dark-gray">{message}</p> : null}
+    </div>
+  );
+}
+
+function SourceCard({ title, state, detail }: { title: string; state?: string; detail: string }) {
+  return (
+    <div className="dash-card p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold">{title}</h2>
+        <span className="text-xs font-semibold uppercase text-brand-burgundy">{state || 'waiting'}</span>
+      </div>
+      <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
     </div>
   );
 }

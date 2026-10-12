@@ -43,6 +43,7 @@ export type DashboardPayload = {
     search?: { state?: string; clicks?: number | null; impressions?: number | null; detail?: string };
     reviews?: { state?: string; rating?: number | null; count?: number | null; detail?: string };
     gtm?: { state?: string; detail?: string };
+    cloud?: { state?: string; detail?: string; project?: string | null };
     odoo?: { state?: string; detail?: string };
     unmapped_leads?: number;
   };

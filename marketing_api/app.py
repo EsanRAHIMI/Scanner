@@ -15,6 +15,7 @@ from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
 from core.store import complete_budget_rows, dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
 from core.sync import run_sync, sync_loop
+from core.work import archive_work, create_work, list_work, log_round, restore_work, update_work
 
 
 class SettingsPatch(BaseModel):
@@ -38,6 +39,21 @@ class BudgetRow(BaseModel):
     budget_aed: float | None = None
     approval: str | None = None
     note: str | None = None
+
+
+class WorkWrite(BaseModel):
+    title: str
+    kind: str
+    repeat: str
+    owner: str = ""
+    stage: str
+    started_on: str
+    note: str = ""
+    today: str | None = None
+
+
+class WorkDay(BaseModel):
+    today: str | None = None
 
 
 @asynccontextmanager
@@ -163,6 +179,36 @@ async def read_budgets(month: str | None = None, _user: dict = Depends(get_curre
 async def write_budgets(body: list[BudgetRow], _admin: dict = Depends(require_admin)) -> dict:
     await replace_budgets([row.model_dump() for row in body])
     return {"ok": True}
+
+
+@app.get("/api/v1/work")
+async def read_work(_user: dict = Depends(get_current_user)) -> dict:
+    return await list_work()
+
+
+@app.post("/api/v1/work")
+async def add_work(body: WorkWrite, _user: dict = Depends(get_current_user)) -> dict:
+    return await create_work(body.model_dump())
+
+
+@app.put("/api/v1/work/{work_id}")
+async def edit_work(work_id: str, body: WorkWrite, _user: dict = Depends(get_current_user)) -> dict:
+    return await update_work(work_id, body.model_dump())
+
+
+@app.post("/api/v1/work/{work_id}/archive")
+async def close_work(work_id: str, body: WorkDay, _user: dict = Depends(get_current_user)) -> dict:
+    return await archive_work(work_id, body.today)
+
+
+@app.post("/api/v1/work/{work_id}/round")
+async def finish_round(work_id: str, body: WorkDay, _user: dict = Depends(get_current_user)) -> dict:
+    return await log_round(work_id, body.today)
+
+
+@app.post("/api/v1/work/{work_id}/restore")
+async def reopen_work(work_id: str, _user: dict = Depends(get_current_user)) -> dict:
+    return await restore_work(work_id)
 
 
 @app.get("/api/v1/connectors")

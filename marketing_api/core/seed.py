@@ -242,4 +242,5 @@ def empty_site() -> dict:
         "search": {**unknown, "clicks": None, "impressions": None, "query": "lorenzo lighting"},
         "reviews": {**unknown, "rating": None, "count": None},
         "gtm": {**unknown},
+        "cloud": {**unknown, "project": None, "detail": "GOOGLE_CLOUD_PROJECT is not set. BigQuery is the store for GA4 events."},
     }
