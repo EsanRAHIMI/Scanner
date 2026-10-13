@@ -199,7 +199,7 @@ async def sync_pinterest(client: httpx.AsyncClient, settings: Settings, day: dat
             "start_date": start,
             "end_date": end,
             "granularity": "TOTAL",
-            "columns": "SPEND_IN_DOLLAR,IMPRESSION,CLICKTHROUGH,TOTAL_CONVERSIONS",
+            "columns": "SPEND_IN_DOLLAR,PAID_IMPRESSION,CLICKTHROUGH_1,TOTAL_CONVERSIONS",
         },
         timeout=30,
     )
@@ -209,7 +209,7 @@ async def sync_pinterest(client: httpx.AsyncClient, settings: Settings, day: dat
     rows = body if isinstance(body, list) else []
     row = rows[0] if rows else {}
     usd = row.get("SPEND_IN_DOLLAR")
-    impressions = float(row["IMPRESSION"]) if row.get("IMPRESSION") not in (None, "") else None
+    impressions = float(row["PAID_IMPRESSION"]) if row.get("PAID_IMPRESSION") not in (None, "") else None
     delivered = usd not in (None, "", 0, "0") or (impressions or 0) > 0
     spend = round(float(usd) * fx, 2) if delivered and usd not in (None, "") else None
     record = _mtd(
@@ -219,7 +219,7 @@ async def sync_pinterest(client: httpx.AsyncClient, settings: Settings, day: dat
         status="Active" if delivered else "Draft",
         spend=spend,
         impressions=impressions,
-        clicks=float(row["CLICKTHROUGH"]) if row.get("CLICKTHROUGH") not in (None, "") else None,
+        clicks=float(row["CLICKTHROUGH_1"]) if row.get("CLICKTHROUGH_1") not in (None, "") else None,
         raw_results=float(row["TOTAL_CONVERSIONS"]) if row.get("TOTAL_CONVERSIONS") not in (None, "") else None,
         notes="Live account analytics. Pinterest reports USD; spend is converted with the saved USD/AED rate. No delivery stays unknown.",
     )
