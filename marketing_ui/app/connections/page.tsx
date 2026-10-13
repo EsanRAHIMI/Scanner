@@ -62,7 +62,7 @@ export default function ConnectionsPage() {
         <div>
           <p className="dash-eyebrow">Connections</p>
           <h1 className="dash-title">Sources</h1>
-          <p className="dash-desc">Keys stay on the marketing API. Each source sits in the same group as on the dashboard.</p>
+          <p className="dash-desc">Keys stay on the marketing API. Sources refresh twice a day. Sync now is the extra check.</p>
         </div>
         <button type="button" className="btn-primary px-5 py-2.5" onClick={() => void syncNow()}>Sync now</button>
       </div>

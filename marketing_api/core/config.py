@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     trainer_auth_cookie_name: str = "trainer_auth"
     marketing_cors_origins: str = "http://localhost:3005,http://127.0.0.1:3005"
     marketing_workbook_path: str | None = None
-    sync_interval_seconds: int = 3600
+    sync_interval_seconds: int = 43_200
 
     meta_access_token: str | None = None
     meta_ad_account_id: str = "449251307578659"

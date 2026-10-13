@@ -199,7 +199,7 @@ export function LiveDashboard() {
               {mounted && viewingToday ? todayLabel() : monthLabel(month)}
             </h1>
             <p className="mt-2 max-w-xl text-sm text-brand-light-gray/90">
-              Seen, click, WhatsApp, quote, showroom, order. A blank figure is unknown, not zero.
+              Seen, click, WhatsApp, quote, showroom, order. A blank figure is unknown, not zero. Sources refresh twice a day, or when you press Refresh now.
             </p>
           </div>
           <div className="flex flex-col items-stretch gap-3 sm:items-end">
@@ -224,7 +224,7 @@ export function LiveDashboard() {
                 </button>
               ))}
               <button type="button" onClick={() => void refresh()} disabled={syncing} className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-brand-burgundy disabled:opacity-60">
-                {syncing ? 'Refreshing…' : 'Refresh sources'}
+                {syncing ? 'Refreshing…' : 'Refresh now'}
               </button>
             </div>
           </div>

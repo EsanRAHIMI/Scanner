@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 
 from .config import get_settings
 from .connectors import run_connectors
@@ -10,6 +10,24 @@ from .odoo import pull_odoo
 from .store import rebuild, settings_doc
 
 _running = asyncio.Lock()
+AUTOMATIC_SYNC_SECONDS = 12 * 60 * 60
+
+
+def _interval_seconds(settings) -> int:
+    configured = int(settings.sync_interval_seconds or AUTOMATIC_SYNC_SECONDS)
+    return max(AUTOMATIC_SYNC_SECONDS, configured)
+
+
+def _seconds_since(raw: object) -> float | None:
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - moment).total_seconds()
 
 
 async def run_sync() -> dict:
@@ -88,20 +106,28 @@ async def run_sync() -> dict:
 
         selected = (await settings_doc()).get("selected_month")
         await rebuild(selected)
+        await database["marketing_os_settings"].update_one(
+            {"_id": "current"},
+            {"$set": {"synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}},
+            upsert=True,
+        )
         return {"started": True, "connectors": outcome["connectors"], "odoo": odoo.get("state")}
 
 
 async def sync_loop() -> None:
-    settings = get_settings()
-    interval = max(300, int(settings.sync_interval_seconds or 3600))
-    first = True
+    interval = _interval_seconds(get_settings())
     while True:
         try:
-            await asyncio.sleep(8 if first else interval)
-            first = False
-            if db() is not None:
-                await run_sync()
+            if db() is None:
+                await asyncio.sleep(interval)
+                continue
+            elapsed = _seconds_since((await settings_doc()).get("synced_at"))
+            wait = 0 if elapsed is None else max(0, interval - elapsed)
+            if wait:
+                await asyncio.sleep(wait)
+            await run_sync()
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
         except Exception:
-            continue
+            await asyncio.sleep(interval)
