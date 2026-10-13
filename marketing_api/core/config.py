@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None
     google_oauth_client_secret: str | None = None
     google_oauth_refresh_token: str | None = None
-    google_ads_developer_token: str | None = None
     google_ads_customer_id: str = "2042770350"
     google_ads_login_customer_id: str | None = None
     ga4_property_id: str | None = None

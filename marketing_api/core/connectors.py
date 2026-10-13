@@ -99,8 +99,8 @@ async def sync_meta(client: httpx.AsyncClient, settings: Settings, day: date) ->
 
 
 async def sync_google_ads(client: httpx.AsyncClient, settings: Settings, day: date, token: str | None) -> dict[str, Any]:
-    if not token or not settings.google_ads_developer_token:
-        return {"name": "Google Ads", "state": "unconfigured", "detail": "Google Ads credentials are not set."}
+    if not token:
+        return {"name": "Google Ads", "state": "unconfigured", "detail": "Google OAuth is not set."}
     start, end, month = _month_bounds(day)
     customer = settings.google_ads_customer_id.replace("-", "")
     query = (
@@ -108,10 +108,7 @@ async def sync_google_ads(client: httpx.AsyncClient, settings: Settings, day: da
         "FROM customer "
         f"WHERE segments.date BETWEEN '{start}' AND '{end}'"
     )
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "developer-token": settings.google_ads_developer_token,
-    }
+    headers = {"Authorization": f"Bearer {token}"}
     if settings.google_ads_login_customer_id:
         headers["login-customer-id"] = settings.google_ads_login_customer_id.replace("-", "")
     res = await client.post(
