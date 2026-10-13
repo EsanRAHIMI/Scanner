@@ -112,7 +112,7 @@ async def sync_google_ads(client: httpx.AsyncClient, settings: Settings, day: da
     if settings.google_ads_login_customer_id:
         headers["login-customer-id"] = settings.google_ads_login_customer_id.replace("-", "")
     res = await client.post(
-        f"https://googleads.googleapis.com/v18/customers/{customer}/googleAds:search",
+        f"https://googleads.googleapis.com/v25/customers/{customer}/googleAds:search",
         headers=headers,
         json={"query": query},
         timeout=30,
