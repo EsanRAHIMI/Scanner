@@ -218,18 +218,13 @@ export function LiveDashboard() {
               {updatedLabel(data?.generated_at)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {months.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setMonth(item)}
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    month === item ? 'bg-white text-brand-burgundy' : 'bg-white/10 text-white'
-                  }`}
-                >
-                  {item === today ? 'Today' : monthLabel(item)}
-                </button>
-              ))}
+              <button type="button" className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40" disabled={months[0] === month} onClick={() => setMonth(months[Math.max(0, months.indexOf(month) - 1)])}>Earlier</button>
+              <select className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-brand-burgundy" value={month} onChange={(event) => setMonth(event.target.value)}>
+                {months.map((item) => (
+                  <option key={item} value={item}>{item === today ? `This month · ${monthLabel(item)}` : monthLabel(item)}</option>
+                ))}
+              </select>
+              <button type="button" className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40" disabled={months[months.length - 1] === month} onClick={() => setMonth(months[Math.min(months.length - 1, months.indexOf(month) + 1)])}>Later</button>
               <button type="button" onClick={() => void refresh()} disabled={syncing} className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-brand-burgundy disabled:opacity-60">
                 {syncing ? 'Refreshing…' : 'Refresh now'}
               </button>
@@ -239,7 +234,7 @@ export function LiveDashboard() {
       </section>
 
       {error ? <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-      {!data ? <div className="dash-panel h-40 animate-pulse" /> : <Board data={data} work={work} connectorByName={connectorByName} />}
+      {!data ? <div className="dash-panel h-40 animate-pulse" /> : <Board data={data} work={work} month={month} onMonth={setMonth} connectorByName={connectorByName} />}
     </div>
   );
 }
@@ -247,10 +242,14 @@ export function LiveDashboard() {
 function Board({
   data,
   work,
+  month,
+  onMonth,
   connectorByName,
 }: {
   data: DashboardPayload;
   work: Work | null;
+  month: string;
+  onMonth: (month: string) => void;
   connectorByName: Map<string, { name: string; state: string; detail?: string }>;
 }) {
   const seen = sumKnown([
@@ -279,71 +278,61 @@ function Board({
     { label: 'Order', value: num(data.orders_90d), hint: data.revenue_90d == null ? 'Paid orders' : aed(data.revenue_90d) },
   ];
 
+  const primary = moves.filter(({ row }) => (PAID_LEAD as readonly string[]).includes(row.channel));
+  const rest = moves.filter(({ row }) => !(PAID_LEAD as readonly string[]).includes(row.channel));
+  const used = data.budget ? (data.spend == null ? null : data.spend / data.budget) : null;
+
   return (
     <>
-      <section>
-        <div className="mb-3 flex items-baseline justify-between gap-3">
-          <h2 className="text-lg font-semibold">The path</h2>
-          <p className="text-xs text-brand-medium-gray">Spend {aed(data.spend)} of {aed(data.budget)}</p>
+      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="dash-panel p-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold">This month</h2>
+            <p className="text-xs text-brand-medium-gray">{pct(used)} of budget</p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <PathStep label="Spend" value={aed(data.spend)} hint={`of ${aed(data.budget)}`} />
+            <PathStep label="Seen" value={num(seen)} hint="Ads and search" />
+            <PathStep label="Click" value={num(clicks)} hint="Ads and search" />
+            <PathStep label="Order" value={num(data.orders_90d)} hint={data.revenue_90d == null ? 'Paid orders' : aed(data.revenue_90d)} />
+          </div>
+          <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+            {steps.slice(2, 6).map((step) => (
+              <div key={step.label}>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-brand-medium-gray">{step.label}</div>
+                <div className="mt-1 font-semibold tabular-nums">{step.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {steps.map((step, index) => (
-            <div key={step.label} className="flex min-w-0 flex-1 items-stretch gap-2">
-              <PathStep label={step.label} value={step.value} hint={step.hint} />
-              {index < steps.length - 1 ? (
-                <span className="self-center text-brand-medium-gray" aria-hidden="true">→</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
+        <SpendChart trend={data.trend} month={month} onPick={onMonth} />
       </section>
 
-      <WorkBoard />
-
-      {todo.length ? (
-        <section className="dash-panel p-5">
-          <h2 className="text-lg font-semibold">This week</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Channels</h2>
+            <p className="mt-1 text-xs text-brand-medium-gray">Spend, delivery, and the next decision. A blank figure is unknown.</p>
+          </div>
+          <Link href="/budgets" className="text-xs font-semibold text-brand-burgundy">Budgets</Link>
+        </div>
+        <ChannelDesk label="Primary" rows={primary} connectorByName={connectorByName} />
+        <ChannelDesk label="Also in market" rows={rest} connectorByName={connectorByName} />
+        {todo.length ? (
+          <div className="flex flex-wrap gap-2">
             {todo.map(({ row, move }) => (
-              <Link
-                key={row.channel}
-                href={move.href}
-                className="inline-flex items-center gap-2 rounded-full bg-brand-light-gray/60 px-3 py-1.5 text-sm font-semibold text-brand-black hover:bg-brand-burgundy/10"
-              >
+              <Link key={row.channel} href={move.href} className="inline-flex items-center gap-2 rounded-full bg-brand-white px-3 py-1.5 text-sm font-semibold text-brand-black shadow-brand-card">
                 {move.label}
                 <span className="font-medium text-brand-dark-gray">{row.channel}</span>
               </Link>
             ))}
           </div>
-        </section>
-      ) : null}
-
-      <section className="dash-panel overflow-hidden">
-        <div className="flex items-baseline justify-between gap-3 border-b border-brand-light-gray px-5 py-4">
-          <div>
-            <h2 className="text-lg font-semibold">Paid channels</h2>
-            <p className="mt-1 text-xs text-brand-medium-gray">Meta, Google Ads, and LinkedIn lead. Every other channel stays in this list.</p>
-          </div>
-          <Link href="/budgets" className="text-xs font-semibold text-brand-burgundy">Budgets</Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-[10px] uppercase tracking-wider text-brand-medium-gray">
-              <tr>
-                {['Channel', 'Spend', 'Seen', 'Click', 'WhatsApp', 'Qualified', 'Quote', 'Do'].map((heading) => (
-                  <th key={heading} className="px-4 py-3 font-semibold">{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <ChannelGroup label="Primary" rows={moves.filter(({ row }) => (PAID_LEAD as readonly string[]).includes(row.channel))} connectorByName={connectorByName} />
-              <ChannelGroup label="Also in market" rows={moves.filter(({ row }) => !(PAID_LEAD as readonly string[]).includes(row.channel))} connectorByName={connectorByName} />
-            </tbody>
-          </table>
-        </div>
+        ) : null}
       </section>
 
       <AudienceSection rows={data.audience} />
+
+      <WorkBoard />
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="dash-panel p-5">
@@ -484,7 +473,39 @@ function AudienceSection({ rows }: { rows?: AudienceRow[] }) {
   );
 }
 
-function ChannelGroup({
+function SpendChart({
+  trend,
+  month,
+  onPick,
+}: {
+  trend: DashboardPayload['trend'];
+  month: string;
+  onPick: (month: string) => void;
+}) {
+  const known = trend.map((point) => point.spend).filter((value): value is number => value != null);
+  const max = Math.max(...known, 1);
+  return (
+    <section className="dash-panel p-5">
+      <h2 className="text-lg font-semibold">Spend by month</h2>
+      <p className="mt-1 text-xs text-brand-medium-gray">Select a month. A short bar with no figure means spend is unknown.</p>
+      <div className="mt-4 flex h-44 items-end gap-1">
+        {trend.map((point) => {
+          const height = point.spend == null ? 8 : Math.max(8, (point.spend / max) * 100);
+          const selected = point.month === month;
+          return (
+            <button key={point.month} type="button" onClick={() => onPick(point.month)} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+              <span className="text-[9px] tabular-nums text-brand-dark-gray">{selected && point.spend != null ? num(point.spend) : ''}</span>
+              <span className={`w-full rounded-t ${selected ? 'bg-brand-burgundy' : 'bg-brand-burgundy/25'}`} style={{ height: `${height}%` }} />
+              <span className={`text-[9px] ${selected ? 'font-semibold text-brand-burgundy' : 'text-brand-medium-gray'}`}>{monthLabel(point.month).slice(0, 3)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ChannelDesk({
   label,
   rows,
   connectorByName,
@@ -495,45 +516,33 @@ function ChannelGroup({
 }) {
   if (!rows.length) return null;
   return (
-    <>
-      <tr>
-        <td colSpan={8} className="border-t border-brand-light-gray bg-brand-light-gray/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-dark-gray">
-          {label}
-        </td>
-      </tr>
-      {rows.map(({ row, move }) => {
-        const tone = connectorByName.get(row.channel.toLowerCase())?.state;
-        return (
-          <tr key={row.channel} className="border-t border-brand-light-gray align-top">
-            <td className="px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-brand-black">{row.channel}</span>
+    <div>
+      <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-dark-gray">{label}</h3>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map(({ row, move }) => {
+          const tone = connectorByName.get(row.channel.toLowerCase())?.state;
+          const width = row.utilization == null ? 0 : Math.max(0, Math.min(100, row.utilization * 100));
+          return (
+            <article key={row.channel} className="dash-card p-5">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold">{row.channel}</h3>
                 <Pill state={tone} />
               </div>
-              <div className="mt-2 w-28">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-brand-light-gray">
-                  <div
-                    className={`h-full rounded-full ${row.utilization != null && row.utilization > 1 ? 'bg-red-700' : 'bg-brand-burgundy'}`}
-                    style={{ width: `${row.utilization == null ? 0 : Math.max(0, Math.min(100, row.utilization * 100))}%` }}
-                  />
-                </div>
+              <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight">{aed(row.spend)}</p>
+              <p className="text-xs text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</p>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-brand-light-gray">
+                <div className={`h-full rounded-full ${row.utilization != null && row.utilization > 1 ? 'bg-red-700' : 'bg-brand-burgundy'}`} style={{ width: `${width}%` }} />
               </div>
-              <div className="mt-1 text-[10px] text-brand-medium-gray">{pct(row.utilization)} of {aed(row.budget)}</div>
-            </td>
-            <td className="px-4 py-3 tabular-nums">{aed(row.spend)}</td>
-            <td className="px-4 py-3 tabular-nums">{num(row.impressions)}</td>
-            <td className="px-4 py-3 tabular-nums">{num(row.clicks)}</td>
-            <td className="px-4 py-3 tabular-nums">{num(row.whatsapp)}</td>
-            <td className="px-4 py-3 tabular-nums">{num(row.qualified)}</td>
-            <td className="px-4 py-3 tabular-nums">{num(row.quotes)}</td>
-            <td className="px-4 py-3">
-              <Link href={move.href} className={`text-sm font-semibold ${move.quiet ? 'text-brand-dark-gray' : 'text-brand-burgundy'}`}>
-                {move.label}
-              </Link>
-            </td>
-          </tr>
-        );
-      })}
-    </>
+              <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                <div><dt className="text-brand-medium-gray">Seen</dt><dd className="mt-1 font-semibold tabular-nums">{num(row.impressions)}</dd></div>
+                <div><dt className="text-brand-medium-gray">Click</dt><dd className="mt-1 font-semibold tabular-nums">{num(row.clicks)}</dd></div>
+                <div><dt className="text-brand-medium-gray">CTR</dt><dd className="mt-1 font-semibold tabular-nums">{pct(row.ctr)}</dd></div>
+              </dl>
+              <Link href={move.href} className={`mt-4 inline-block text-sm font-semibold ${move.quiet ? 'text-brand-dark-gray' : 'text-brand-burgundy'}`}>{move.label}</Link>
+            </article>
+          );
+        })}
+      </div>
+    </div>
   );
 }

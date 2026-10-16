@@ -37,6 +37,7 @@ def _clean(body: dict[str, Any], today: date) -> dict[str, Any]:
     note = str(body.get("note") or "").strip()
     if len(owner) > 80 or len(note) > 500:
         raise HTTPException(status_code=400, detail="INVALID_WORK")
+    deadline_raw = str(body.get("deadline") or "").strip()
     return {
         "title": title,
         "kind": kind,
@@ -44,8 +45,23 @@ def _clean(body: dict[str, Any], today: date) -> dict[str, Any]:
         "owner": owner,
         "stage": stage,
         "started_on": _day(body.get("started_on"), today),
+        "deadline": _day(deadline_raw) if deadline_raw else None,
+        "hours": _amount(body.get("hours")),
+        "cost_aed": _amount(body.get("cost_aed")),
         "note": note,
     }
+
+
+def _amount(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="INVALID_WORK")
+    if number < 0 or number > 1_000_000:
+        raise HTTPException(status_code=400, detail="INVALID_WORK")
+    return round(number, 2)
 
 
 def _public(doc: dict[str, Any]) -> dict[str, Any]:
@@ -66,6 +82,9 @@ def _snapshot(doc: dict[str, Any], closed_on: str, reason: str) -> dict[str, Any
         "stage": doc.get("stage") or "Done",
         "started_on": doc.get("started_on") or closed_on,
         "stage_on": doc.get("stage_on") or doc.get("started_on") or closed_on,
+        "deadline": doc.get("deadline"),
+        "hours": doc.get("hours"),
+        "cost_aed": doc.get("cost_aed"),
         "note": doc.get("note") or "",
         "closed_on": closed_on,
         "reason": reason,
