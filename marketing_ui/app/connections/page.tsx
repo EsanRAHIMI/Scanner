@@ -12,7 +12,6 @@ export default function ConnectionsPage() {
   const [site, setSite] = useState<Record<string, SiteBlock>>({});
   const [fx, setFx] = useState('3.6725');
   const [message, setMessage] = useState<string | null>(null);
-  const [tiktokUrl, setTiktokUrl] = useState<string | null>(null);
 
   async function load() {
     const [conn, settings] = await Promise.all([
@@ -41,18 +40,28 @@ export default function ConnectionsPage() {
         body: JSON.stringify({ auth_code: code, state }),
       }).then(async (res) => {
         const body = await res.json().catch(() => ({}));
-        setMessage(res.ok ? 'TikTok connected.' : body.detail || 'TikTok connection failed. Admin access is required.');
+        const detail = typeof body.detail === 'string' ? body.detail : '';
+        setMessage(res.ok ? 'TikTok connected.' : detail || 'TikTok connection failed. Admin access is required.');
         window.history.replaceState({}, '', '/connections');
-        if (res.ok) window.setTimeout(() => void load(), 500);
+        if (res.ok) {
+          await fetch('/api/os/sync', { method: 'POST' });
+          window.setTimeout(() => void load(), 2500);
+        }
       });
     }
-    void fetch('/api/os/tiktok/oauth', { cache: 'no-store' }).then(async (res) => {
-      if (!res.ok) return;
-      const body = await res.json();
-      if (body.url) setTiktokUrl(body.url);
-    });
     void load();
   }, []);
+
+  async function connectTikTok() {
+    const res = await fetch('/api/os/tiktok/oauth', { cache: 'no-store' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.url) {
+      const detail = typeof body.detail === 'string' ? body.detail : '';
+      setMessage(detail || 'TikTok connection failed. Admin access is required.');
+      return;
+    }
+    window.location.assign(body.url);
+  }
 
   async function saveFx() {
     const res = await fetch('/api/os/settings', {
@@ -105,7 +114,7 @@ export default function ConnectionsPage() {
                     title={name}
                     state={item?.state}
                     detail={item?.detail || 'Not checked yet.'}
-                    action={name === 'TikTok' && tiktokUrl ? { href: tiktokUrl, label: 'Connect TikTok' } : null}
+                    action={name === 'TikTok' ? { label: 'Connect TikTok', onClick: () => void connectTikTok() } : null}
                   />
                 );
               })}
@@ -150,7 +159,7 @@ function SourceCard({
   title: string;
   state?: string;
   detail: string;
-  action?: { href: string; label: string } | null;
+  action?: { label: string; onClick: () => void } | null;
 }) {
   return (
     <div className="dash-card p-5">
@@ -160,9 +169,9 @@ function SourceCard({
       </div>
       <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
       {action ? (
-        <a href={action.href} className="mt-3 inline-block text-xs font-semibold text-brand-burgundy">
+        <button type="button" className="mt-3 text-xs font-semibold text-brand-burgundy" onClick={action.onClick}>
           {action.label}
-        </a>
+        </button>
       ) : null}
     </div>
   );
