@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -111,6 +111,8 @@ async def sync_google_ads(client: httpx.AsyncClient, settings: Settings, day: da
         f"WHERE segments.date BETWEEN '{start}' AND '{end}'"
     )
     headers = {"Authorization": f"Bearer {token}"}
+    if settings.google_ads_developer_token:
+        headers["developer-token"] = settings.google_ads_developer_token
     if settings.google_ads_login_customer_id:
         headers["login-customer-id"] = settings.google_ads_login_customer_id.replace("-", "")
     res = await client.post(
@@ -202,6 +204,12 @@ async def sync_pinterest(client: httpx.AsyncClient, settings: Settings, day: dat
         },
         timeout=30,
     )
+    if res.status_code == 401:
+        raise RuntimeError("Pinterest rejected this token. Create it from the user that owns the ad account.")
+    if res.status_code == 403:
+        raise RuntimeError(
+            f"Pinterest signed in, but that user cannot read ad account {settings.pinterest_ad_account_id}."
+        )
     if res.status_code >= 400:
         raise RuntimeError(f"Pinterest {res.status_code}: {res.text[:180]}")
     body = res.json()
@@ -589,7 +597,20 @@ async def sync_search(client: httpx.AsyncClient, settings: Settings, token: str 
     if not token or not settings.gsc_site_url:
         return {"state": "unconfigured", "detail": "Search Console site or Google OAuth is not set.", "clicks": None, "impressions": None}
     start, end, _month = _month_bounds(day)
-    site = quote(settings.gsc_site_url, safe="")
+    site_url = settings.gsc_site_url
+    # A domain property and a URL-prefix property have separate permissions.
+    listing = await client.get(
+        "https://searchconsole.googleapis.com/webmasters/v3/sites",
+        headers={"Authorization": f"Bearer {token}"}, timeout=20,
+    )
+    if listing.status_code < 400:
+        accessible = [entry.get("siteUrl") for entry in listing.json().get("siteEntry", [])
+                      if entry.get("permissionLevel") != "siteUnverifiedUser"]
+        if site_url not in accessible and not site_url.startswith("sc-domain:"):
+            domain_property = f"sc-domain:{urlsplit(site_url).hostname}"
+            if domain_property in accessible:
+                site_url = domain_property
+    site = quote(site_url, safe="")
     res = await client.post(
         f"https://searchconsole.googleapis.com/webmasters/v3/sites/{site}/searchAnalytics/query",
         headers={"Authorization": f"Bearer {token}"},

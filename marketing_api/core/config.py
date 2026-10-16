@@ -19,12 +19,15 @@ class Settings(BaseSettings):
     meta_access_token: str | None = None
     meta_ad_account_id: str = "449251307578659"
     meta_graph_version: str = "v22.0"
+    meta_page_id: str | None = None
+    instagram_business_id: str | None = None
 
     google_oauth_client_id: str | None = None
     google_oauth_client_secret: str | None = None
     google_oauth_refresh_token: str | None = None
     google_ads_customer_id: str = "2042770350"
     google_ads_login_customer_id: str | None = None
+    google_ads_developer_token: str | None = None
     ga4_property_id: str | None = None
     gsc_site_url: str = "https://lorenzolighting.com/"
     gtm_container_path: str | None = None
@@ -33,6 +36,7 @@ class Settings(BaseSettings):
 
     linkedin_access_token: str | None = None
     linkedin_ad_account_id: str = "554320120"
+    linkedin_organization_id: str | None = None
 
     pinterest_access_token: str | None = None
     pinterest_ad_account_id: str = "549770710125"

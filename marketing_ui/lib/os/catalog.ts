@@ -2,6 +2,7 @@ import { num, type DashboardPayload } from '@/lib/os/types';
 
 export const PAID_LEAD = ['Meta', 'Google Ads', 'LinkedIn'] as const;
 export const PAID_ALSO = ['Pinterest', 'TikTok', 'Snapchat'] as const;
+export const AUDIENCE_CHANNELS = ['Instagram', 'Facebook', 'Pinterest', 'TikTok', 'LinkedIn', 'Snapchat'] as const;
 
 export type SourceRef = {
   id: string;

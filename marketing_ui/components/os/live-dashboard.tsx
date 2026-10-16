@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 
 import { useLiveDashboard } from '@/hooks/use-live-dashboard';
 import { WorkBoard } from '@/components/os/work-board';
-import { DASHBOARD_SECTIONS, PAID_LEAD, readSiteSource } from '@/lib/os/catalog';
-import { aed, monthLabel, num, pct, type ChannelRow, type DashboardPayload } from '@/lib/os/types';
+import { AUDIENCE_CHANNELS, DASHBOARD_SECTIONS, PAID_LEAD, readSiteSource } from '@/lib/os/catalog';
+import { aed, monthLabel, num, pct, type AudienceRow, type ChannelRow, type DashboardPayload } from '@/lib/os/types';
 
 type Move = { label: string; href: string; quiet?: boolean };
 
@@ -73,6 +73,13 @@ function overlapsMonth(start: string, end: string | null, month: string): boolea
   const to = monthEnd(month);
   const stop = (end || start).slice(0, 10);
   return start.slice(0, 10) <= to && stop >= from;
+}
+
+function growthLabel(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '—';
+  if (value > 0) return `+${num(value)}`;
+  if (value < 0) return `−${num(Math.abs(value))}`;
+  return '0';
 }
 
 function Pill({ state }: { state?: string }) {
@@ -336,6 +343,8 @@ function Board({
         </div>
       </section>
 
+      <AudienceSection rows={data.audience} />
+
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="dash-panel p-5">
           <div className="flex items-baseline justify-between gap-3">
@@ -428,6 +437,50 @@ function Board({
         </section>
       ))}
     </>
+  );
+}
+
+function AudienceSection({ rows }: { rows?: AudienceRow[] }) {
+  const byName = new Map((rows ?? []).map((row) => [row.channel, row]));
+  return (
+    <section className="dash-panel overflow-hidden">
+      <div className="border-b border-brand-light-gray px-5 py-4">
+        <h2 className="text-lg font-semibold">Audience</h2>
+        <p className="mt-1 text-xs text-brand-medium-gray">
+          Followers, 30-day growth, views, likes, and comments on the connected profiles. A blank figure is unknown. Ad spend stays in Paid channels.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="text-left text-[10px] uppercase tracking-wider text-brand-medium-gray">
+            <tr>
+              {['Profile', 'Followers', 'Growth', 'Views', 'Likes', 'Comments', ''].map((heading) => (
+                <th key={heading || 'state'} className="px-4 py-3 font-semibold">{heading}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {AUDIENCE_CHANNELS.map((name) => {
+              const row = byName.get(name);
+              return (
+                <tr key={name} className="border-t border-brand-light-gray">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold text-brand-black">{name}</div>
+                    <p className="mt-1 max-w-xs text-xs text-brand-dark-gray">{row?.detail || 'Waiting for the first snapshot.'}</p>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums">{num(row?.followers)}</td>
+                  <td className="px-4 py-3 tabular-nums">{growthLabel(row?.growth)}</td>
+                  <td className="px-4 py-3 tabular-nums">{num(row?.views)}</td>
+                  <td className="px-4 py-3 tabular-nums">{num(row?.likes)}</td>
+                  <td className="px-4 py-3 tabular-nums">{num(row?.comments)}</td>
+                  <td className="px-4 py-3"><Pill state={row?.state} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

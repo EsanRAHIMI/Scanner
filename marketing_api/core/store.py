@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 
 from .aggregate import build_dashboard
+from .audience import AUDIENCE_ORDER
 from .db import db, require_db
 from .seed import (
     CHANNELS,
@@ -226,6 +227,22 @@ async def dashboard(month: str | None = None) -> dict[str, Any]:
     payload["connectors"] = [{key: value for key, value in row.items() if key != "_id"} for row in connectors]
     if site:
         payload["site"] = {key: value for key, value in site.items() if key != "_id"}
+    audience_rows = await database["marketing_os_audience"].find({}).to_list(length=20)
+    by_id = {row.get("_id"): row for row in audience_rows}
+    audience = []
+    for channel_id, name in AUDIENCE_ORDER:
+        row = by_id.get(channel_id) or {
+            "channel": name,
+            "state": "waiting",
+            "detail": "Waiting for the first snapshot.",
+            "followers": None,
+            "growth": None,
+            "views": None,
+            "likes": None,
+            "comments": None,
+        }
+        audience.append({key: value for key, value in row.items() if key != "_id"})
+    payload["audience"] = audience
     payload["month"] = month
     return payload
 

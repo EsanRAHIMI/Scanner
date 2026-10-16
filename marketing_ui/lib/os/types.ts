@@ -48,6 +48,19 @@ export type DashboardPayload = {
     unmapped_leads?: number;
   };
   connectors: Array<{ name: string; state: string; detail?: string; checked_on?: string }>;
+  audience?: AudienceRow[];
+};
+
+export type AudienceRow = {
+  channel: string;
+  state?: string;
+  detail?: string;
+  followers: number | null;
+  growth: number | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  checked_on?: string | null;
 };
 
 export function aed(value: number | null | undefined): string {

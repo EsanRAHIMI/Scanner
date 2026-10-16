@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timezone
 
+from .audience import sync_audience
 from .config import get_settings
 from .connectors import run_connectors
 from .db import db
@@ -28,6 +29,15 @@ def _seconds_since(raw: object) -> float | None:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - moment).total_seconds()
+
+
+def latest_monthly_snapshots(rows: list[dict]) -> list[dict]:
+    latest: dict[tuple, dict] = {}
+    for row in rows:
+        key = (row.get("channel"), str(row.get("period_start") or "")[:7])
+        if key not in latest or str(row.get("snapshot_date") or "") > str(latest[key].get("snapshot_date") or ""):
+            latest[key] = row
+    return list(latest.values())
 
 
 async def run_sync() -> dict:
@@ -67,10 +77,14 @@ async def run_sync() -> dict:
         site["odoo"] = {"state": odoo.get("state"), "detail": odoo.get("detail")}
         await database["marketing_os_site"].replace_one({"_id": "current"}, site, upsert=True)
 
+        for row in await sync_audience(settings, date.today()):
+            await database["marketing_os_audience"].replace_one({"_id": row["_id"]}, row, upsert=True)
+
         # Recompute the combined monthly trend from channel MTD rows so the chart stays consistent.
         mtd = await database["marketing_os_records"].find({"record_type": "Monthly MTD", "source": "live"}).to_list(5000)
         by_month: dict[str, dict] = {}
-        for row in mtd:
+        # MTD snapshots are cumulative. Only the latest per channel/month counts.
+        for row in latest_monthly_snapshots(mtd):
             month = str(row.get("period_start") or "")[:7]
             if not month:
                 continue
