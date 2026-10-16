@@ -155,7 +155,7 @@ async def ensure_channels() -> None:
             await database["marketing_os_crm"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
 
     for name, detail in (
-        ("TikTok", "TIKTOK_ACCESS_TOKEN is not set."),
+        ("TikTok", "TikTok is not connected. Use Connect TikTok on the Connections page."),
         ("Snapchat", "SNAPCHAT_REFRESH_TOKEN is not set."),
     ):
         await database["marketing_os_connectors"].update_one(

@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     pinterest_access_token: str | None = None
     pinterest_ad_account_id: str = "549770710125"
 
+    tiktok_app_id: str | None = None
+    tiktok_app_secret: str | None = None
+    tiktok_redirect_uri: str = "https://marketing.lorenzohome.ae/connections"
     tiktok_access_token: str | None = None
     tiktok_advertiser_id: str | None = None
 

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from .config import Settings
+from .db import db
 
 
 def _month_bounds(day: date) -> tuple[str, str, str]:
@@ -318,12 +320,111 @@ def snapchat_window(day: date, timezone_name: str | None) -> tuple[str, str]:
     return _iso_offset(start), _iso_offset(end)
 
 
+def _tiktok_redirect(settings: Settings) -> str:
+    return (settings.tiktok_redirect_uri or "https://marketing.lorenzohome.ae/connections").strip()
+
+
+async def _tiktok_saved() -> dict[str, Any]:
+    database = db()
+    if database is None:
+        return {}
+    return await database["marketing_os_secrets"].find_one({"_id": "tiktok"}) or {}
+
+
+async def tiktok_credentials(settings: Settings) -> tuple[str | None, str | None]:
+    saved = await _tiktok_saved()
+    token = (settings.tiktok_access_token or "").strip() or str(saved.get("access_token") or "").strip() or None
+    advertiser = (settings.tiktok_advertiser_id or "").strip() or str(saved.get("advertiser_id") or "").strip() or None
+    return token, advertiser
+
+
+async def tiktok_connect_url(settings: Settings) -> str | None:
+    if not (settings.tiktok_app_id and settings.tiktok_app_secret):
+        return None
+    database = db()
+    if database is None:
+        return None
+    state = uuid4().hex
+    await database["marketing_os_secrets"].update_one(
+        {"_id": "tiktok"},
+        {"$set": {"state": state, "state_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    query = urlencode(
+        {
+            "app_id": settings.tiktok_app_id.strip(),
+            "state": state,
+            "redirect_uri": _tiktok_redirect(settings),
+        }
+    )
+    return f"https://business-api.tiktok.com/portal/auth?{query}"
+
+
+async def connect_tiktok(settings: Settings, auth_code: str, state: str | None) -> dict[str, Any]:
+    if not (settings.tiktok_app_id and settings.tiktok_app_secret):
+        raise RuntimeError("TIKTOK_APP_ID and TIKTOK_APP_SECRET are not set.")
+    database = db()
+    if database is None:
+        raise RuntimeError("MongoDB is not configured.")
+    saved = await _tiktok_saved()
+    started = _seconds_since_iso(saved.get("state_at"))
+    if not state or state != saved.get("state") or started is None or started > 30 * 60:
+        raise RuntimeError("TikTok authorization expired. Use Connect TikTok again.")
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+            json={
+                "app_id": settings.tiktok_app_id.strip(),
+                "secret": settings.tiktok_app_secret.strip(),
+                "auth_code": auth_code,
+            },
+            timeout=30,
+        )
+    if res.status_code >= 400:
+        raise RuntimeError(f"TikTok authorization failed ({res.status_code}).")
+    body = res.json()
+    if body.get("code") not in (0, "0", None):
+        raise RuntimeError(f"TikTok authorization failed: {body.get('message') or body.get('code')}")
+    data = body.get("data") or {}
+    token = str(data.get("access_token") or "").strip()
+    ids = [str(item) for item in (data.get("advertiser_ids") or []) if str(item).strip()]
+    preferred = (settings.tiktok_advertiser_id or "").strip()
+    advertiser = preferred if preferred and (not ids or preferred in ids) else (ids[0] if ids else "")
+    if not token or not advertiser:
+        raise RuntimeError("TikTok did not return an ad account.")
+    await database["marketing_os_secrets"].update_one(
+        {"_id": "tiktok"},
+        {
+            "$set": {"access_token": token, "advertiser_id": advertiser, "advertiser_ids": ids},
+            "$unset": {"state": "", "state_at": ""},
+        },
+        upsert=True,
+    )
+    return {"ok": True, "advertiser_id": advertiser}
+
+
+def _seconds_since_iso(raw: object) -> float | None:
+    if not raw:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - moment).total_seconds()
+
+
 async def sync_tiktok(client: httpx.AsyncClient, settings: Settings, day: date, fx: float) -> dict[str, Any]:
-    if not settings.tiktok_access_token or not settings.tiktok_advertiser_id:
-        return {"name": "TikTok", "state": "unconfigured", "detail": "TIKTOK_ACCESS_TOKEN is not set."}
+    token, advertiser_id = await tiktok_credentials(settings)
+    if not token or not advertiser_id:
+        if not (settings.tiktok_app_id and settings.tiktok_app_secret):
+            detail = "TIKTOK_APP_ID and TIKTOK_APP_SECRET are not set."
+        else:
+            detail = "TikTok is not connected. Use Connect TikTok on the Connections page."
+        return {"name": "TikTok", "state": "unconfigured", "detail": detail}
     start, end, month = _month_bounds(day)
-    headers = {"Access-Token": settings.tiktok_access_token}
-    advertiser_id = settings.tiktok_advertiser_id.strip()
+    headers = {"Access-Token": token}
     info = await client.get(
         "https://business-api.tiktok.com/open_api/v1.3/advertiser/info/",
         headers=headers,

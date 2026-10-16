@@ -12,6 +12,7 @@ export default function ConnectionsPage() {
   const [site, setSite] = useState<Record<string, SiteBlock>>({});
   const [fx, setFx] = useState('3.6725');
   const [message, setMessage] = useState<string | null>(null);
+  const [tiktokUrl, setTiktokUrl] = useState<string | null>(null);
 
   async function load() {
     const [conn, settings] = await Promise.all([
@@ -30,6 +31,26 @@ export default function ConnectionsPage() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('auth_code') || params.get('code');
+    const state = params.get('state');
+    if (code) {
+      void fetch('/api/os/tiktok/oauth', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ auth_code: code, state }),
+      }).then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        setMessage(res.ok ? 'TikTok connected.' : body.detail || 'TikTok connection failed. Admin access is required.');
+        window.history.replaceState({}, '', '/connections');
+        if (res.ok) window.setTimeout(() => void load(), 500);
+      });
+    }
+    void fetch('/api/os/tiktok/oauth', { cache: 'no-store' }).then(async (res) => {
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.url) setTiktokUrl(body.url);
+    });
     void load();
   }, []);
 
@@ -78,7 +99,15 @@ export default function ConnectionsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               {group.names.map((name) => {
                 const item = byName.get(name);
-                return <SourceCard key={name} title={name} state={item?.state} detail={item?.detail || 'Not checked yet.'} />;
+                return (
+                  <SourceCard
+                    key={name}
+                    title={name}
+                    state={item?.state}
+                    detail={item?.detail || 'Not checked yet.'}
+                    action={name === 'TikTok' && tiktokUrl ? { href: tiktokUrl, label: 'Connect TikTok' } : null}
+                  />
+                );
               })}
             </div>
           </div>
@@ -112,7 +141,17 @@ export default function ConnectionsPage() {
   );
 }
 
-function SourceCard({ title, state, detail }: { title: string; state?: string; detail: string }) {
+function SourceCard({
+  title,
+  state,
+  detail,
+  action,
+}: {
+  title: string;
+  state?: string;
+  detail: string;
+  action?: { href: string; label: string } | null;
+}) {
   return (
     <div className="dash-card p-5">
       <div className="flex items-center justify-between gap-3">
@@ -120,6 +159,11 @@ function SourceCard({ title, state, detail }: { title: string; state?: string; d
         <span className="text-xs font-semibold uppercase text-brand-burgundy">{state || 'waiting'}</span>
       </div>
       <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
+      {action ? (
+        <a href={action.href} className="mt-3 inline-block text-xs font-semibold text-brand-burgundy">
+          {action.label}
+        </a>
+      ) : null}
     </div>
   );
 }

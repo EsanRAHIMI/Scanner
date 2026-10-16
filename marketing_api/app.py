@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from core.auth import get_current_user, require_admin
 from core.config import get_settings
+from core.connectors import connect_tiktok, tiktok_connect_url
 from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
 from core.store import complete_budget_rows, dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
@@ -54,6 +55,11 @@ class WorkWrite(BaseModel):
 
 class WorkDay(BaseModel):
     today: str | None = None
+
+
+class TikTokCode(BaseModel):
+    auth_code: str
+    state: str | None = None
 
 
 @asynccontextmanager
@@ -132,6 +138,22 @@ async def live(month: str | None = None, _user: dict = Depends(get_current_user)
     )
 
 
+@app.get("/api/v1/tiktok/oauth")
+async def tiktok_oauth_url(_admin: dict = Depends(require_admin)) -> dict:
+    url = await tiktok_connect_url(get_settings())
+    if not url:
+        return {"url": None, "detail": "TIKTOK_APP_ID and TIKTOK_APP_SECRET are not set."}
+    return {"url": url}
+
+
+@app.post("/api/v1/tiktok/oauth")
+async def tiktok_oauth_finish(body: TikTokCode, _admin: dict = Depends(require_admin)) -> dict:
+    try:
+        return await connect_tiktok(get_settings(), body.auth_code.strip(), (body.state or "").strip() or None)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/sync")
 async def sync_now(_admin: dict = Depends(require_admin)) -> dict:
     if db() is None:
@@ -144,6 +166,8 @@ async def sync_now(_admin: dict = Depends(require_admin)) -> dict:
 async def read_settings(_user: dict = Depends(get_current_user)) -> dict:
     doc = await settings_doc()
     doc.pop("_id", None)
+    for key in ("access_token", "secret", "state", "tiktok_access_token", "app_secret"):
+        doc.pop(key, None)
     return doc
 
 
