@@ -13,13 +13,26 @@ export function useLiveDashboard(month: string | null) {
   useEffect(() => {
     const query = month ? `?month=${encodeURIComponent(month)}` : '';
     let closed = false;
-    let opened = false;
-    let fallbackTried = false;
     const source = new EventSource(`/api/os/live${query}`);
 
-    source.onopen = () => {
-      opened = true;
-    };
+    void fetch(`/api/os/dashboard${query}`, { cache: 'no-store' }).then(async (res) => {
+      if (closed) return;
+      if (res.status === 401) {
+        source.close();
+        setAuthRequired(true);
+        return;
+      }
+      if (!res.ok) {
+        setError('Marketing API is not reachable.');
+        return;
+      }
+      setData((await res.json()) as DashboardPayload);
+      setAuthRequired(false);
+      setError(null);
+    }).catch(() => {
+      if (!closed) setError('Marketing API is not reachable.');
+    });
+
     source.onmessage = (event) => {
       if (closed) return;
       try {
@@ -29,23 +42,6 @@ export function useLiveDashboard(month: string | null) {
       } catch {
         setError('The live feed sent an unreadable update.');
       }
-    };
-    source.onerror = () => {
-      if (closed || opened || fallbackTried) return;
-      fallbackTried = true;
-      void fetch(`/api/os/dashboard${query}`, { cache: 'no-store' }).then(async (res) => {
-        if (res.status === 401) {
-          source.close();
-          setAuthRequired(true);
-          return;
-        }
-        if (!res.ok) {
-          setError('Marketing API is not reachable.');
-          return;
-        }
-        setData((await res.json()) as DashboardPayload);
-        setAuthRequired(false);
-      }).catch(() => setError('Marketing API is not reachable.'));
     };
 
     return () => {
@@ -75,10 +71,20 @@ export function useLiveDashboard(month: string | null) {
       setError('Sign-in failed.');
       return;
     }
-    setAuthRequired(false);
     const query = month ? `?month=${encodeURIComponent(month)}` : '';
     const dash = await fetch(`/api/os/dashboard${query}`, { cache: 'no-store' });
-    if (dash.ok) setData((await dash.json()) as DashboardPayload);
+    if (dash.status === 401) {
+      setAuthRequired(true);
+      setError('Sign-in did not stay on this browser.');
+      return;
+    }
+    if (!dash.ok) {
+      setError('Marketing API is not reachable.');
+      return;
+    }
+    setAuthRequired(false);
+    setError(null);
+    setData((await dash.json()) as DashboardPayload);
   }
 
   return { data, authRequired, error, syncing, refresh, signIn };

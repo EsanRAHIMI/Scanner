@@ -17,6 +17,39 @@ function getSetCookieHeaders(res: Response): string[] {
   return single ? [single] : [];
 }
 
+function applyAuthCookies(nextRes: NextResponse, setCookies: string[], requestHost: string) {
+  for (const raw of setCookies) {
+    const [pair, ...attrs] = raw.split(';').map((part) => part.trim());
+    const eq = pair.indexOf('=');
+    if (eq <= 0) continue;
+    const name = pair.slice(0, eq);
+    const value = pair.slice(eq + 1);
+    const options: {
+      path?: string;
+      httpOnly?: boolean;
+      secure?: boolean;
+      sameSite?: 'lax' | 'strict' | 'none';
+      maxAge?: number;
+      domain?: string;
+    } = {};
+    for (const attr of attrs) {
+      const splitAt = attr.indexOf('=');
+      const key = (splitAt === -1 ? attr : attr.slice(0, splitAt)).toLowerCase();
+      const attrValue = splitAt === -1 ? '' : attr.slice(splitAt + 1);
+      if (key === 'path' && attrValue) options.path = attrValue;
+      else if (key === 'httponly') options.httpOnly = true;
+      else if (key === 'secure') options.secure = true;
+      else if (key === 'samesite' && (attrValue === 'lax' || attrValue === 'strict' || attrValue === 'none')) options.sameSite = attrValue;
+      else if (key === 'max-age' && attrValue) options.maxAge = Number(attrValue);
+      else if (key === 'domain' && attrValue) {
+        const domain = attrValue.replace(/^\./, '');
+        if (requestHost === domain || requestHost.endsWith(`.${domain}`)) options.domain = attrValue;
+      }
+    }
+    nextRes.cookies.set(name, value, options);
+  }
+}
+
 export async function POST(req: Request) {
   const baseResolved = resolveTrainerBase(req);
   const url = `${baseResolved}/auth/login`;
@@ -41,9 +74,7 @@ export async function POST(req: Request) {
     },
   });
 
-  for (const cookie of getSetCookieHeaders(res)) {
-    nextRes.headers.append('set-cookie', cookie);
-  }
+  applyAuthCookies(nextRes, getSetCookieHeaders(res), new URL(req.url).hostname);
 
   return nextRes;
 }
