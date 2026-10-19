@@ -16,7 +16,32 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# FAT32/exFAT: keep macOS from writing AppleDouble (._*) next to git pack files.
+export COPYFILE_DISABLE=1
+
 DEV_DIR="$ROOT/.dev"
+
+install_git_appledouble_hooks() {
+  local script="$ROOT/scripts/clean-git-appledouble.sh"
+  local hook
+  [[ -d "$ROOT/.git/hooks" ]] || return 0
+  [[ -f "$script" ]] || return 0
+  chmod +x "$script"
+  for hook in post-commit post-merge post-checkout post-rewrite; do
+    cat > "$ROOT/.git/hooks/$hook" <<EOF
+#!/usr/bin/env bash
+"$script"
+EOF
+    chmod +x "$ROOT/.git/hooks/$hook"
+  done
+}
+
+clean_git_appledouble() {
+  local script="$ROOT/scripts/clean-git-appledouble.sh"
+  [[ -f "$script" ]] || return 0
+  chmod +x "$script"
+  "$script" || true
+}
 
 ALL_SERVICES="backend frontend trainer-server trainer-web products marketing-ui marketing-api image-server image-web proposals-server proposals-web agent-server"
 
@@ -298,6 +323,8 @@ cmd_setup() {
   local py
   py="$(python_bin)"
   echo "Using Python: $($py --version)"
+  install_git_appledouble_hooks
+  clean_git_appledouble
 
   for entry in \
     "backend:venv" \
@@ -338,6 +365,9 @@ cmd_setup() {
 }
 
 cmd_up() {
+  install_git_appledouble_hooks
+  clean_git_appledouble
+
   if [[ $# -eq 0 ]]; then
     set -- $ALL_SERVICES
   fi
