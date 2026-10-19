@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime, timezone
 
 from .audience import sync_audience
@@ -8,7 +9,9 @@ from .config import get_settings
 from .connectors import run_connectors
 from .db import db
 from .odoo import pull_odoo
-from .store import rebuild, settings_doc
+from .store import current_month, rebuild, settings_doc
+
+log = logging.getLogger("uvicorn.error")
 
 _running = asyncio.Lock()
 AUTOMATIC_SYNC_SECONDS = 12 * 60 * 60
@@ -17,6 +20,13 @@ AUTOMATIC_SYNC_SECONDS = 12 * 60 * 60
 def _interval_seconds(settings) -> int:
     configured = int(settings.sync_interval_seconds or AUTOMATIC_SYNC_SECONDS)
     return max(AUTOMATIC_SYNC_SECONDS, configured)
+
+
+def seconds_until_next(elapsed: float | None, interval: int) -> float:
+    """How long to wait before the next pull. Due now when there has never been one."""
+    if elapsed is None or elapsed >= interval:
+        return 0
+    return interval - elapsed
 
 
 def _seconds_since(raw: object) -> float | None:
@@ -40,9 +50,27 @@ def latest_monthly_snapshots(rows: list[dict]) -> list[dict]:
     return list(latest.values())
 
 
+def months_to_publish(selected: object, cached: list[object], today: str) -> list[str]:
+    """The open month is always rebuilt. A saved September selection must not hide October."""
+    months = {today}
+    if isinstance(selected, str) and len(selected) >= 7:
+        months.add(selected[:7])
+    for key in cached:
+        text = str(key or "")
+        if len(text) >= 7 and text[4] == "-":
+            months.add(text[:7])
+    return sorted(months)
+
+
+async def _months_to_publish(database) -> list[str]:
+    selected = (await settings_doc()).get("selected_month")
+    cached = []
+    async for doc in database["marketing_os_cache"].find({}, {"_id": 1}):
+        cached.append(doc.get("_id"))
+    return months_to_publish(selected, cached, current_month())
+
+
 async def run_sync() -> dict:
-    if _running.locked():
-        return {"started": False, "detail": "A sync is already running."}
     async with _running:
         database = db()
         if database is None:
@@ -55,6 +83,11 @@ async def run_sync() -> dict:
             await database["marketing_os_records"].replace_one({"_id": record["_id"]}, record, upsert=True)
         for connector in outcome["connectors"]:
             await database["marketing_os_connectors"].replace_one({"_id": connector["_id"]}, connector, upsert=True)
+            if connector.get("name") and connector.get("checked_on"):
+                await database["marketing_os_status"].update_one(
+                    {"_id": connector["name"]},
+                    {"$set": {"checked_on": connector["checked_on"]}},
+                )
         # Older error states used lower-case IDs and otherwise remain as duplicate sources.
         await database["marketing_os_connectors"].delete_many(
             {"_id": {"$in": ["meta", "google_ads", "linkedin", "pinterest", "tiktok", "snapchat"]}}
@@ -118,8 +151,8 @@ async def run_sync() -> dict:
                 upsert=True,
             )
 
-        selected = (await settings_doc()).get("selected_month")
-        await rebuild(selected)
+        for month in await _months_to_publish(database):
+            await rebuild(month)
         await database["marketing_os_settings"].update_one(
             {"_id": "current"},
             {"$set": {"synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}},
@@ -129,19 +162,24 @@ async def run_sync() -> dict:
 
 
 async def sync_loop() -> None:
-    interval = _interval_seconds(get_settings())
+    """Pull ad accounts and profile stats twice a day. A failure retries in 15 minutes."""
     while True:
         try:
             if db() is None:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(60)
                 continue
+            interval = _interval_seconds(get_settings())
             elapsed = _seconds_since((await settings_doc()).get("synced_at"))
-            wait = 0 if elapsed is None else max(0, interval - elapsed)
-            if wait:
-                await asyncio.sleep(wait)
-            await run_sync()
-            await asyncio.sleep(interval)
+            delay = seconds_until_next(elapsed, interval)
+            if delay:
+                await asyncio.sleep(delay)
+                continue
+            result = await run_sync()
+            if not result.get("started"):
+                log.warning("scheduled marketing sync skipped: %s", result.get("detail") or "not started")
+                await asyncio.sleep(15 * 60)
         except asyncio.CancelledError:
             raise
         except Exception:
-            await asyncio.sleep(interval)
+            log.exception("scheduled marketing sync failed")
+            await asyncio.sleep(15 * 60)

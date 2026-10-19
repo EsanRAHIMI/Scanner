@@ -1,7 +1,8 @@
 import unittest
 from datetime import date
 import httpx
-from core.sync import latest_monthly_snapshots
+from core.aggregate import later_day
+from core.sync import latest_monthly_snapshots, months_to_publish, seconds_until_next
 from core.config import Settings
 from core.connectors import sync_google_ads, sync_search
 
@@ -41,6 +42,16 @@ class AccessTests(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
             result = await sync_google_ads(client, settings, date(2026, 10, 16), 'test-token')
         self.assertEqual(result['records'][0]['spend'], 2.5)
+
+    def test_sync_is_due_twice_a_day_and_publishes_the_open_month(self):
+        interval = 12 * 60 * 60
+        self.assertEqual(seconds_until_next(None, interval), 0)
+        self.assertEqual(seconds_until_next(interval, interval), 0)
+        self.assertEqual(seconds_until_next(interval - 1, interval), 1)
+        months = months_to_publish('2026-09', ['2026-09'], '2026-10')
+        self.assertIn('2026-10', months)
+        self.assertEqual(later_day('2026-10-01', '2026-10-19'), '2026-10-19')
+        self.assertEqual(later_day(None, '2026-10-19'), '2026-10-19')
 
 
 if __name__ == '__main__':

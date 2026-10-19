@@ -23,6 +23,19 @@ def sum_known(values: list[float | None]) -> float | None:
     return float(sum(known))
 
 
+def later_day(left: object, right: object) -> str | None:
+    """The more recent YYYY-MM-DD stamp. A missing side does not win over a real day."""
+    first = str(left or "")[:10]
+    second = str(right or "")[:10]
+    if len(first) < 10 and len(second) < 10:
+        return None
+    if len(first) < 10:
+        return second
+    if len(second) < 10:
+        return first
+    return first if first >= second else second
+
+
 def _age_days(iso: str | None, today: date) -> int | None:
     if not iso:
         return None
@@ -80,7 +93,7 @@ def build_dashboard(
             remaining = budget_aed - spend
             if budget_aed > 0:
                 utilization = spend / budget_aed
-        checked = status.get("checked_on") or mtd.get("verified_on")
+        checked = later_day(status.get("checked_on"), mtd.get("verified_on"))
         channels.append(
             {
                 "channel": channel,

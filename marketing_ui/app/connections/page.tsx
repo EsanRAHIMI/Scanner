@@ -73,9 +73,16 @@ export default function ConnectionsPage() {
   }
 
   async function syncNow() {
+    setMessage('Refreshing sources…');
     const res = await fetch('/api/os/sync', { method: 'POST' });
-    setMessage(res.ok ? 'Sync started. The dashboard updates when it finishes.' : 'Sync failed. Admin access is required.');
-    window.setTimeout(() => void load(), 2500);
+    const body = await res.json().catch(() => ({}));
+    const detail = typeof body.detail === 'string' ? body.detail : '';
+    if (!res.ok || body.started === false) {
+      setMessage(detail || 'Sync failed. Admin access is required.');
+      return;
+    }
+    setMessage('Sources refreshed.');
+    await load();
   }
 
   const byName = new Map(connectors.map((item) => [item.name, item]));

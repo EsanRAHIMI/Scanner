@@ -158,8 +158,7 @@ async def tiktok_oauth_finish(body: TikTokCode, _admin: dict = Depends(require_a
 async def sync_now(_admin: dict = Depends(require_admin)) -> dict:
     if db() is None:
         raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
-    asyncio.create_task(run_sync())
-    return {"started": True}
+    return await run_sync()
 
 
 @app.get("/api/v1/settings")

@@ -52,10 +52,32 @@ export function useLiveDashboard(month: string | null) {
 
   async function refresh() {
     setSyncing(true);
+    setError(null);
     try {
       const res = await fetch('/api/os/sync', { method: 'POST' });
-      if (res.status === 401) setAuthRequired(true);
-      if (res.status === 403) setError('Only an admin can refresh the live sources.');
+      if (res.status === 401) {
+        setAuthRequired(true);
+        return;
+      }
+      if (res.status === 403) {
+        setError('Only an admin can refresh the live sources.');
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.started === false) {
+        setError(typeof body.detail === 'string' ? body.detail : 'Refresh did not finish. Try again.');
+        return;
+      }
+      const query = month ? `?month=${encodeURIComponent(month)}` : '';
+      const dash = await fetch(`/api/os/dashboard${query}`, { cache: 'no-store' });
+      if (!dash.ok) {
+        setError('Sources refreshed, but the dashboard did not reload.');
+        return;
+      }
+      setData((await dash.json()) as DashboardPayload);
+      setAuthRequired(false);
+    } catch {
+      setError('Refresh did not finish. Try again.');
     } finally {
       setSyncing(false);
     }
