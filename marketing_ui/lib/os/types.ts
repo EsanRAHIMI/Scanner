@@ -38,6 +38,7 @@ export type DashboardPayload = {
   trend: Array<{ month: string; spend: number | null; raw_results: number | null; ctr: number | null }>;
   months: string[];
   alerts: Array<{ level: string; text: string }>;
+  targets?: TargetRow[];
   site: {
     ga4?: { state?: string; sessions?: number | null; users?: number | null; detail?: string };
     search?: { state?: string; clicks?: number | null; impressions?: number | null; detail?: string };
@@ -49,6 +50,14 @@ export type DashboardPayload = {
   };
   connectors: Array<{ name: string; state: string; detail?: string; checked_on?: string }>;
   audience?: AudienceRow[];
+};
+
+export type TargetRow = {
+  channel: string;
+  metric: string;
+  target: number | null;
+  direction?: string;
+  unit?: string;
 };
 
 export type AudienceRow = {
