@@ -10,8 +10,14 @@ from .db import require_db
 
 KINDS = ("task", "project", "campaign")
 REPEATS = ("once", "daily", "weekly")
-STAGES = ("Queued", "Doing", "Review", "Done")
+STAGES = ("Queued", "Doing", "Blocked", "Review", "Done")
 STAGE_ORDER = {name: index for index, name in enumerate(STAGES)}
+PRIORITIES = ("High", "Medium", "Low")
+LINK_COLLECTIONS = {
+    "campaign": "marketing_campaigns",
+    "content": "content_calendar",
+    "initiative": "marketing_os_initiatives",
+}
 
 
 def _day(value: str | None, fallback: date | None = None) -> str:
@@ -35,10 +41,22 @@ def _clean(body: dict[str, Any], today: date) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="INVALID_WORK")
     owner = str(body.get("owner") or "").strip()
     note = str(body.get("note") or "").strip()
-    if len(owner) > 80 or len(note) > 500:
+    blocker = str(body.get("blocker") or "").strip()
+    if len(owner) > 80 or len(note) > 2000 or len(blocker) > 500:
         raise HTTPException(status_code=400, detail="INVALID_WORK")
+    priority = str(body.get("priority") or "Medium")
+    if priority not in PRIORITIES:
+        raise HTTPException(status_code=400, detail="INVALID_PRIORITY")
+    link_type = body.get("link_type") or None
+    link_id = str(body.get("link_id") or "").strip() or None
+    if (link_type is None) != (link_id is None) or (link_type is not None and link_type not in LINK_COLLECTIONS):
+        raise HTTPException(status_code=400, detail="INVALID_LINK")
     deadline_raw = str(body.get("deadline") or "").strip()
     return {
+        "priority": priority,
+        "blocker": blocker,
+        "link_type": link_type,
+        "link_id": link_id,
         "title": title,
         "kind": kind,
         "repeat": repeat,
@@ -68,7 +86,20 @@ def _public(doc: dict[str, Any]) -> dict[str, Any]:
     item = dict(doc)
     item["id"] = str(item.pop("_id"))
     item.pop("open", None)
+    item.setdefault("priority", "Medium")
+    item.setdefault("blocker", "")
+    item.setdefault("link_type", None)
+    item.setdefault("link_id", None)
     return item
+
+
+async def _check_link(clean: dict[str, Any]) -> None:
+    if not clean.get("link_type"):
+        return
+    database = require_db()
+    collection = LINK_COLLECTIONS[clean["link_type"]]
+    if not await database[collection].find_one({"_id": clean["link_id"]}, {"_id": 1}):
+        raise HTTPException(status_code=400, detail="LINK_NOT_FOUND")
 
 
 def _snapshot(doc: dict[str, Any], closed_on: str, reason: str) -> dict[str, Any]:
@@ -86,6 +117,9 @@ def _snapshot(doc: dict[str, Any], closed_on: str, reason: str) -> dict[str, Any
         "hours": doc.get("hours"),
         "cost_aed": doc.get("cost_aed"),
         "note": doc.get("note") or "",
+        "priority": doc.get("priority") or "Medium",
+        "link_type": doc.get("link_type"),
+        "link_id": doc.get("link_id"),
         "closed_on": closed_on,
         "reason": reason,
     }
@@ -95,7 +129,7 @@ async def list_work() -> dict[str, Any]:
     database = require_db()
     items = await database["marketing_os_work"].find({"open": {"$ne": False}}).to_list(length=300)
     items.sort(key=lambda doc: (STAGE_ORDER.get(str(doc.get("stage")), 9), str(doc.get("started_on") or "")))
-    archive = await database["marketing_os_work_log"].find({}).sort("closed_on", -1).to_list(length=80)
+    archive = await database["marketing_os_work_log"].find({}).sort("closed_on", -1).to_list(length=200)
     return {"items": [_public(doc) for doc in items], "archive": [_public(doc) for doc in archive]}
 
 
@@ -103,6 +137,7 @@ async def create_work(body: dict[str, Any]) -> dict[str, Any]:
     database = require_db()
     today = _day(body.get("today"), date.today())
     clean = _clean(body, date.fromisoformat(today))
+    await _check_link(clean)
     doc = {
         "_id": uuid4().hex,
         **clean,
@@ -121,6 +156,8 @@ async def update_work(work_id: str, body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="WORK_NOT_FOUND")
     today = _day(body.get("today"), date.today())
     clean = _clean(body, date.fromisoformat(today))
+    if (clean.get("link_type"), clean.get("link_id")) != (current.get("link_type"), current.get("link_id")):
+        await _check_link(clean)
     stage_on = current.get("stage_on") or current.get("started_on") or today
     if clean["stage"] != current.get("stage"):
         stage_on = today

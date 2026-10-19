@@ -216,18 +216,20 @@ async def rebuild(month: str | None = None) -> dict[str, Any]:
 async def dashboard(month: str | None = None) -> dict[str, Any]:
     database = require_db()
     month = month or current_month()
-    cached = await database["marketing_os_cache"].find_one({"_id": month})
+    cached, connectors, site, audience_rows = await asyncio.gather(
+        database["marketing_os_cache"].find_one({"_id": month}),
+        database["marketing_os_connectors"].find({}).to_list(length=30),
+        database["marketing_os_site"].find_one({"_id": "current"}),
+        database["marketing_os_audience"].find({}).to_list(length=20),
+    )
     if cached and cached.get("version") and cache_is_current(cached):
         cached.pop("_id", None)
         payload = cached
     else:
         payload = await rebuild(month)
-    connectors = await database["marketing_os_connectors"].find({}).to_list(length=30)
-    site = await database["marketing_os_site"].find_one({"_id": "current"})
     payload["connectors"] = [{key: value for key, value in row.items() if key != "_id"} for row in connectors]
     if site:
         payload["site"] = {key: value for key, value in site.items() if key != "_id"}
-    audience_rows = await database["marketing_os_audience"].find({}).to_list(length=20)
     by_id = {row.get("_id"): row for row in audience_rows}
     audience = []
     for channel_id, name in AUDIENCE_ORDER:

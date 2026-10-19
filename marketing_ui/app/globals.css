@@ -168,6 +168,86 @@
   }
 }
 
+/* ─── Marketing OS ──────────────────────────────────────────────────── */
+
+@layer components {
+  .os-panel {
+    @apply rounded-2xl border border-black/[0.06] bg-white shadow-[0_1px_2px_rgba(30,30,30,0.04),0_8px_24px_-16px_rgba(30,30,30,0.12)];
+  }
+
+  .os-nav {
+    @apply flex h-9 items-center gap-3 rounded-lg px-3 text-[13px] font-medium text-brand-dark-gray transition hover:bg-black/[0.04] hover:text-brand-black;
+  }
+
+  .os-nav-on {
+    @apply bg-brand-burgundy/[0.07] text-brand-burgundy hover:bg-brand-burgundy/[0.09] hover:text-brand-burgundy;
+  }
+
+  .os-input {
+    @apply w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-brand-black outline-none transition placeholder:text-brand-medium-gray focus:border-brand-burgundy/50 focus:ring-2 focus:ring-brand-burgundy/10 disabled:bg-black/[0.03] disabled:text-brand-dark-gray;
+  }
+
+  .os-filter {
+    @apply inline-flex h-8 shrink-0 items-center rounded-lg border border-black/10 bg-white px-2.5 text-[13px] text-brand-dark-gray transition hover:border-black/20;
+  }
+
+  .os-filter-on {
+    @apply border-brand-burgundy/30 bg-brand-burgundy/[0.04] font-medium text-brand-burgundy;
+  }
+
+  .os-row {
+    @apply flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-black/[0.03];
+  }
+
+  .os-link {
+    @apply text-xs font-semibold text-brand-burgundy hover:underline;
+  }
+
+  .os-chip {
+    @apply inline-flex h-8 items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 text-[13px] font-medium text-brand-dark-gray transition hover:border-black/20;
+  }
+
+  .os-chip-on {
+    @apply border-brand-burgundy bg-brand-burgundy text-white hover:border-brand-burgundy;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-brand-dark-gray transition hover:bg-black/5 hover:text-brand-black disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50;
+  }
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    background: #fff !important;
+  }
+
+  .print-flow {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    background: #fff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .os-panel {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+}
+
 html,
 body {
   height: 100%;

@@ -47,3 +47,13 @@ export async function POST(req: Request, ctx: Ctx) {
   const { path } = await ctx.params;
   return forward(req, path);
 }
+
+export async function PATCH(req: Request, ctx: Ctx) {
+  const { path } = await ctx.params;
+  return forward(req, path);
+}
+
+export async function DELETE(req: Request, ctx: Ctx) {
+  const { path } = await ctx.params;
+  return forward(req, path);
+}

@@ -68,6 +68,7 @@ frontend/node_modules/
 
 # next
 .next/
+.next-verify/
 out/
 
 # build

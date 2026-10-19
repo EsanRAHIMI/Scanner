@@ -15,6 +15,26 @@ from core.connectors import connect_tiktok, tiktok_connect_url
 from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
 from core.store import complete_budget_rows, dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
+from core.insight import overview, report
+from core.operating import (
+    create_campaign,
+    create_content,
+    create_initiative,
+    delete_campaign,
+    delete_content,
+    delete_initiative,
+    get_asset,
+    list_assets,
+    list_campaigns,
+    list_content,
+    list_initiatives,
+    list_people,
+    search,
+    seed_initiatives,
+    update_campaign,
+    update_content,
+    update_initiative,
+)
 from core.sync import run_sync, sync_loop
 from core.work import archive_work, create_work, list_work, log_round, restore_work, update_work
 
@@ -44,13 +64,88 @@ class BudgetRow(BaseModel):
 
 class WorkWrite(BaseModel):
     title: str
-    kind: str
-    repeat: str
+    kind: str = "task"
+    repeat: str = "once"
     owner: str = ""
-    stage: str
-    started_on: str
+    stage: str = "Queued"
+    started_on: str = ""
+    deadline: str | None = None
+    hours: float | None = None
+    cost_aed: float | None = None
     note: str = ""
+    priority: str = "Medium"
+    blocker: str = ""
+    link_type: str | None = None
+    link_id: str | None = None
     today: str | None = None
+
+
+class ContentKpi(BaseModel):
+    views: float | None = None
+    likes: float | None = None
+    comments: float | None = None
+    clicks: float | None = None
+    leads: float | None = None
+
+
+class ContentWrite(BaseModel):
+    title: str | None = None
+    status: str | None = None
+    publish_date: str | None = None
+    due_date: str | None = None
+    channels: list[str] | None = None
+    format: str | None = None
+    pillar: str | None = None
+    hero_product: str | None = None
+    owner: str | None = None
+    campaign_id: str | None = None
+    mode: str | None = None
+    caption: str | None = None
+    brief: str | None = None
+    assets: list[str] | None = None
+    content_link: str | None = None
+    kpi: ContentKpi | None = None
+
+
+class CampaignWrite(BaseModel):
+    name: str | None = None
+    objective: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    color: str | None = None
+    channels: list[str] | None = None
+    is_critical: bool | None = None
+    mode: str | None = None
+    budget_aed: float | None = None
+    owner: str | None = None
+    state: str | None = None
+    landing_url: str | None = None
+    creatives: list[str] | None = None
+    kpi_target: str | None = None
+    results: str | None = None
+
+
+class InitiativeFile(BaseModel):
+    label: str = ""
+    url: str
+
+
+class InitiativeWrite(BaseModel):
+    name: str | None = None
+    owner: str | None = None
+    priority: str | None = None
+    deadline: str | None = None
+    status: str | None = None
+    budget_aed: float | None = None
+    spent_aed: float | None = None
+    blockers: str | None = None
+    files: list[InitiativeFile] | None = None
+    notes: str | None = None
+
+
+def _set(body: BaseModel) -> dict:
+    """Only the keys the client sent. A sent null clears the value."""
+    return body.model_dump(exclude_unset=True)
 
 
 class WorkDay(BaseModel):
@@ -82,6 +177,7 @@ async def lifespan(_app: FastAPI):
             except Exception:
                 pass
     if database is not None:
+        await seed_initiatives()
         await rebuild()
     task = asyncio.create_task(sync_loop())
     try:
@@ -232,6 +328,104 @@ async def finish_round(work_id: str, body: WorkDay, _user: dict = Depends(get_cu
 @app.post("/api/v1/work/{work_id}/restore")
 async def reopen_work(work_id: str, _user: dict = Depends(get_current_user)) -> dict:
     return await restore_work(work_id)
+
+
+@app.get("/api/v1/overview")
+async def read_overview(_user: dict = Depends(get_current_user)) -> dict:
+    require_db()
+    return await overview()
+
+
+@app.get("/api/v1/report")
+async def read_report(start: str, end: str, _user: dict = Depends(get_current_user)) -> dict:
+    require_db()
+    return await report(start, end)
+
+
+@app.get("/api/v1/content")
+async def read_content(start: str | None = None, end: str | None = None, _user: dict = Depends(get_current_user)) -> dict:
+    return await list_content(start, end)
+
+
+@app.post("/api/v1/content")
+async def add_content(body: ContentWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await create_content(_set(body), user["id"])
+
+
+@app.patch("/api/v1/content/{item_id}")
+async def edit_content(item_id: str, body: ContentWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await update_content(item_id, _set(body), user["id"])
+
+
+@app.delete("/api/v1/content/{item_id}")
+async def remove_content(item_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    return await delete_content(item_id)
+
+
+@app.get("/api/v1/campaigns")
+async def read_campaigns(_user: dict = Depends(get_current_user)) -> dict:
+    return await list_campaigns()
+
+
+@app.post("/api/v1/campaigns")
+async def add_campaign(body: CampaignWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await create_campaign(_set(body), user["id"])
+
+
+@app.patch("/api/v1/campaigns/{campaign_id}")
+async def edit_campaign(campaign_id: str, body: CampaignWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await update_campaign(campaign_id, _set(body), user["id"])
+
+
+@app.delete("/api/v1/campaigns/{campaign_id}")
+async def remove_campaign(campaign_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    return await delete_campaign(campaign_id)
+
+
+@app.get("/api/v1/initiatives")
+async def read_initiatives(_user: dict = Depends(get_current_user)) -> dict:
+    return await list_initiatives()
+
+
+@app.post("/api/v1/initiatives")
+async def add_initiative(body: InitiativeWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await create_initiative(_set(body), user["id"])
+
+
+@app.patch("/api/v1/initiatives/{initiative_id}")
+async def edit_initiative(initiative_id: str, body: InitiativeWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await update_initiative(initiative_id, _set(body), user["id"])
+
+
+@app.delete("/api/v1/initiatives/{initiative_id}")
+async def remove_initiative(initiative_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    return await delete_initiative(initiative_id)
+
+
+@app.get("/api/v1/people")
+async def read_people(_user: dict = Depends(get_current_user)) -> dict:
+    return await list_people()
+
+
+@app.get("/api/v1/assets")
+async def read_assets(
+    q: str | None = None,
+    category: str | None = None,
+    skip: int = 0,
+    limit: int = 36,
+    _user: dict = Depends(get_current_user),
+) -> dict:
+    return await list_assets(q, category, skip, limit)
+
+
+@app.get("/api/v1/assets/{asset_id}")
+async def read_asset(asset_id: str, _user: dict = Depends(get_current_user)) -> dict:
+    return await get_asset(asset_id)
+
+
+@app.get("/api/v1/search")
+async def read_search(q: str = "", _user: dict = Depends(get_current_user)) -> dict:
+    return await search(q)
 
 
 @app.get("/api/v1/connectors")

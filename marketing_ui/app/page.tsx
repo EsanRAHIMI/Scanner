@@ -1,7 +1,5 @@
-'use client';
+import { Overview } from '@/components/os/overview';
 
-import { LiveDashboard } from '@/components/os/live-dashboard';
-
-export default function MarketingHomePage() {
-  return <LiveDashboard />;
+export default function OverviewPage() {
+  return <Overview />;
 }
