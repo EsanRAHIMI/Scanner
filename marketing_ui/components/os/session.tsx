@@ -126,6 +126,11 @@ function SignIn({ onDone }: { onDone: () => Promise<void> }) {
         <button className="btn-primary w-full py-2.5" type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
+        <p className="text-center text-xs text-brand-dark-gray">
+          <a className="underline underline-offset-2" href="/privacy">
+            Privacy policy
+          </a>
+        </p>
       </form>
     </div>
   );

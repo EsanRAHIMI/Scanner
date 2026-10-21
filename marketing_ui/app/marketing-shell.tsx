@@ -125,6 +125,7 @@ function CreateMenu() {
 
 export function MarketingShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/';
+  if (pathname === '/privacy' || pathname.startsWith('/privacy/')) return children;
   const isCalendar = pathname === '/calendar' || pathname.startsWith('/calendar/');
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
