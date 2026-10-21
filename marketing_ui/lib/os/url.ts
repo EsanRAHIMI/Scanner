@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 
-const HISTORY = new Set(['open', 'new']);
+const HISTORY = new Set(['open', 'new', 'tl']);
 
 /** Query-string state for drawers and deep links (`?open=id`, `?new=1`). */
 export function useUrlState() {

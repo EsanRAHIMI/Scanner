@@ -266,6 +266,27 @@ html {
   }
 }
 
+.tl-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.tl-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tl-scroll::-webkit-scrollbar-thumb {
+  background: rgba(80, 15, 40, 0.25);
+  border-radius: 999px;
+}
+
+.tl-bar:hover {
+  filter: brightness(0.98);
+}
+
+.tl-now {
+  box-shadow: 0 0 0 1px rgba(80, 15, 40, 0.15);
+}
+
 .cc-scroll {
   -webkit-overflow-scrolling: touch;
 }

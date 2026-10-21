@@ -37,7 +37,7 @@ export function useFieldOptions() {
 
 /** Everything that summarises content, campaigns, tasks, or initiatives. */
 export function refreshAfterWrite(kind: 'content' | 'campaign' | 'initiative' | 'task') {
-  const shared = ['overview', 'report', 'search', 'people'];
+  const shared = ['overview', 'report', 'search', 'people', 'timeline'];
   if (kind === 'content') invalidate('content', 'campaigns', ...shared);
   if (kind === 'campaign') invalidate('campaigns', 'content', ...shared);
   if (kind === 'initiative') invalidate('initiatives', ...shared);

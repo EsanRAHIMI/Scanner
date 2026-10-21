@@ -74,6 +74,11 @@ def _publish() -> None:
         event.set()
 
 
+def notify() -> None:
+    """Wake live listeners without rebuilding the paid dashboard cache."""
+    _publish()
+
+
 async def seed_if_empty() -> None:
     database = db()
     if database is None:

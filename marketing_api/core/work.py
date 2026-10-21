@@ -146,6 +146,9 @@ async def create_work(body: dict[str, Any]) -> dict[str, Any]:
         "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
     await database["marketing_os_work"].insert_one(doc)
+    from .store import notify
+
+    notify()
     return _public(doc)
 
 
@@ -169,6 +172,9 @@ async def update_work(work_id: str, body: dict[str, Any]) -> dict[str, Any]:
         "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
     await database["marketing_os_work"].replace_one({"_id": work_id}, doc)
+    from .store import notify
+
+    notify()
     return _public(doc)
 
 
@@ -188,6 +194,9 @@ async def _close(work_id: str, reason: str, today_raw: str | None, restart: bool
         current["open"] = False
     current["updated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     await database["marketing_os_work"].replace_one({"_id": work_id}, current)
+    from .store import notify
+
+    notify()
     return _public(current)
 
 
@@ -207,4 +216,7 @@ async def restore_work(work_id: str) -> dict[str, Any]:
     current["open"] = True
     current["updated_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     await database["marketing_os_work"].replace_one({"_id": work_id}, current)
+    from .store import notify
+
+    notify()
     return _public(current)

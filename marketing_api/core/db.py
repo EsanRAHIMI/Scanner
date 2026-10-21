@@ -56,3 +56,8 @@ async def ensure_indexes() -> None:
     await database["marketing_os_audience_log"].create_index([("channel", 1), ("day", 1)])
     await database["marketing_os_work"].create_index([("link_type", 1), ("link_id", 1)])
     await database["marketing_os_initiatives"].create_index([("order", 1)])
+    await database["marketing_os_lanes"].create_index([("order", 1)])
+    await database["marketing_os_activities"].create_index([("link_type", 1), ("link_id", 1), ("lane_id", 1)])
+    await database["marketing_os_time_logs"].create_index([("activity_id", 1), ("ended_at", 1)])
+    await database["marketing_os_time_logs"].create_index([("running", 1), ("person", 1)])
+    await database["marketing_os_paid_campaigns"].create_index([("platform", 1), ("synced_at", -1)])

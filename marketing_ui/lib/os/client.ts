@@ -22,6 +22,13 @@ const MESSAGES: Record<string, string> = {
   CAMPAIGN_NOT_FOUND: 'That campaign no longer exists.',
   LINK_NOT_FOUND: 'The linked item no longer exists.',
   NOT_FOUND: 'That record is gone.',
+  CONFLICT: 'Someone else just updated this. Refresh and try again.',
+  LANE_LOCKED: 'That lane cannot be changed.',
+  LANE_IN_USE: 'Move or remove activities before deleting this lane.',
+  LINKED_ACTIVITY: 'This activity is a live record. Edit it, do not delete it here.',
+  PERSON_REQUIRED: 'Choose a person.',
+  TIMER_NOT_FOUND: 'No timer is running.',
+  TIMER_RUNNING: 'Stop the timer before editing this log.',
   WORK_NOT_FOUND: 'That task is gone.',
   MONGODB_NOT_CONFIGURED: 'The marketing database is not reachable.',
 };

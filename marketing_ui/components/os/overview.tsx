@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { Icon } from '@/components/os/icons';
 import { useSession } from '@/components/os/session';
+import { TimelineBoard } from '@/components/os/timeline-board';
 import { Avatar, Bar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, SourceStrip, Stat, StagePill, Trend, cx } from '@/components/os/ui';
 import { api, invalidate, useApi } from '@/lib/os/client';
 import { decisionItems, monthPace, updatedLabel, type Decision } from '@/lib/os/decisions';
@@ -162,6 +163,10 @@ export function Overview() {
     <>
       {header}
       <SourceStrip items={sourceFlags({ connectors: paid.connectors, missing: week.missing, odoo: paid.odoo, qualified: paid.month.qualified })} />
+
+      <div className="mb-4">
+        <TimelineBoard />
+      </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Stat

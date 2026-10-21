@@ -35,6 +35,21 @@ from core.operating import (
     update_content,
     update_initiative,
 )
+from core.timeline import (
+    add_time_log,
+    create_activity,
+    create_lane,
+    delete_activity,
+    delete_lane,
+    ensure_lanes,
+    get_activity,
+    get_timeline,
+    reorder_lanes,
+    timer,
+    update_activity,
+    update_lane,
+    update_time_log,
+)
 from core.sync import run_sync, sync_loop
 from core.work import archive_work, create_work, list_work, log_round, restore_work, update_work
 
@@ -143,6 +158,62 @@ class InitiativeWrite(BaseModel):
     notes: str | None = None
 
 
+class ContributorWrite(BaseModel):
+    person: str
+    start: str | None = None
+    end: str | None = None
+    active: bool | None = None
+
+
+class LaneWrite(BaseModel):
+    name: str | None = None
+    owner: str | None = None
+    color: str | None = None
+    group: str | None = None
+
+
+class LaneCreate(BaseModel):
+    name: str
+    owner: str | None = None
+    color: str | None = None
+    group: str | None = None
+
+
+class LaneOrder(BaseModel):
+    ids: list[str]
+
+
+class ActivityWrite(BaseModel):
+    lane_id: str | None = None
+    title: str | None = None
+    start: str | None = None
+    end: str | None = None
+    deadline: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    progress: float | None = None
+    owner: str | None = None
+    reviewer: str | None = None
+    contributors: list[ContributorWrite] | None = None
+    link_type: str | None = None
+    link_id: str | None = None
+    color: str | None = None
+    expected_updated_at: str | None = None
+
+
+class TimeLogWrite(BaseModel):
+    person: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None
+    minutes: float | None = None
+    note: str | None = None
+
+
+class TimerWrite(BaseModel):
+    person: str
+    action: str
+
+
 def _set(body: BaseModel) -> dict:
     """Only the keys the client sent. A sent null clears the value."""
     return body.model_dump(exclude_unset=True)
@@ -178,6 +249,7 @@ async def lifespan(_app: FastAPI):
                 pass
     if database is not None:
         await seed_initiatives()
+        await ensure_lanes()
         await rebuild()
     task = asyncio.create_task(sync_loop())
     try:
@@ -426,6 +498,92 @@ async def read_asset(asset_id: str, _user: dict = Depends(get_current_user)) -> 
 @app.get("/api/v1/search")
 async def read_search(q: str = "", _user: dict = Depends(get_current_user)) -> dict:
     return await search(q)
+
+
+@app.get("/api/v1/timeline")
+async def read_timeline(_user: dict = Depends(get_current_user)) -> dict:
+    return await get_timeline()
+
+
+@app.get("/api/v1/timeline/live")
+async def timeline_live(_user: dict = Depends(get_current_user)):
+    async def stream():
+        event = subscribe()
+        try:
+            current = await get_timeline()
+            yield f"data: {json.dumps(current, default=str)}\n\n"
+            while True:
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=20)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                event.clear()
+                payload = await get_timeline()
+                yield f"data: {json.dumps(payload, default=str)}\n\n"
+        finally:
+            unsubscribe(event)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/v1/timeline/lanes")
+async def add_lane(body: LaneCreate, admin: dict = Depends(require_admin)) -> dict:
+    return await create_lane(_set(body), admin["id"])
+
+
+@app.put("/api/v1/timeline/lanes/order")
+async def order_lanes(body: LaneOrder, _admin: dict = Depends(require_admin)) -> dict:
+    return await reorder_lanes(body.ids)
+
+
+@app.patch("/api/v1/timeline/lanes/{lane_id}")
+async def edit_lane(lane_id: str, body: LaneWrite, admin: dict = Depends(require_admin)) -> dict:
+    return await update_lane(lane_id, _set(body), admin["id"])
+
+
+@app.delete("/api/v1/timeline/lanes/{lane_id}")
+async def remove_lane(lane_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    return await delete_lane(lane_id)
+
+
+@app.post("/api/v1/timeline/activities")
+async def add_activity(body: ActivityWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await create_activity(_set(body), user["id"])
+
+
+@app.get("/api/v1/timeline/activities/{activity_id}")
+async def read_activity(activity_id: str, _user: dict = Depends(get_current_user)) -> dict:
+    return await get_activity(activity_id)
+
+
+@app.patch("/api/v1/timeline/activities/{activity_id}")
+async def edit_activity(activity_id: str, body: ActivityWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await update_activity(activity_id, _set(body), user["id"])
+
+
+@app.delete("/api/v1/timeline/activities/{activity_id}")
+async def remove_activity(activity_id: str, _user: dict = Depends(get_current_user)) -> dict:
+    return await delete_activity(activity_id)
+
+
+@app.post("/api/v1/timeline/activities/{activity_id}/logs")
+async def add_activity_log(activity_id: str, body: TimeLogWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await add_time_log(activity_id, _set(body), user["id"])
+
+
+@app.patch("/api/v1/timeline/logs/{log_id}")
+async def edit_activity_log(log_id: str, body: TimeLogWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await update_time_log(log_id, _set(body), user["id"])
+
+
+@app.post("/api/v1/timeline/activities/{activity_id}/timer")
+async def activity_timer(activity_id: str, body: TimerWrite, user: dict = Depends(get_current_user)) -> dict:
+    return await timer(activity_id, body.action, body.person, user["id"])
 
 
 @app.get("/api/v1/connectors")

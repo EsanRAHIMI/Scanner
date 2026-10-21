@@ -68,6 +68,12 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _touch() -> None:
+    from .store import notify
+
+    notify()
+
+
 def _text(value: Any, limit: int, field: str) -> str:
     if value is None:
         return ""
@@ -323,6 +329,7 @@ async def create_content(body: dict[str, Any], user_id: str) -> dict[str, Any]:
         "updated_by": user_id,
     }
     await database["content_calendar"].insert_one(doc)
+    _touch()
     return content_public(doc, await _campaign_names())
 
 
@@ -345,6 +352,7 @@ async def update_content(item_id: str, body: dict[str, Any], user_id: str) -> di
     patch["updated_by"] = user_id
     await database["content_calendar"].update_one({"_id": item_id}, {"$set": patch})
     doc = await database["content_calendar"].find_one({"_id": item_id})
+    _touch()
     return content_public(doc or {}, await _campaign_names())
 
 
@@ -356,6 +364,10 @@ async def delete_content(item_id: str) -> dict[str, Any]:
     await database["marketing_os_work"].update_many(
         {"link_type": "content", "link_id": item_id}, {"$set": {"link_type": None, "link_id": None}}
     )
+    from .timeline import drop_linked
+
+    await drop_linked("content", item_id)
+    _touch()
     return {"ok": True}
 
 
@@ -495,6 +507,7 @@ async def create_campaign(body: dict[str, Any], user_id: str) -> dict[str, Any]:
         "updated_by": user_id,
     }
     await database["marketing_campaigns"].insert_one(doc)
+    _touch()
     return campaign_public(doc)
 
 
@@ -506,6 +519,7 @@ async def update_campaign(campaign_id: str, body: dict[str, Any], user_id: str) 
     merged = {**campaign_public(current), **body}
     patch = {**_campaign_doc(merged), "updated_at": now_iso(), "updated_by": user_id}
     await database["marketing_campaigns"].update_one({"_id": campaign_id}, {"$set": patch})
+    _touch()
     return campaign_public({**current, **patch})
 
 
@@ -518,6 +532,10 @@ async def delete_campaign(campaign_id: str) -> dict[str, Any]:
     await database["marketing_os_work"].update_many(
         {"link_type": "campaign", "link_id": campaign_id}, {"$set": {"link_type": None, "link_id": None}}
     )
+    from .timeline import drop_linked
+
+    await drop_linked("campaign", campaign_id)
+    _touch()
     return {"ok": True}
 
 
@@ -615,6 +633,7 @@ async def create_initiative(body: dict[str, Any], user_id: str) -> dict[str, Any
         "created_by": user_id,
     }
     await database["marketing_os_initiatives"].insert_one(doc)
+    _touch()
     return initiative_public(doc)
 
 
@@ -628,6 +647,7 @@ async def update_initiative(initiative_id: str, body: dict[str, Any], user_id: s
     if patch["status"] == "Done" and current.get("status") != "Done":
         patch["done_on"] = date.today().isoformat()
     await database["marketing_os_initiatives"].update_one({"_id": initiative_id}, {"$set": patch})
+    _touch()
     return initiative_public({**current, **patch})
 
 
@@ -639,6 +659,10 @@ async def delete_initiative(initiative_id: str) -> dict[str, Any]:
     await database["marketing_os_work"].update_many(
         {"link_type": "initiative", "link_id": initiative_id}, {"$set": {"link_type": None, "link_id": None}}
     )
+    from .timeline import drop_linked
+
+    await drop_linked("initiative", initiative_id)
+    _touch()
     return {"ok": True}
 
 
@@ -661,6 +685,12 @@ async def list_people() -> dict[str, Any]:
     for value in await database["marketing_campaigns"].distinct("owner"):
         add(value)
     for value in await database["marketing_os_initiatives"].distinct("owner"):
+        add(value)
+    for value in await database["marketing_os_lanes"].distinct("owner"):
+        add(value)
+    for value in await database["marketing_os_activities"].distinct("owner"):
+        add(value)
+    for value in await database["marketing_os_activities"].distinct("reviewer"):
         add(value)
     return {"items": sorted(names.values(), key=str.casefold)}
 

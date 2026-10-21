@@ -113,6 +113,13 @@ async def run_sync() -> dict:
         for row in await sync_audience(settings, date.today()):
             await database["marketing_os_audience"].replace_one({"_id": row["_id"]}, row, upsert=True)
 
+        try:
+            from .paid_campaigns import sync_paid_campaigns
+
+            await sync_paid_campaigns(date.today())
+        except Exception:
+            log.exception("campaign-level paid sync failed")
+
         # Recompute the combined monthly trend from channel MTD rows so the chart stays consistent.
         mtd = await database["marketing_os_records"].find({"record_type": "Monthly MTD", "source": "live"}).to_list(5000)
         by_month: dict[str, dict] = {}
