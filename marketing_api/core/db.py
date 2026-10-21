@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -45,19 +46,21 @@ async def ensure_indexes() -> None:
     database = db()
     if database is None:
         return
-    await database["marketing_os_records"].create_index(
-        [("channel", 1), ("record_type", 1), ("period_start", 1), ("snapshot_date", -1)]
+    await asyncio.gather(
+        database["marketing_os_records"].create_index(
+            [("channel", 1), ("record_type", 1), ("period_start", 1), ("snapshot_date", -1)]
+        ),
+        database["marketing_os_budgets"].create_index([("month", 1), ("channel", 1)], unique=True),
+        database["marketing_os_crm"].create_index([("month", 1), ("channel", 1)], unique=True),
+        database["marketing_os_targets"].create_index([("channel", 1), ("metric", 1)], unique=True),
+        database["marketing_os_work"].create_index([("open", 1), ("stage", 1)]),
+        database["marketing_os_work_log"].create_index([("closed_on", -1)]),
+        database["marketing_os_audience_log"].create_index([("channel", 1), ("day", 1)]),
+        database["marketing_os_work"].create_index([("link_type", 1), ("link_id", 1)]),
+        database["marketing_os_initiatives"].create_index([("order", 1)]),
+        database["marketing_os_lanes"].create_index([("order", 1)]),
+        database["marketing_os_activities"].create_index([("link_type", 1), ("link_id", 1), ("lane_id", 1)]),
+        database["marketing_os_time_logs"].create_index([("activity_id", 1), ("ended_at", 1)]),
+        database["marketing_os_time_logs"].create_index([("running", 1), ("person", 1)]),
+        database["marketing_os_paid_campaigns"].create_index([("platform", 1), ("synced_at", -1)]),
     )
-    await database["marketing_os_budgets"].create_index([("month", 1), ("channel", 1)], unique=True)
-    await database["marketing_os_crm"].create_index([("month", 1), ("channel", 1)], unique=True)
-    await database["marketing_os_targets"].create_index([("channel", 1), ("metric", 1)], unique=True)
-    await database["marketing_os_work"].create_index([("open", 1), ("stage", 1)])
-    await database["marketing_os_work_log"].create_index([("closed_on", -1)])
-    await database["marketing_os_audience_log"].create_index([("channel", 1), ("day", 1)])
-    await database["marketing_os_work"].create_index([("link_type", 1), ("link_id", 1)])
-    await database["marketing_os_initiatives"].create_index([("order", 1)])
-    await database["marketing_os_lanes"].create_index([("order", 1)])
-    await database["marketing_os_activities"].create_index([("link_type", 1), ("link_id", 1), ("lane_id", 1)])
-    await database["marketing_os_time_logs"].create_index([("activity_id", 1), ("ended_at", 1)])
-    await database["marketing_os_time_logs"].create_index([("running", 1), ("person", 1)])
-    await database["marketing_os_paid_campaigns"].create_index([("platform", 1), ("synced_at", -1)])

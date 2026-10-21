@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -9,12 +10,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from core import runtime
+
 from core.auth import get_current_user, require_admin
 from core.config import get_settings
 from core.connectors import connect_tiktok, tiktok_connect_url
 from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
-from core.store import complete_budget_rows, dashboard, rebuild, replace_budgets, replace_targets, save_settings, seed_if_empty, settings_doc, subscribe, unsubscribe
+from core.store import (
+    complete_budget_rows,
+    dashboard,
+    rebuild_if_stale,
+    replace_budgets,
+    replace_targets,
+    save_settings,
+    seed_if_empty,
+    settings_doc,
+    subscribe,
+    unsubscribe,
+)
 from core.insight import overview, report
 from core.operating import (
     create_campaign,
@@ -228,9 +242,42 @@ class TikTokCode(BaseModel):
     state: str | None = None
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
+log = logging.getLogger("uvicorn.error")
+
+_STARTING = b'{"detail":"STARTING"}'
+
+
+class ReadyMiddleware:
+    """Answer data calls while boot is still running, without holding the socket shut."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not runtime.blocks_until_ready(scope.get("path") or ""):
+            await self.app(scope, receive, send)
+            return
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 503,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(_STARTING)).encode()),
+                    (b"retry-after", b"1"),
+                    (b"cache-control", b"no-store"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": _STARTING})
+
+
+async def _boot() -> None:
     await connect()
+    # The page can read data that is already stored. Index checks and catalog
+    # fills are maintenance; they must not hold the first screen.
+    runtime.ready = True
+    log.info("marketing api ready")
     await ensure_indexes()
     await seed_if_empty()
     settings = get_settings()
@@ -246,21 +293,46 @@ async def lifespan(_app: FastAPI):
                     {"_id": "current"}, {"$set": {"workbook_imported": True}}
                 )
             except Exception:
-                pass
+                log.exception("workbook import failed")
     if database is not None:
         await seed_initiatives()
         await ensure_lanes()
-        await rebuild()
-    task = asyncio.create_task(sync_loop())
+        await rebuild_if_stale()
+    log.info("marketing catalog checked")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    runtime.ready = False
+    runtime.failed = False
+    sync_task: asyncio.Task | None = None
+
+    async def boot() -> None:
+        nonlocal sync_task
+        try:
+            await _boot()
+            sync_task = asyncio.create_task(sync_loop())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            runtime.failed = True
+            log.exception("marketing api failed to start")
+
+    boot_task = asyncio.create_task(boot())
     try:
         yield
     finally:
-        task.cancel()
+        boot_task.cancel()
+        await asyncio.gather(boot_task, return_exceptions=True)
+        if sync_task is not None:
+            sync_task.cancel()
+            await asyncio.gather(sync_task, return_exceptions=True)
         await close()
 
 
 app = FastAPI(title="Lorenzo Marketing API", version="1.0.0", lifespan=lifespan)
 settings = get_settings()
+app.add_middleware(ReadyMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -272,7 +344,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health() -> dict:
-    return {"ok": True, "mongo": db() is not None}
+    return {"ok": True, "mongo": db() is not None, "ready": runtime.ready}
 
 
 @app.get("/api/v1/dashboard")

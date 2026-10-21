@@ -31,6 +31,8 @@ const MESSAGES: Record<string, string> = {
   TIMER_RUNNING: 'Stop the timer before editing this log.',
   WORK_NOT_FOUND: 'That task is gone.',
   MONGODB_NOT_CONFIGURED: 'The marketing database is not reachable.',
+  STARTING: 'The marketing service is still getting ready.',
+  START_FAILED: 'The marketing service could not start.',
 };
 
 function messageFor(status: number, detail: unknown): string {
@@ -73,19 +75,37 @@ function entry(key: string): Entry {
   return found;
 }
 
+function retryable(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return true;
+  return err.status === 503 || err.status === 0;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function load(key: string): Promise<unknown> {
   const slot = entry(key);
   if (slot.promise) return slot.promise;
-  slot.promise = api<unknown>(key)
-    .then((data) => {
-      slot.data = data;
-      slot.at = Date.now();
-      slot.listeners.forEach((listener) => listener());
-      return data;
-    })
-    .finally(() => {
-      slot.promise = undefined;
-    });
+  slot.promise = (async () => {
+    const deadline = Date.now() + 25_000;
+    let pause = 250;
+    for (;;) {
+      try {
+        const data = await api<unknown>(key);
+        slot.data = data;
+        slot.at = Date.now();
+        slot.listeners.forEach((listener) => listener());
+        return data;
+      } catch (err) {
+        if (!retryable(err) || Date.now() + pause > deadline) throw err;
+        await wait(pause);
+        pause = Math.min(pause + 200, 1000);
+      }
+    }
+  })().finally(() => {
+    slot.promise = undefined;
+  });
   return slot.promise;
 }
 

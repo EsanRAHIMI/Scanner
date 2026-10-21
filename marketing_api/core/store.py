@@ -4,6 +4,8 @@ import asyncio
 from datetime import date
 from typing import Any
 
+from pymongo import UpdateOne
+
 from .aggregate import build_dashboard
 from .audience import AUDIENCE_ORDER
 from .db import db, require_db
@@ -118,6 +120,16 @@ async def seed_if_empty() -> None:
     await ensure_channels()
 
 
+async def _fill_missing(collection, rows: list[dict[str, Any]]) -> None:
+    """Insert catalog rows that are not stored yet, in one round trip."""
+    if not rows:
+        return
+    await collection.bulk_write(
+        [UpdateOne({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True) for row in rows],
+        ordered=False,
+    )
+
+
 async def ensure_channels() -> None:
     """Add channels that were introduced after the first seed, without overwriting saved numbers."""
     database = db()
@@ -134,31 +146,31 @@ async def ensure_channels() -> None:
                 {"$push": {"mappings": {"$each": missing}}},
             )
 
-    for row in budget_rows():
-        await database["marketing_os_budgets"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
-    for row in status_rows():
-        await database["marketing_os_status"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
-    for row in target_rows():
-        await database["marketing_os_targets"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
-
     months = set(calendar_months(date.today().year))
     async for doc in database["marketing_os_crm"].find({}, {"month": 1}):
         if doc.get("month"):
-            months.add(doc["month"])
-    for month in months:
-        for channel in CHANNELS:
-            row = {
-                "_id": f"{month}:{channel}",
-                "month": month,
-                "channel": channel,
-                "qualified": None,
-                "whatsapp": None,
-                "quotes": None,
-                "orders_90d": None,
-                "revenue_90d": None,
-                "source": "pending",
-            }
-            await database["marketing_os_crm"].update_one({"_id": row["_id"]}, {"$setOnInsert": row}, upsert=True)
+            months.add(str(doc["month"]))
+    crm_rows = [
+        {
+            "_id": f"{month}:{channel}",
+            "month": month,
+            "channel": channel,
+            "qualified": None,
+            "whatsapp": None,
+            "quotes": None,
+            "orders_90d": None,
+            "revenue_90d": None,
+            "source": "pending",
+        }
+        for month in months
+        for channel in CHANNELS
+    ]
+    await asyncio.gather(
+        _fill_missing(database["marketing_os_budgets"], budget_rows()),
+        _fill_missing(database["marketing_os_status"], status_rows()),
+        _fill_missing(database["marketing_os_targets"], target_rows()),
+        _fill_missing(database["marketing_os_crm"], crm_rows),
+    )
 
     for name, detail in (
         ("TikTok", "TikTok is not connected. Use Connect TikTok on the Connections page."),
@@ -216,6 +228,18 @@ async def rebuild(month: str | None = None) -> dict[str, Any]:
         await database["marketing_os_cache"].replace_one({"_id": month}, {"_id": month, **payload}, upsert=True)
     _publish()
     return payload
+
+
+async def rebuild_if_stale(month: str | None = None) -> dict[str, Any] | None:
+    """Skip the startup rebuild when this month's dashboard cache is already usable."""
+    database = db()
+    if database is None:
+        return None
+    month = month or current_month()
+    cached = await database["marketing_os_cache"].find_one({"_id": month})
+    if cached and cached.get("version") and cache_is_current(cached):
+        return None
+    return await rebuild(month)
 
 
 async def dashboard(month: str | None = None) -> dict[str, Any]:

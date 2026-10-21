@@ -27,10 +27,13 @@ install_git_appledouble_hooks() {
   [[ -d "$ROOT/.git/hooks" ]] || return 0
   [[ -f "$script" ]] || return 0
   chmod +x "$script"
+  # Resolve the repo from the hook location so a copied checkout does not
+  # keep calling scripts on the disk it was copied from.
   for hook in post-commit post-merge post-checkout post-rewrite; do
-    cat > "$ROOT/.git/hooks/$hook" <<EOF
+    cat > "$ROOT/.git/hooks/$hook" <<'EOF'
 #!/usr/bin/env bash
-"$script"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+"$root/scripts/clean-git-appledouble.sh"
 EOF
     chmod +x "$ROOT/.git/hooks/$hook"
   done
