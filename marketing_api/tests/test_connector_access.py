@@ -4,7 +4,7 @@ import httpx
 from core.aggregate import later_day
 from core.sync import latest_monthly_snapshots, months_to_publish, seconds_until_next
 from core.config import Settings
-from core.connectors import review_record, search_query_rows, sync_google_ads, sync_search
+from core.connectors import newest_reviews, review_record, search_query_rows, sync_google_ads, sync_search
 
 
 class AccessTests(unittest.IsolatedAsyncioTestCase):
@@ -38,6 +38,12 @@ class AccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row['reviewer'], 'Nora')
         self.assertIsNone(review_record({'comment': 'no id'}))
         self.assertEqual(search_query_rows({'rows': [{'keys': ['lorenzo chandelier'], 'clicks': 2, 'impressions': 9, 'position': 3.2}]})[0]['query'], 'lorenzo chandelier')
+        ordered = newest_reviews([
+            {'id': 'old', 'created': '2026-01-02'},
+            {'id': 'new', 'created': '2026-10-20'},
+            {'id': 'blank', 'created': ''},
+        ])
+        self.assertEqual([row['id'] for row in ordered], ['new', 'old', 'blank'])
 
     def test_monthly_totals_do_not_sum_cumulative_snapshots(self):
         rows = [

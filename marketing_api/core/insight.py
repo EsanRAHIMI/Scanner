@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .aggregate import sum_known
+from .connectors import newest_reviews
 from .db import require_db
 from .operating import (
     campaign_public,
@@ -319,6 +320,7 @@ def _discovery(site: dict[str, Any] | None, owners: list[dict[str, Any]]) -> dic
                 "owner": by_id.get(review_id, ""),
             }
         )
+    items = newest_reviews(items)
     queries = [row for row in (search.get("queries") or []) if isinstance(row, dict) and row.get("query")]
     return {
         "search": {

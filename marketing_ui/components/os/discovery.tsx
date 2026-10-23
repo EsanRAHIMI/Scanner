@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Empty, Panel, Pill } from '@/components/os/ui';
 import { compact, shortDate } from '@/lib/os/model';
@@ -44,6 +44,23 @@ export function Discovery({
 }) {
   const queries = search?.queries ?? [];
   const items = reviews?.items ?? [];
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const owners = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of items) {
+      const name = item.owner.trim();
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [items]);
+  const visible = useMemo(() => {
+    const sorted = [...items].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+    if (!ownerFilter) return sorted;
+    if (ownerFilter === '__none__') return sorted.filter((item) => !item.owner.trim());
+    const wanted = ownerFilter.toLocaleLowerCase();
+    return sorted.filter((item) => item.owner.trim().toLocaleLowerCase() === wanted);
+  }, [items, ownerFilter]);
+  const unset = items.some((item) => !item.owner.trim());
   return (
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
       <Panel
@@ -87,11 +104,39 @@ export function Discovery({
         pad={false}
       >
         {items.length ? (
-          <ul className="max-h-[32rem] divide-y divide-black/5 overflow-auto">
-            {items.map((review) => (
-              <ReviewRow key={review.id} review={review} people={people} onOwner={onOwner} />
-            ))}
-          </ul>
+          <>
+            <div className="flex items-center justify-between gap-3 border-b border-black/5 px-4 py-2">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-brand-medium-gray">
+                Sales owner
+                <select
+                  className="ml-2 h-8 rounded-lg border border-black/10 bg-white px-2 text-[13px] font-medium normal-case tracking-normal text-brand-black outline-none"
+                  value={ownerFilter}
+                  onChange={(event) => setOwnerFilter(event.target.value)}
+                  aria-label="Filter by sales owner"
+                >
+                  <option value="">All</option>
+                  {unset ? <option value="__none__">Not set</option> : null}
+                  {owners.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {ownerFilter ? <span className="text-[11px] text-brand-dark-gray">{visible.length} of {items.length}</span> : null}
+            </div>
+            {visible.length ? (
+              <ul className="max-h-[32rem] divide-y divide-black/5 overflow-auto">
+                {visible.map((review) => (
+                  <ReviewRow key={review.id} review={review} people={people} onOwner={onOwner} />
+                ))}
+              </ul>
+            ) : (
+              <div className="p-4">
+                <Empty title="No reviews for this sales owner" />
+              </div>
+            )}
+          </>
         ) : (
           <div className="p-4">
             <Empty title={reviews?.state === 'ok' ? 'No reviews yet' : reviews?.detail || 'Google Reviews has not been read yet'} />

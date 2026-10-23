@@ -696,6 +696,7 @@ async def sync_reviews(client: httpx.AsyncClient, settings: Settings, token: str
         page = body.get("nextPageToken")
         if not page:
             break
+    items = newest_reviews(items)
     return {
         "state": "ok",
         "detail": "Google Business reviews, newest first.",
@@ -726,6 +727,11 @@ def search_query_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def newest_reviews(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Customer post date, newest first. Reviews with no date stay at the bottom."""
+    return sorted(items, key=lambda row: str(row.get("created") or ""), reverse=True)
 
 
 def review_record(raw: dict[str, Any]) -> dict[str, Any] | None:
