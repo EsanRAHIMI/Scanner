@@ -182,7 +182,7 @@ async def overview(today: date | None = None) -> dict[str, Any]:
     prior_end = start - timedelta(days=1)
     prior_start = prior_end - timedelta(days=6)
 
-    records, board, content, (open_tasks, _), campaign_docs, initiative_docs, settings = await asyncio.gather(
+    records, board, content, (open_tasks, _), campaign_docs, initiative_docs, settings, site, owner_docs = await asyncio.gather(
         database["marketing_os_records"].find({"record_type": "Monthly MTD"}).to_list(length=20000),
         dashboard(current_month()),
         _content(),
@@ -190,6 +190,8 @@ async def overview(today: date | None = None) -> dict[str, Any]:
         database["marketing_campaigns"].find({}).to_list(1000),
         database["marketing_os_initiatives"].find({}).to_list(500),
         settings_doc(),
+        database["marketing_os_site"].find_one({"_id": "current"}),
+        database["marketing_os_review_owners"].find({}).to_list(500),
     )
     index = snapshot_index(records)
     current = paid_range(index, start, today)
@@ -292,7 +294,64 @@ async def overview(today: date | None = None) -> dict[str, Any]:
             "overdue": len([i for i in initiatives if i["status"] != "Done" and i["deadline"] and i["deadline"] < iso]),
             "total": len(initiatives),
         },
+        "discovery": _discovery(site, owner_docs),
     }
+
+
+def _discovery(site: dict[str, Any] | None, owners: list[dict[str, Any]]) -> dict[str, Any]:
+    site = site or {}
+    search = site.get("search") if isinstance(site.get("search"), dict) else {}
+    reviews = site.get("reviews") if isinstance(site.get("reviews"), dict) else {}
+    by_id = {str(doc.get("_id")): str(doc.get("owner") or "") for doc in owners}
+    items = []
+    for row in reviews.get("items") or []:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        review_id = str(row["id"])
+        items.append(
+            {
+                "id": review_id,
+                "reviewer": row.get("reviewer") or "",
+                "stars": row.get("stars"),
+                "text": row.get("text") or "",
+                "created": row.get("created") or "",
+                "replied": bool(row.get("replied")),
+                "owner": by_id.get(review_id, ""),
+            }
+        )
+    queries = [row for row in (search.get("queries") or []) if isinstance(row, dict) and row.get("query")]
+    return {
+        "search": {
+            "state": search.get("state"),
+            "detail": search.get("detail"),
+            "clicks": search.get("clicks"),
+            "impressions": search.get("impressions"),
+            "as_of": search.get("as_of"),
+            "queries": queries[:40],
+        },
+        "reviews": {
+            "state": reviews.get("state"),
+            "detail": reviews.get("detail"),
+            "rating": reviews.get("rating"),
+            "count": reviews.get("count"),
+            "items": items[:200],
+        },
+    }
+
+
+async def save_review_owner(review_id: str, owner: str) -> dict[str, str]:
+    text = review_id.strip()
+    if not text or len(text) > 200 or any(char in text for char in "/\\?#\n\r"):
+        raise HTTPException(status_code=400, detail="NOT_FOUND")
+    name = owner.strip()
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="Sales owner is too long.")
+    database = require_db()
+    if name:
+        await database["marketing_os_review_owners"].replace_one({"_id": text}, {"_id": text, "owner": name}, upsert=True)
+    else:
+        await database["marketing_os_review_owners"].delete_one({"_id": text})
+    return {"id": text, "owner": name}
 
 
 def _crm_range(rows: list[dict[str, Any]], start: date, end: date) -> dict[str, float | None]:

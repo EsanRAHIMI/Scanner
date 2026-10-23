@@ -611,37 +611,31 @@ async def sync_search(client: httpx.AsyncClient, settings: Settings, token: str 
             if domain_property in accessible:
                 site_url = domain_property
     site = quote(site_url, safe="")
-    res = await client.post(
-        f"https://searchconsole.googleapis.com/webmasters/v3/sites/{site}/searchAnalytics/query",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "startDate": start,
-            "endDate": end,
-            "dimensions": ["query"],
-            "dimensionFilterGroups": [
-                {
-                    "filters": [
-                        {"dimension": "query", "operator": "contains", "expression": "lorenzo lighting"}
-                    ]
-                }
-            ],
-        },
+    url = f"https://searchconsole.googleapis.com/webmasters/v3/sites/{site}/searchAnalytics/query"
+    headers = {"Authorization": f"Bearer {token}"}
+    totals = await client.post(url, headers=headers, json={"startDate": start, "endDate": end}, timeout=30)
+    if totals.status_code >= 400:
+        raise RuntimeError(f"Search Console {totals.status_code}: {totals.text[:180]}")
+    queries = await client.post(
+        url,
+        headers=headers,
+        json={"startDate": start, "endDate": end, "dimensions": ["query"], "rowLimit": 40},
         timeout=30,
     )
-    if res.status_code >= 400:
-        raise RuntimeError(f"Search Console {res.status_code}: {res.text[:180]}")
+    if queries.status_code >= 400:
+        raise RuntimeError(f"Search Console {queries.status_code}: {queries.text[:180]}")
     clicks = impressions = 0.0
     found = False
-    for row in res.json().get("rows") or []:
+    for row in totals.json().get("rows") or []:
         found = True
         clicks += float(row.get("clicks") or 0)
         impressions += float(row.get("impressions") or 0)
     return {
         "state": "ok",
-        "detail": f"Query contains “lorenzo lighting” through {end}.",
+        "detail": f"Top queries through {end}.",
         "clicks": clicks if found else None,
         "impressions": impressions if found else None,
-        "query": "lorenzo lighting",
+        "queries": search_query_rows(queries.json()),
         "as_of": end,
     }
 
@@ -678,22 +672,78 @@ async def sync_cloud(settings: Settings) -> dict[str, Any]:
 
 async def sync_reviews(client: httpx.AsyncClient, settings: Settings, token: str | None) -> dict[str, Any]:
     if not token or not settings.gbp_location_name:
-        return {"state": "unconfigured", "detail": "Google Business location or OAuth is not set.", "rating": None, "count": None}
-    res = await client.get(
-        f"https://mybusiness.googleapis.com/v4/{settings.gbp_location_name}/reviews",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"pageSize": 1},
-        timeout=20,
-    )
-    if res.status_code >= 400:
-        raise RuntimeError(f"Reviews {res.status_code}: {res.text[:180]}")
-    body = res.json()
+        return {"state": "unconfigured", "detail": "Google Business location or OAuth is not set.", "rating": None, "count": None, "items": []}
+    items: list[dict[str, Any]] = []
+    page: str | None = None
+    body: dict[str, Any] = {}
+    for _ in range(4):
+        params: dict[str, Any] = {"pageSize": 50, "orderBy": "updateTime desc"}
+        if page:
+            params["pageToken"] = page
+        res = await client.get(
+            f"https://mybusiness.googleapis.com/v4/{settings.gbp_location_name}/reviews",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=20,
+        )
+        if res.status_code >= 400:
+            raise RuntimeError(f"Reviews {res.status_code}: {res.text[:180]}")
+        body = res.json()
+        for raw in body.get("reviews") or []:
+            row = review_record(raw)
+            if row:
+                items.append(row)
+        page = body.get("nextPageToken")
+        if not page:
+            break
     return {
         "state": "ok",
-        "detail": "Latest Google Business review summary.",
+        "detail": "Google Business reviews, newest first.",
         "rating": body.get("averageRating"),
         "count": body.get("totalReviewCount"),
+        "items": items,
         "as_of": date.today().isoformat(),
+    }
+
+
+_STARS = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5}
+
+
+def search_query_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in payload.get("rows") or []:
+        keys = row.get("keys") or []
+        query = str(keys[0] if keys else "").strip()
+        if not query:
+            continue
+        rows.append(
+            {
+                "query": query[:180],
+                "clicks": float(row.get("clicks") or 0),
+                "impressions": float(row.get("impressions") or 0),
+                "ctr": float(row["ctr"]) if row.get("ctr") is not None else None,
+                "position": float(row["position"]) if row.get("position") is not None else None,
+            }
+        )
+    return rows
+
+
+def review_record(raw: dict[str, Any]) -> dict[str, Any] | None:
+    review_id = str(raw.get("reviewId") or "").strip()
+    if not review_id:
+        review_id = str(raw.get("name") or "").rsplit("/", 1)[-1].strip()
+    if not review_id or len(review_id) > 200 or any(char in review_id for char in "/\\?#\n\r"):
+        return None
+    reply = raw.get("reviewReply") if isinstance(raw.get("reviewReply"), dict) else {}
+    reviewer = raw.get("reviewer") if isinstance(raw.get("reviewer"), dict) else {}
+    created = str(raw.get("createTime") or "")[:10]
+    return {
+        "id": review_id,
+        "reviewer": str(reviewer.get("displayName") or "").strip()[:80],
+        "stars": _STARS.get(str(raw.get("starRating") or "")),
+        "text": str(raw.get("comment") or "").strip()[:2000],
+        "created": created if len(created) == 10 else "",
+        "replied": bool(str(reply.get("comment") or "").strip()),
     }
 
 

@@ -7,11 +7,11 @@ import { Icon } from '@/components/os/icons';
 import { useSession } from '@/components/os/session';
 import { PaidMedia } from '@/components/os/live-dashboard';
 import { TimelineBoard } from '@/components/os/timeline-board';
-import { Avatar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, SourceStrip, Stat, StagePill, Trend, cx } from '@/components/os/ui';
-import { invalidate, syncSources, useApi } from '@/lib/os/client';
+import { Avatar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, Stat, StagePill, Trend, cx } from '@/components/os/ui';
+import { Discovery } from '@/components/os/discovery';
+import { api, invalidate, syncSources, useApi } from '@/lib/os/client';
 import { decisionItems, monthPace, updatedLabel, type Decision } from '@/lib/os/decisions';
 import { compact, delta, dueLabel, longDate, meLabel, money, rangeLabel, shortDate, type Campaign, type Content, type Initiative, type Task } from '@/lib/os/model';
-import { sourceFlags } from '@/lib/os/sources';
 import type { ChannelRow, DashboardPayload, TargetRow } from '@/lib/os/types';
 
 type Range = { from: string; to: string };
@@ -45,6 +45,10 @@ export type OverviewPayload = {
   tasks: { open: number; overdue: TaskBrief[]; overdue_count: number; due_soon: TaskBrief[]; blocked: TaskBrief[]; blocked_count: number; approvals: TaskBrief[] };
   campaigns: { live: Campaign[]; upcoming: Campaign[] };
   initiatives: { focus: Initiative[]; blocked: number; overdue: number; total: number };
+  discovery?: {
+    search?: { state?: string; detail?: string; clicks?: number | null; impressions?: number | null; as_of?: string | null; queries?: Array<{ query: string; clicks: number; impressions: number; ctr?: number | null; position?: number | null }> };
+    reviews?: { state?: string; detail?: string; rating?: number | null; count?: number | null; items?: Array<{ id: string; reviewer: string; stars: number | null; text: string; created: string; replied: boolean; owner: string }> };
+  };
 };
 
 type Attention = { key: string; level: 'high' | 'medium'; text: string; meta: string; href: string };
@@ -96,10 +100,33 @@ function WeekRow({ label, now, before, format, inverse }: { label: string; now: 
 
 export function Overview() {
   const { me, isAdmin } = useSession();
-  const { data, error, reload } = useApi<OverviewPayload>('overview');
+  const { data, error, reload, mutate } = useApi<OverviewPayload>('overview');
+  const { data: people } = useApi<{ items: string[] }>('people');
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+
+  async function saveSalesOwner(id: string, owner: string) {
+    mutate((current) => {
+      if (!current?.discovery?.reviews?.items) return current as OverviewPayload;
+      return {
+        ...current,
+        discovery: {
+          ...current.discovery,
+          reviews: {
+            ...current.discovery.reviews,
+            items: current.discovery.reviews.items.map((item) => (item.id === id ? { ...item, owner } : item)),
+          },
+        },
+      };
+    });
+    try {
+      await api(`reviews/${encodeURIComponent(id)}/owner`, { method: 'PUT', json: { owner } });
+    } catch (err) {
+      void reload();
+      throw err;
+    }
+  }
 
   async function refresh() {
     setSyncing(true);
@@ -159,7 +186,6 @@ export function Overview() {
   return (
     <>
       {header}
-      <SourceStrip items={sourceFlags({ connectors: paid.connectors, missing: week.missing, odoo: paid.odoo, qualified: paid.month.qualified })} />
 
       <div className="mb-4">
         <TimelineBoard />
@@ -386,6 +412,8 @@ export function Overview() {
           )}
         </Panel>
       </div>
+
+      <Discovery search={data.discovery?.search} reviews={data.discovery?.reviews} people={people?.items ?? []} onOwner={saveSalesOwner} />
     </>
   );
 }

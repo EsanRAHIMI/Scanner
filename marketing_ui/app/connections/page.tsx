@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Icon } from '@/components/os/icons';
 import { cx } from '@/components/os/ui';
 import { DASHBOARD_SECTIONS, PAID_ALSO, PAID_LEAD } from '@/lib/os/catalog';
 import { syncSources } from '@/lib/os/client';
+import { GOOGLE_SETUP_PARAM, googleEnableUrl, markGoogleSetup, takeGoogleSetup } from '@/lib/os/google-setup';
 
 type Setup = { label: string; href: string };
 type Connector = { name: string; state: string; detail?: string; checked_on?: string; setup?: Setup };
 type SiteBlock = { state?: string; detail?: string; setup?: Setup };
-type CardAction = { label: string; onClick?: () => void; href?: string };
+type CardAction = { label: string; onClick: () => void };
 
 export default function ConnectionsPage() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -34,6 +35,13 @@ export default function ConnectionsPage() {
       const body = await settings.json();
       if (body.fx_usd_aed) setFx(String(body.fx_usd_aed));
     }
+  }
+
+  const resumed = useRef(false);
+
+  function openGoogleEnable(href: string) {
+    markGoogleSetup(sessionStorage);
+    window.location.assign(googleEnableUrl(href, window.location.origin));
   }
 
   useEffect(() => {
@@ -62,7 +70,37 @@ export default function ConnectionsPage() {
         }
       });
     }
+
+    async function resumeAfterEnable() {
+      const current = new URLSearchParams(window.location.search);
+      if (resumed.current || !takeGoogleSetup(sessionStorage, window.location.search)) return;
+      resumed.current = true;
+      if (current.has(GOOGLE_SETUP_PARAM)) {
+        current.delete(GOOGLE_SETUP_PARAM);
+        const query = current.toString();
+        window.history.replaceState({}, '', query ? `/connections?${query}` : '/connections');
+      }
+      setSyncing(true);
+      setMessageError(false);
+      setMessage('Google API enabled. Refreshing sources…');
+      try {
+        await syncSources((seconds) => setMessage(`Refreshing sources… ${seconds}s`));
+        await load();
+        setMessageError(false);
+        setMessage('Sources refreshed.');
+      } catch (err) {
+        setMessageError(true);
+        setMessage(err instanceof Error ? err.message : 'Sync did not finish.');
+      } finally {
+        setSyncing(false);
+      }
+    }
+
+    void resumeAfterEnable();
+    const onShow = () => void resumeAfterEnable();
+    window.addEventListener('pageshow', onShow);
     void load();
+    return () => window.removeEventListener('pageshow', onShow);
   }, []);
 
   async function connectTikTok() {
@@ -151,7 +189,7 @@ export default function ConnectionsPage() {
                       name === 'TikTok'
                         ? { label: 'Connect TikTok', onClick: () => void connectTikTok() }
                         : item?.setup
-                          ? { label: item.setup.label, href: item.setup.href }
+                          ? { label: item.setup.label, onClick: () => openGoogleEnable(item.setup!.href) }
                           : null
                     }
                   />
@@ -177,7 +215,7 @@ export default function ConnectionsPage() {
                   title={source.title}
                   state={block?.state}
                   detail={block?.detail || source.role}
-                  action={block?.setup ? { label: block.setup.label, href: block.setup.href } : null}
+                  action={block?.setup ? { label: block.setup.label, onClick: () => openGoogleEnable(block.setup!.href) } : null}
                 />
               );
             })}
@@ -214,12 +252,7 @@ function SourceCard({
         <span className="text-xs font-semibold uppercase text-brand-burgundy">{state || 'waiting'}</span>
       </div>
       <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
-      {action?.href ? (
-        <a href={action.href} target="_blank" rel="noopener noreferrer" className="btn-outline mt-3 gap-1.5 px-3 py-1.5 text-xs">
-          {action.label}
-          <Icon.external className="h-3.5 w-3.5" />
-        </a>
-      ) : action?.onClick ? (
+      {action ? (
         <button type="button" className="btn-outline mt-3 px-3 py-1.5 text-xs" onClick={action.onClick}>
           {action.label}
         </button>

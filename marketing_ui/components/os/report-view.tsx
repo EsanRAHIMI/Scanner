@@ -4,10 +4,9 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { Icon } from '@/components/os/icons';
-import { ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Segmented, SourceStrip, StagePill, Toast } from '@/components/os/ui';
+import { ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Segmented, StagePill, Toast } from '@/components/os/ui';
 import { useApi } from '@/lib/os/client';
 import { addDays, compact, endOfMonth, longDate, money, rangeLabel, shortDate, startOfMonth, startOfWeek, today, type Campaign, type Content, type Initiative, type Task } from '@/lib/os/model';
-import { sourceFlags } from '@/lib/os/sources';
 import { useUrlState } from '@/lib/os/url';
 
 type Preset = 'week' | 'last-week' | 'month' | 'last-month' | 'custom';
@@ -134,14 +133,6 @@ export function ReportView() {
 
       {data ? (
         <div className="space-y-4">
-          <SourceStrip
-            items={sourceFlags({
-              connectors: data.blockers.connectors,
-              missing: data.paid.missing,
-              odoo: data.crm.odoo,
-              qualified: data.crm.qualified,
-            })}
-          />
           <Panel title="Spend to sale">
             <div className="flex flex-col gap-2 sm:flex-row">
               <Step label="Spend" value={money(data.paid.spend)} note={data.paid.missing.length ? `${data.paid.missing.join(', ')} unknown` : 'All paid channels'} />

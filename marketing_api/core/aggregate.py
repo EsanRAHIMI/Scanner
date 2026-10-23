@@ -146,11 +146,6 @@ def build_dashboard(
                     "text": f"{row['channel']} has no qualified-lead count. Do not raise the budget on raw results.",
                 }
             )
-    for connector in connectors:
-        if connector.get("state") == "error":
-            alerts.append(
-                {"level": "high", "text": f"{connector['name']} sync failed: {connector.get('detail') or 'error'}"}
-            )
     unmapped = int((site or {}).get("unmapped_leads") or 0)
     if unmapped:
         alerts.append(

@@ -77,6 +77,7 @@ export async function syncSources(onProgress?: (elapsedSeconds: number) => void)
       continue;
     }
     if (status.ok === false) throw new ApiError(502, status.detail || 'Sync did not finish.');
+    invalidate('notices');
     return;
   }
 }

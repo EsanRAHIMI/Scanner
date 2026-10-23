@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { CommandPalette, CREATE, NAV, SETUP } from '@/components/os/command-palette';
 import { Icon } from '@/components/os/icons';
+import { AdminNotices } from '@/components/os/notices';
 import { SessionGate } from '@/components/os/session';
 import { cx } from '@/components/os/ui';
 import { ScannerAccountMenu } from '@/lib/scanner-account-menu';
@@ -189,6 +190,7 @@ export function MarketingShell({ children }: { children: ReactNode }) {
               <kbd className="ml-auto hidden rounded border border-black/10 bg-white px-1.5 text-[10px] font-medium sm:block">⌘K</kbd>
             </button>
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              <AdminNotices />
               <CreateMenu />
               <ScannerAccountMenu app="marketing" authApiPrefix="/api/trainer" serviceUrlsPath="/api/service-urls" surface="light" className="shrink-0" />
             </div>

@@ -231,35 +231,6 @@ export function Empty({ title, children, action }: { title: string; children?: R
   );
 }
 
-export function SourceStrip({
-  items,
-}: {
-  items: Array<{ id: string; label: string; detail: string; href: string; tone: 'error' | 'unknown' }>;
-}) {
-  if (!items.length) return null;
-  return (
-    <ul className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      {items.map((item) => (
-        <li key={item.id}>
-          <Link
-            href={item.href}
-            className={cx(
-              'flex max-w-full items-start gap-2 rounded-xl px-3 py-2 text-left text-[13px] ring-1 ring-inset',
-              item.tone === 'error' ? 'bg-red-50 text-red-900 ring-red-600/15' : 'bg-amber-50 text-amber-950 ring-amber-600/20',
-            )}
-          >
-            <span className={cx('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', item.tone === 'error' ? 'bg-red-600' : 'bg-amber-500')} />
-            <span className="min-w-0">
-              <span className="font-semibold">{item.label}</span>
-              <span className="block text-[12px] opacity-80">{item.detail}</span>
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 export function MissingOpen({ kind, onClose }: { kind: string; onClose: () => void }) {
   return (
     <Drawer open onClose={onClose} title={`${kind} not found`}>

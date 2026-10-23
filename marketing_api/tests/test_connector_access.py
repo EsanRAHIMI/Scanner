@@ -4,7 +4,7 @@ import httpx
 from core.aggregate import later_day
 from core.sync import latest_monthly_snapshots, months_to_publish, seconds_until_next
 from core.config import Settings
-from core.connectors import sync_google_ads, sync_search
+from core.connectors import review_record, search_query_rows, sync_google_ads, sync_search
 
 
 class AccessTests(unittest.IsolatedAsyncioTestCase):
@@ -20,6 +20,24 @@ class AccessTests(unittest.IsolatedAsyncioTestCase):
             result = await sync_search(client, Settings(_env_file=None), 'test-token', date(2026, 10, 16))
         self.assertIn('sc-domain%3Alorenzolighting.com', str(requests[-1].url))
         self.assertEqual(result['clicks'], 3)
+        self.assertEqual(result['queries'], [])
+
+    def test_review_keeps_stars_reply_and_text(self):
+        row = review_record({
+            'name': 'accounts/1/locations/2/reviews/abc',
+            'reviewer': {'displayName': 'Nora'},
+            'starRating': 'FOUR',
+            'comment': 'The showroom was clear.',
+            'createTime': '2026-10-02T08:00:00Z',
+            'reviewReply': {'comment': 'Thank you'},
+        })
+        self.assertEqual(row['id'], 'abc')
+        self.assertEqual(row['stars'], 4)
+        self.assertEqual(row['text'], 'The showroom was clear.')
+        self.assertTrue(row['replied'])
+        self.assertEqual(row['reviewer'], 'Nora')
+        self.assertIsNone(review_record({'comment': 'no id'}))
+        self.assertEqual(search_query_rows({'rows': [{'keys': ['lorenzo chandelier'], 'clicks': 2, 'impressions': 9, 'position': 3.2}]})[0]['query'], 'lorenzo chandelier')
 
     def test_monthly_totals_do_not_sum_cumulative_snapshots(self):
         rows = [

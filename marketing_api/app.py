@@ -29,7 +29,8 @@ from core.store import (
     subscribe,
     unsubscribe,
 )
-from core.insight import overview, report
+from core.insight import overview, report, save_review_owner
+from core.notices import list_notices
 from core.operating import (
     create_campaign,
     create_content,
@@ -66,6 +67,10 @@ from core.timeline import (
 )
 from core.sync import request_sync, sync_loop, sync_status
 from core.work import archive_work, create_work, list_work, log_round, restore_work, update_work
+
+
+class ReviewOwner(BaseModel):
+    owner: str = ""
 
 
 class SettingsPatch(BaseModel):
@@ -479,10 +484,23 @@ async def reopen_work(work_id: str, _user: dict = Depends(get_current_user)) -> 
     return await restore_work(work_id)
 
 
+@app.get("/api/v1/notices")
+async def read_notices(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_admin"):
+        return {"items": []}
+    require_db()
+    return {"items": await list_notices()}
+
+
 @app.get("/api/v1/overview")
 async def read_overview(_user: dict = Depends(get_current_user)) -> dict:
     require_db()
     return await overview()
+
+
+@app.put("/api/v1/reviews/{review_id}/owner")
+async def write_review_owner(review_id: str, body: ReviewOwner, _user: dict = Depends(get_current_user)) -> dict:
+    return await save_review_owner(review_id, body.owner)
 
 
 @app.get("/api/v1/report")

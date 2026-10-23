@@ -5,14 +5,13 @@ import { useState } from 'react';
 
 import { Icon } from '@/components/os/icons';
 import { useSession } from '@/components/os/session';
-import { Bar, Disclosure, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, Segmented, SourceStrip, Stat, cx } from '@/components/os/ui';
+import { Bar, Disclosure, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, Segmented, Stat, cx } from '@/components/os/ui';
 import { useLiveDashboard } from '@/hooks/use-live-dashboard';
 import { AUDIENCE_CHANNELS, DASHBOARD_SECTIONS, readSiteSource } from '@/lib/os/catalog';
 import { actualFor, decisionItems, monthPace, scoreTarget, targetFigure, updatedLabel } from '@/lib/os/decisions';
 import { usePersisted } from '@/lib/os/client';
 import { compact, delta, money } from '@/lib/os/model';
 import { aed, monthLabel, num, pct, type AudienceRow, type ChannelRow, type DashboardPayload, type TargetRow } from '@/lib/os/types';
-import { sourceFlags } from '@/lib/os/sources';
 import { useUrlState } from '@/lib/os/url';
 
 type Connector = { name: string; state: string; detail?: string };
@@ -185,7 +184,6 @@ function Board({ data, month, onMonth, embedded = false }: { data: DashboardPayl
 
   return (
     <div className="space-y-4">
-      {embedded ? null : <SourceStrip items={sourceFlags({ connectors: data.connectors, odoo: data.site?.odoo, qualified: data.qualified })} />}
       {!embedded && decisions.length ? (
         <Panel title="Decide now" pad={false}>
           <ul className="divide-y divide-black/5">

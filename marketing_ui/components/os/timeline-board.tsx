@@ -316,16 +316,6 @@ export function TimelineBoard() {
         ) : null}
       </div>
 
-      {data.paid_errors.length ? (
-        <ul className="space-y-1 px-3 py-2 text-[12px] text-amber-900 sm:px-4">
-          {data.paid_errors.map((row) => (
-            <li key={row.platform}>
-              {row.platform} campaign data unknown · {row.detail}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
       {data.unscheduled.length ? (
         <div className="border-b border-black/5 px-3 py-2 sm:px-4">
           <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-brand-dark-gray">Unscheduled</p>
