@@ -756,3 +756,50 @@ async def run_connectors(settings: Settings, day: date | None = None, fx: float 
                 item["detail"] = token_error
 
     return {"records": records, "connectors": connectors, "site": site_patch}
+
+
+# Shown only when Google rejected the call because the API is off or the token never accepted it.
+_GOOGLE_ENABLE: dict[str, tuple[str, str]] = {
+    "reviews": ("Enable Business Profile API", "mybusiness.googleapis.com"),
+    "ga4": ("Enable Google Analytics Data API", "analyticsdata.googleapis.com"),
+    "search": ("Enable Search Console API", "searchconsole.googleapis.com"),
+    "gtm": ("Enable Tag Manager API", "tagmanager.googleapis.com"),
+    "Google Ads": ("Enable Google Ads API", "googleads.googleapis.com"),
+}
+
+_ENABLE_HINTS = (
+    "insufficient authentication scopes",
+    "access_token_scope_insufficient",
+    "has not been used",
+    "service_disabled",
+    "accessnotconfigured",
+    "it is disabled",
+    "enable it by visiting",
+)
+
+
+def needs_google_api_enable(detail: object) -> bool:
+    text = str(detail or "").lower()
+    return any(hint in text for hint in _ENABLE_HINTS)
+
+
+def google_project_ref(settings: Settings) -> str | None:
+    client_id = (settings.google_oauth_client_id or "").strip()
+    head = client_id.split("-", 1)[0] if client_id else ""
+    if head.isdigit():
+        return head
+    project = (settings.google_cloud_project or "").strip()
+    return project or None
+
+
+def google_setup_action(key: object, state: object, detail: object, settings: Settings) -> dict[str, str] | None:
+    """Link to the Cloud Console step that asks for the Google APIs terms and Enable."""
+    spec = _GOOGLE_ENABLE.get(str(key or ""))
+    if spec is None or state == "ok" or not needs_google_api_enable(detail):
+        return None
+    label, api_id = spec
+    href = f"https://console.cloud.google.com/flows/enableapi?apiid={api_id}"
+    project = google_project_ref(settings)
+    if project:
+        href += f"&project={quote(project, safe='')}"
+    return {"label": label, "href": href}

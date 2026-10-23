@@ -7,8 +7,10 @@ import { cx } from '@/components/os/ui';
 import { DASHBOARD_SECTIONS, PAID_ALSO, PAID_LEAD } from '@/lib/os/catalog';
 import { syncSources } from '@/lib/os/client';
 
-type Connector = { name: string; state: string; detail?: string; checked_on?: string };
-type SiteBlock = { state?: string; detail?: string };
+type Setup = { label: string; href: string };
+type Connector = { name: string; state: string; detail?: string; checked_on?: string; setup?: Setup };
+type SiteBlock = { state?: string; detail?: string; setup?: Setup };
+type CardAction = { label: string; onClick?: () => void; href?: string };
 
 export default function ConnectionsPage() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -145,7 +147,13 @@ export default function ConnectionsPage() {
                     title={name}
                     state={item?.state}
                     detail={item?.detail || 'Not checked yet.'}
-                    action={name === 'TikTok' ? { label: 'Connect TikTok', onClick: () => void connectTikTok() } : null}
+                    action={
+                      name === 'TikTok'
+                        ? { label: 'Connect TikTok', onClick: () => void connectTikTok() }
+                        : item?.setup
+                          ? { label: item.setup.label, href: item.setup.href }
+                          : null
+                    }
                   />
                 );
               })}
@@ -163,7 +171,15 @@ export default function ConnectionsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {section.sources.map((source) => {
               const block = site[source.id];
-              return <SourceCard key={source.id} title={source.title} state={block?.state} detail={block?.detail || source.role} />;
+              return (
+                <SourceCard
+                  key={source.id}
+                  title={source.title}
+                  state={block?.state}
+                  detail={block?.detail || source.role}
+                  action={block?.setup ? { label: block.setup.label, href: block.setup.href } : null}
+                />
+              );
             })}
           </div>
         </section>
@@ -189,7 +205,7 @@ function SourceCard({
   title: string;
   state?: string;
   detail: string;
-  action?: { label: string; onClick: () => void } | null;
+  action?: CardAction | null;
 }) {
   return (
     <div className="dash-card p-5">
@@ -198,8 +214,13 @@ function SourceCard({
         <span className="text-xs font-semibold uppercase text-brand-burgundy">{state || 'waiting'}</span>
       </div>
       <p className="mt-2 text-sm text-brand-dark-gray">{detail}</p>
-      {action ? (
-        <button type="button" className="mt-3 text-xs font-semibold text-brand-burgundy" onClick={action.onClick}>
+      {action?.href ? (
+        <a href={action.href} target="_blank" rel="noopener noreferrer" className="btn-outline mt-3 gap-1.5 px-3 py-1.5 text-xs">
+          {action.label}
+          <Icon.external className="h-3.5 w-3.5" />
+        </a>
+      ) : action?.onClick ? (
+        <button type="button" className="btn-outline mt-3 px-3 py-1.5 text-xs" onClick={action.onClick}>
           {action.label}
         </button>
       ) : null}

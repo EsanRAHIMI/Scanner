@@ -14,7 +14,7 @@ from core import runtime
 
 from core.auth import get_current_user, require_admin
 from core.config import get_settings
-from core.connectors import connect_tiktok, tiktok_connect_url
+from core.connectors import connect_tiktok, google_setup_action, tiktok_connect_url
 from core.db import close, connect, db, ensure_indexes, require_db
 from core.importer import load_workbook_rows
 from core.store import (
@@ -666,9 +666,19 @@ async def activity_timer(activity_id: str, body: TimerWrite, user: dict = Depend
 @app.get("/api/v1/connectors")
 async def read_connectors(_user: dict = Depends(get_current_user)) -> dict:
     database = require_db()
+    settings = get_settings()
     rows = await database["marketing_os_connectors"].find({}).to_list(length=20)
     site = await database["marketing_os_site"].find_one({"_id": "current"}) or {}
     for row in rows:
         row.pop("_id", None)
+        action = google_setup_action(row.get("name"), row.get("state"), row.get("detail"), settings)
+        if action:
+            row["setup"] = action
     site.pop("_id", None)
+    for key, block in site.items():
+        if not isinstance(block, dict):
+            continue
+        action = google_setup_action(key, block.get("state"), block.get("detail"), settings)
+        if action:
+            block["setup"] = action
     return {"connectors": rows, "site": site}
