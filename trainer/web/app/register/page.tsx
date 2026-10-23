@@ -47,8 +47,10 @@ export default function RegisterPage() {
 
         {done ? (
           <div className="mt-6 space-y-3">
-            <div className="rounded-xl border border-brand-medium-gray/30 bg-brand-light-gray/50 p-4 text-sm text-brand-black">
-              Status: <span className="font-semibold">{done.status}</span>
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-brand-black">
+              {done.status === 'pending'
+                ? 'Account created. A super admin must approve it before you can see products, prices, or anything else.'
+                : 'Account created. You can sign in.'}
             </div>
             <a className="block text-center text-sm font-medium text-brand-burgundy hover:text-brand-black" href="/login">
               Go to login

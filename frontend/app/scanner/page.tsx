@@ -5,8 +5,6 @@ import * as React from 'react';
 import { Button } from '@/ui/button';
 
 import { clientLog, safelyVoid } from '@/lib/client-log';
-import { getTrainerApiBaseForBrowser } from '@/lib/env';
-import { isLocalHostname } from '@/lib/app-urls';
 import { getPublicServiceUrl } from '@/lib/public-urls';
 
 type Product = {
@@ -203,13 +201,7 @@ export default function ScannerPage() {
     try {
       setTrainerClassesError(null);
 
-      const isLocal =
-        typeof window === 'undefined'
-          ? true
-          : isLocalHostname(window.location.hostname);
-
-      const base = getTrainerApiBaseForBrowser(isLocal);
-      const res = await fetch(`${base}/classes`, { cache: 'no-store', credentials: 'include' });
+      const res = await fetch('/api/trainer/classes', { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
 
       if (res.status === 401 || res.status === 403) {
@@ -581,13 +573,7 @@ export default function ScannerPage() {
     try {
       setAirtableCollectionCodeError(null);
 
-      const isLocal =
-        typeof window === 'undefined'
-          ? true
-          : isLocalHostname(window.location.hostname);
-
-      const base = getTrainerApiBaseForBrowser(isLocal);
-      const url = `${base}/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
+      const url = `/api/trainer/dam/collection-code?collection_name=${encodeURIComponent(name)}`;
       const res = await fetch(url, { cache: 'no-store', credentials: 'include' });
       const text = await res.text();
       if (!res.ok) {

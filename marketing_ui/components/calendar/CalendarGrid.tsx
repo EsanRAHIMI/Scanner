@@ -11,7 +11,7 @@ import {
 import { CAMPAIGN_RAIL_WIDTH_PX } from '../../lib/calendar/campaigns/constants';
 import type { MarketingCampaign } from '../../lib/calendar/campaigns/types';
 import { isCampaignPlanningDraft } from '../../lib/calendar/campaigns/planning-drafts';
-import { getCampaignsForContentItem } from '../../lib/calendar/campaigns/utils';
+import { getContentPublishDate, isDateInCampaignRange } from '../../lib/calendar/campaigns/utils';
 import {
   type CalendarFieldOptionsMap,
   type CalendarSelectableField,
@@ -93,6 +93,25 @@ export function CalendarGrid({
     [],
   );
 
+  const rowCampaigns = useMemo(() => {
+    const byDate = new Map<string, MarketingCampaign[]>();
+    const byItem = new Map<string, MarketingCampaign[]>();
+    for (const item of items) {
+      const date = getContentPublishDate(item);
+      if (!date) {
+        byItem.set(item.id, []);
+        continue;
+      }
+      let matched = byDate.get(date);
+      if (!matched) {
+        matched = campaigns.filter((campaign) => isDateInCampaignRange(date, campaign));
+        byDate.set(date, matched);
+      }
+      byItem.set(item.id, matched);
+    }
+    return byItem;
+  }, [items, campaigns]);
+
   const tableWidthPx = useMemo(() => {
     const colsSum = allColumns.reduce(
       (sum, col) => sum + (columnWidths[col] ?? defaultColWidth(col)),
@@ -107,16 +126,19 @@ export function CalendarGrid({
     const startWidth = columnWidths[col] ?? defaultColWidth(col);
     const minW = getColumnMinWidthPx(col);
     isResizingRef.current = true;
+    let frame = 0;
 
     const onMove = (ev: PointerEvent) => {
       const delta = ev.clientX - startX;
-      setColumnWidths(prev => ({
-        ...prev,
-        [col]: Math.min(MAX_COL_PX, Math.max(minW, startWidth + delta)),
-      }));
+      const width = Math.min(MAX_COL_PX, Math.max(minW, startWidth + delta));
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setColumnWidths(prev => ({ ...prev, [col]: width }));
+      });
     };
     const onUp = () => {
       isResizingRef.current = false;
+      if (frame) cancelAnimationFrame(frame);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
@@ -139,7 +161,7 @@ export function CalendarGrid({
   };
 
   return (
-    <section className={`dash-panel flex min-h-0 flex-1 flex-col ${className}`}>
+    <section className={`os-panel flex min-h-0 flex-1 flex-col overflow-hidden ${className}`}>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-brand-light-gray px-4 py-2.5">
         <p className="text-sm font-semibold text-brand-black">Publish matrix</p>
         <p className="hidden text-xs text-brand-dark-gray sm:block">
@@ -195,12 +217,12 @@ export function CalendarGrid({
                 </td>
               </tr>
             ) : items.map((item, rowIdx) => {
-              const rowCampaigns = getCampaignsForContentItem(item, campaigns);
+              const linked = rowCampaigns.get(item.id) ?? [];
               const isPlanningRow = isCampaignPlanningDraft(item);
               return (
               <tr 
                 key={item.id} 
-                className={`group border-b border-brand-light-gray/80 transition-colors ${
+                className={`group border-b border-black/[0.06] ${
                   isPlanningRow
                     ? 'bg-amber-50 hover:bg-amber-100/70'
                     : rowIdx % 2 === 1
@@ -219,7 +241,7 @@ export function CalendarGrid({
                   }`}
                   style={{ width: `${CAMPAIGN_RAIL_WIDTH_PX}px`, minWidth: `${CAMPAIGN_RAIL_WIDTH_PX}px` }}
                 >
-                  <CampaignRowTag campaigns={rowCampaigns} />
+                  <CampaignRowTag campaigns={linked} />
                 </td>
                 {allColumns.map(col => {
                   const idColKey = `${item.id}-${col}`;

@@ -5,13 +5,14 @@ import { useState } from 'react';
 
 import { Icon } from '@/components/os/icons';
 import { useSession } from '@/components/os/session';
+import { PaidMedia } from '@/components/os/live-dashboard';
 import { TimelineBoard } from '@/components/os/timeline-board';
-import { Avatar, Bar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, SourceStrip, Stat, StagePill, Trend, cx } from '@/components/os/ui';
+import { Avatar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, SourceStrip, Stat, StagePill, Trend, cx } from '@/components/os/ui';
 import { api, invalidate, useApi } from '@/lib/os/client';
 import { decisionItems, monthPace, updatedLabel, type Decision } from '@/lib/os/decisions';
 import { compact, delta, dueLabel, longDate, meLabel, money, rangeLabel, shortDate, type Campaign, type Content, type Initiative, type Task } from '@/lib/os/model';
 import { sourceFlags } from '@/lib/os/sources';
-import type { ChannelRow, DashboardPayload, TargetRow } from '@/lib/os/types';
+import type { DashboardPayload, TargetRow } from '@/lib/os/types';
 
 type Range = { from: string; to: string };
 type PaidRange = Range & {
@@ -154,10 +155,6 @@ export function Overview() {
   const pace = monthPace(paid.month.month);
   const items = attention(data);
   const shown = showAll ? items : items.slice(0, 7);
-  const connectorState = new Map(paid.connectors.map((item) => [item.name.toLowerCase(), item.state]));
-  const channels = paid.channels.filter((row) => row.spend != null || row.budget != null).sort((a, b) => (b.spend ?? -1) - (a.spend ?? -1));
-  const maxSpend = Math.max(1, ...channels.map((row) => Math.max(row.spend ?? 0, row.budget ?? 0)));
-  const brokenSources = paid.connectors.filter((item) => item.state === 'error').length;
 
   return (
     <>
@@ -271,8 +268,10 @@ export function Overview() {
         </Panel>
       </div>
 
+      <PaidMedia embedded />
+
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Panel title="Coming up · 14 days" action={<Link href="/content" className="os-link">Calendar</Link>} pad={false}>
+        <Panel title="Coming up · 14 days" action={<Link href="/content" className="os-link">Content</Link>} pad={false}>
           {data.content.upcoming.length ? (
             <ul className="divide-y divide-black/5">
               {data.content.upcoming.map((item) => (
@@ -327,45 +326,6 @@ export function Overview() {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Panel
-          title="Paid channels · month to date"
-          action={
-            <Link href="/paid" className="os-link">
-              {brokenSources ? `${brokenSources} source${brokenSources > 1 ? 's' : ''} need a fix` : 'Paid media'}
-            </Link>
-          }
-        >
-          {channels.length ? (
-            <ul className="space-y-3">
-              {channels.map((row) => {
-                const state = connectorState.get(row.channel.toLowerCase());
-                const over = row.utilization != null && row.utilization > 1;
-                return (
-                  <li key={row.channel}>
-                    <Link href={`/paid?channel=${encodeURIComponent(row.channel)}`} className="block">
-                      <div className="flex items-baseline justify-between gap-2 text-[13px]">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <span className={cx('h-1.5 w-1.5 rounded-full', state === 'ok' ? 'bg-emerald-500' : state === 'error' ? 'bg-red-600' : 'bg-brand-medium-gray')} />
-                          {row.channel}
-                        </span>
-                        <span className="tabular-nums">
-                          <span className="font-semibold">{money(row.spend)}</span>
-                          <span className="text-brand-dark-gray"> / {money(row.budget)}</span>
-                        </span>
-                      </div>
-                      <div className="mt-1.5">
-                        <Bar value={row.spend} max={row.budget ?? maxSpend} tone={over ? 'red' : 'wine'} />
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <Empty title="No paid channel has spend or budget this month" />
-          )}
-        </Panel>
-
-        <Panel
           title="Initiatives"
           action={
             <span className="flex items-center gap-2">
@@ -404,12 +364,10 @@ export function Overview() {
             </div>
           )}
         </Panel>
-      </div>
 
-      {data.tasks.due_soon.length ? (
-        <div className="mt-4">
-          <Panel title="Tasks due this week" action={<Link href="/tasks" className="os-link">Tasks</Link>} pad={false}>
-            <ul className="grid divide-y divide-black/5 md:grid-cols-2 md:divide-y-0">
+        <Panel title="Tasks due this week" action={<Link href="/tasks" className="os-link">Tasks</Link>} pad={false}>
+          {data.tasks.due_soon.length ? (
+            <ul className="divide-y divide-black/5">
               {data.tasks.due_soon.map((task) => (
                 <li key={task.id}>
                   <Link href={`/tasks?open=${task.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-black/[0.02]">
@@ -421,9 +379,13 @@ export function Overview() {
                 </li>
               ))}
             </ul>
-          </Panel>
-        </div>
-      ) : null}
+          ) : (
+            <div className="p-4">
+              <Empty title="No task is due this week" />
+            </div>
+          )}
+        </Panel>
+      </div>
     </>
   );
 }

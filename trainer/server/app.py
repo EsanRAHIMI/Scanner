@@ -3195,6 +3195,7 @@ async def _products_assets_page(
 
 @api.get("/public/products/assets")
 async def public_products_assets(
+  _: dict[str, Any] = Depends(_get_current_user),
   limit: int = Query(PRODUCTS_ASSETS_DEFAULT_LIMIT, ge=1, le=PRODUCTS_ASSETS_MAX_LIMIT),
   cursor: str | None = Query(None),
   sort: str = Query("recent"),
@@ -3205,7 +3206,10 @@ async def public_products_assets(
 
 
 @api.get("/public/products/field-options")
-async def public_product_field_options(db=Depends(_get_db)):
+async def public_product_field_options(
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
   return {"options": await _get_product_field_options(db)}
 
 
@@ -3264,7 +3268,10 @@ async def _count_distinct_product_categories(db: Any) -> int:
 
 
 @api.get("/public/platform/stats")
-async def public_platform_stats(db=Depends(_get_db)):
+async def public_platform_stats(
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
   products_count, product_images_count, dam_count, users_count, calendar_count, yolo_classes_count, category_labels_count = await asyncio.gather(
     db["products"].count_documents({}),
     _count_product_image_urls(db),
@@ -4597,16 +4604,22 @@ async def admin_delete_backup(
 
 @api.get("/products/assets")
 async def products_assets(
-  _: dict[str, Any] = Depends(_get_current_user), 
+  _: dict[str, Any] = Depends(_get_current_user),
   limit: int = Query(PRODUCTS_ASSETS_DEFAULT_LIMIT, ge=1, le=PRODUCTS_ASSETS_MAX_LIMIT),
   cursor: str | None = Query(None),
-  db=Depends(_get_db)
+  sort: str = Query("recent"),
+  db=Depends(_get_db),
 ):
-  return await _products_assets_page(db, limit=limit, cursor=cursor)
+  sort_mode = "num" if str(sort).strip().lower() == "num" else "recent"
+  return await _products_assets_page(db, limit=limit, cursor=cursor, sort=sort_mode)
 
 
 @api.get("/dam/collection-code")
-async def dam_collection_code(collection_name: str, db=Depends(_get_db)):
+async def dam_collection_code(
+  collection_name: str,
+  _: dict[str, Any] = Depends(_get_current_user),
+  db=Depends(_get_db),
+):
   name = collection_name.strip()
   if not name:
     raise HTTPException(status_code=400, detail="COLLECTION_NAME_REQUIRED")

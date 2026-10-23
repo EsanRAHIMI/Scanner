@@ -6,6 +6,19 @@ function joinPath(prefix: string, path: string): string {
   return `${base}${p}`;
 }
 
+function messageFromBody(text: string, fallback: string): string {
+  try {
+    const data = JSON.parse(text) as { detail?: unknown };
+    if (data.detail === 'USER_NOT_APPROVED') {
+      return 'Your account is waiting for super admin approval. You cannot see anything until it is approved.';
+    }
+    if (typeof data.detail === 'string' && data.detail.trim()) return data.detail;
+  } catch {
+    /* body is not JSON */
+  }
+  return text.trim() || fallback;
+}
+
 export function createAuthApi(authApiPrefix: string) {
   const base = authApiPrefix.replace(/\/+$/, '');
 
@@ -22,7 +35,7 @@ export function createAuthApi(authApiPrefix: string) {
     const res = await apiFetch('/auth/me');
     if (res.status === 401) return null;
     const text = await res.text();
-    if (!res.ok) throw new Error(text || `Failed to load user (${res.status})`);
+    if (!res.ok) throw new Error(messageFromBody(text, `Failed to load user (${res.status})`));
     const data = JSON.parse(text) as {
       email?: string;
       username?: string;
@@ -48,7 +61,7 @@ export function createAuthApi(authApiPrefix: string) {
       body: JSON.stringify({ email, password }),
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(text || `Login failed (${res.status})`);
+    if (!res.ok) throw new Error(messageFromBody(text, `Login failed (${res.status})`));
   }
 
   async function register(
@@ -62,7 +75,7 @@ export function createAuthApi(authApiPrefix: string) {
       body: JSON.stringify({ email, username, password }),
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(text || `Register failed (${res.status})`);
+    if (!res.ok) throw new Error(messageFromBody(text, `Register failed (${res.status})`));
     return JSON.parse(text) as { status: string; user_id: string };
   }
 

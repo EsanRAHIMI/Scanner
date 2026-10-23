@@ -13,6 +13,7 @@ type Action = { id: string; label: string; hint: string; href: string; icon: Ico
 export const NAV: Array<{ href: string; label: string; icon: IconName }> = [
   { href: '/', label: 'Overview', icon: 'overview' },
   { href: '/content', label: 'Content', icon: 'content' },
+  { href: '/calendar', label: 'Sheet view', icon: 'sheet' },
   { href: '/campaigns', label: 'Campaigns', icon: 'campaign' },
   { href: '/paid', label: 'Paid media', icon: 'paid' },
   { href: '/initiatives', label: 'Initiatives', icon: 'initiative' },
@@ -25,7 +26,6 @@ export const SETUP: Array<{ href: string; label: string; icon: IconName }> = [
   { href: '/budgets', label: 'Budgets', icon: 'budget' },
   { href: '/targets', label: 'Targets', icon: 'target' },
   { href: '/connections', label: 'Connections', icon: 'plug' },
-  { href: '/calendar', label: 'Sheet view', icon: 'sheet' },
 ];
 
 export const CREATE: Array<{ href: string; label: string; icon: IconName }> = [

@@ -30,7 +30,17 @@ export default function LoginPage() {
       });
       const text = await res.text();
       if (!res.ok) {
-        throw new Error(text || `Login failed (${res.status})`);
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text) as { detail?: unknown };
+          if (typeof parsed.detail === 'string') detail = parsed.detail;
+        } catch {
+          /* keep raw */
+        }
+        if (detail === 'USER_NOT_APPROVED') {
+          throw new Error('Your account is waiting for super admin approval. You cannot see anything until it is approved.');
+        }
+        throw new Error(detail || `Login failed (${res.status})`);
       }
 
       const url = new URL(window.location.href);

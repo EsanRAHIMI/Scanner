@@ -4,6 +4,7 @@ import type { Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import Script from 'next/script';
 
+import { AccessGate } from '@/components/access-gate';
 import { getDefaultScannerUrl, getPublicServiceUrl } from '@/lib/public-urls';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -58,7 +59,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={inter.className}>
-        {children}
+        <AccessGate>{children}</AccessGate>
         {agentWidgetSrc ? <Script src={agentWidgetSrc} strategy="afterInteractive" /> : null}
       </body>
     </html>

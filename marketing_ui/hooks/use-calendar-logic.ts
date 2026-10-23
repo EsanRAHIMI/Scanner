@@ -29,7 +29,7 @@ export function useCalendarLogic() {
   const [authRequired, setAuthRequired] = useState(false);
   const [me, setMe] = useState<TrainerMe | null>(null);
 
-  const dataEnabled = authReady && !authRequired;
+  const dataEnabled = !authRequired;
 
   const { 
     items: contentItems, 
@@ -215,7 +215,7 @@ export function useCalendarLogic() {
     [deleteFieldOption],
   );
 
-  const loading = !authReady || (dataEnabled && calendarLoading);
+  const loading = dataEnabled && calendarLoading && contentItems.length === 0;
 
   return {
     contentItems,

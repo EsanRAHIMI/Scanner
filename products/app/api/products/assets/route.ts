@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 import { getTrainerApiBase } from '@/lib/env';
 
 // Always serve fresh data for interactive editing workflows
 export const revalidate = 0;
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const base = getTrainerApiBase();
   const reqUrl = new URL(req.url);
   const origin = reqUrl.origin;
@@ -14,11 +14,15 @@ export async function GET(req: Request) {
   const targetUrl = new URL(`${baseResolved}/public/products/assets`);
   reqUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
 
+  const headers = new Headers({ accept: 'application/json' });
+  const cookie = req.headers.get('cookie');
+  const authorization = req.headers.get('authorization');
+  if (cookie) headers.set('cookie', cookie);
+  if (authorization) headers.set('authorization', authorization);
+
   const res = await fetch(targetUrl.toString(), {
     cache: 'no-store',
-    headers: {
-      accept: 'application/json',
-    },
+    headers,
   });
 
   const text = await res.text();

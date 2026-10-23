@@ -68,6 +68,7 @@ export function ScannerAccountMenu({
   const [registerDone, setRegisterDone] = React.useState<{ status: string; user_id: string } | null>(
     null,
   );
+  const [pendingUsers, setPendingUsers] = React.useState<{ email: string; username: string }[]>([]);
   const [serviceUrls, setServiceUrls] = React.useState<ScannerServiceUrls | null>(null);
 
   const triggerRef = React.useRef<HTMLDivElement | null>(null);
@@ -96,6 +97,44 @@ export function ScannerAccountMenu({
       cancelled = true;
     };
   }, [serviceUrlsPath]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadPending() {
+      try {
+        const user = await auth.loadMe();
+        if (cancelled || !user?.is_admin) {
+          if (!cancelled) setPendingUsers([]);
+          return;
+        }
+        const res = await fetch(`${authApiPrefix.replace(/\/+$/, '')}/admin/users`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          users?: { status?: string; email?: string; username?: string }[];
+        };
+        const waiting = (data.users ?? []).filter((row) => row.status === 'pending');
+        if (!cancelled) {
+          setPendingUsers(
+            waiting.map((row) => ({
+              email: row.email || '',
+              username: row.username || row.email || 'new user',
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setPendingUsers([]);
+      }
+    }
+    void loadPending();
+    const timer = window.setInterval(() => void loadPending(), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [auth, authApiPrefix]);
 
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -184,9 +223,16 @@ export function ScannerAccountMenu({
     try {
       await auth.logout();
       setMe(null);
+      setPendingUsers([]);
+      try {
+        window.sessionStorage.removeItem('products_assets_cache_v1');
+      } catch {
+        /* ignore */
+      }
       setMode('login');
       onLoggedOut?.();
       onAuthChange?.();
+      window.location.assign(window.location.pathname);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed');
     } finally {
@@ -225,6 +271,19 @@ export function ScannerAccountMenu({
 
   return (
     <>
+      {pendingUsers.length > 0 ? (
+        <div role="status" className="fixed inset-x-0 top-0 z-[600] border-b border-amber-800/20 bg-amber-400 px-4 py-2 text-center text-sm text-black">
+          <span className="font-semibold">
+            {pendingUsers.length === 1 ? 'New account waiting for approval' : `${pendingUsers.length} new accounts waiting for approval`}
+            {': '}
+          </span>
+          {pendingUsers.map((row) => row.username || row.email).join(', ')}
+          {'. They cannot see anything until you approve them. '}
+          <a className="font-semibold underline" href={app === 'trainer' ? '/admin/users' : (serviceUrls?.trainerAdminUsers || 'http://localhost:3010/admin/users')}>
+            Review
+          </a>
+        </div>
+      ) : null}
       <div ref={triggerRef} className={['relative', className].filter(Boolean).join(' ')}>
       <button
         type="button"
@@ -530,13 +589,18 @@ export function ScannerAccountMenu({
                   <div
                     className={
                       'rounded-lg p-3 text-sm ' +
-                      (darkChrome
-                        ? 'bg-emerald-950/70 text-emerald-200'
-                        : 'bg-emerald-500/10 text-emerald-800')
+                      (registerDone.status === 'pending'
+                        ? darkChrome
+                          ? 'bg-amber-950/70 text-amber-100'
+                          : 'bg-amber-500/15 text-amber-950'
+                        : darkChrome
+                          ? 'bg-emerald-950/70 text-emerald-200'
+                          : 'bg-emerald-500/10 text-emerald-800')
                     }
                   >
-                    Account created — status:{' '}
-                    <span className="font-medium">{registerDone.status}</span>
+                    {registerDone.status === 'pending'
+                      ? 'Account created. A super admin must approve it before you can see products, prices, or anything else.'
+                      : 'Account created. You can sign in.'}
                   </div>
                 ) : (
                   <form className="space-y-2.5" onSubmit={(e) => void onSubmit(e)}>

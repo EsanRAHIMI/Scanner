@@ -18,7 +18,12 @@ export async function GET(req: Request) {
   const target = resolveTrainerFetchUrl(req, '/public/platform/stats');
 
   try {
-    const res = await fetch(target, { cache: 'no-store' });
+    const headers = new Headers({ accept: 'application/json' });
+    const cookie = req.headers.get('cookie');
+    const authorization = req.headers.get('authorization');
+    if (cookie) headers.set('cookie', cookie);
+    if (authorization) headers.set('authorization', authorization);
+    const res = await fetch(target, { cache: 'no-store', headers });
     const text = await res.text();
     if (!res.ok) {
       return NextResponse.json(

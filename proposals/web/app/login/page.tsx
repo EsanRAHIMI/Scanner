@@ -33,7 +33,13 @@ function LoginForm() {
       router.replace(next);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(
+        err instanceof Error && err.message === 'USER_NOT_APPROVED'
+          ? 'Your account is waiting for super admin approval. You cannot see anything until it is approved.'
+          : err instanceof Error
+            ? err.message
+            : 'Login failed',
+      );
     } finally {
       setLoading(false);
     }

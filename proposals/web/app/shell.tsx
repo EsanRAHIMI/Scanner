@@ -25,7 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === '/login';
   const isEditor = isEditorRoute(pathname);
   const [me, setMe] = useState<Me | null>(null);
-  const [authState, setAuthState] = useState<'loading' | 'ok' | 'unauthenticated' | 'error'>(
+  const [authState, setAuthState] = useState<'loading' | 'ok' | 'unauthenticated' | 'pending' | 'error'>(
     'loading',
   );
 
@@ -41,6 +41,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       })
       .catch((e: Error & { status?: number }) => {
         if (cancelled) return;
+        if (e.status === 403 && e.message.includes('USER_NOT_APPROVED')) {
+          setAuthState('pending');
+          return;
+        }
         setAuthState(e.status === 401 || e.status === 403 ? 'unauthenticated' : 'error');
       });
     return () => {
@@ -56,6 +60,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-brand-dark-gray">
         Loading…
+      </div>
+    );
+  }
+
+  if (authState === 'pending') {
+    return (
+      <div className="flex min-h-dvh items-center justify-center p-6">
+        <div className="dash-panel w-full max-w-md">
+          <div className="dash-panel-body text-sm leading-6">
+            Your account is waiting for super admin approval. You cannot see proposals, prices, or anything else until it is approved.
+          </div>
+        </div>
       </div>
     );
   }

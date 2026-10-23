@@ -7,6 +7,7 @@ import Script from 'next/script';
 
 import { withBasePath } from '@/lib/pwa';
 
+import { AccessGate } from './access-gate';
 import { PwaRegister } from './pwa-register';
 import { ProductsCacheProvider } from './products-cache-provider';
 
@@ -60,11 +61,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="h-dvh overflow-hidden bg-background font-sans text-foreground antialiased">
         <PwaRegister />
-        <ProductsCacheProvider>
-          <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-4 box-border px-5 py-6">
-            <div className="flex min-h-0 flex-1 flex-col">{children}</div>
-          </div>
-        </ProductsCacheProvider>
+        <AccessGate>
+          <ProductsCacheProvider>
+            <div className="mx-auto flex h-dvh w-full max-w-none flex-col gap-4 box-border px-5 py-6">
+              <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+            </div>
+          </ProductsCacheProvider>
+        </AccessGate>
         {agentWidgetSrc ? <Script src={agentWidgetSrc} strategy="afterInteractive" /> : null}
       </body>
     </html>

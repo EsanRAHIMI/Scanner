@@ -100,56 +100,77 @@ function growthLabel(value: number | null | undefined): string {
   return '0';
 }
 
-export function PaidMedia() {
+export function PaidMedia({ embedded = false }: { embedded?: boolean }) {
   const { isAdmin } = useSession();
   const [month, setMonth] = useState(currentMonth);
   const { data, authRequired, error, syncing, refresh } = useLiveDashboard(month);
   const today = currentMonth();
   const months = [...new Set([...(data?.months ?? []), today])].sort();
 
-  const header = (
-    <PageHeader
-      title="Paid media"
-      subtitle={data ? `${monthLabel(month)} · ${updatedLabel(data.generated_at)} · a blank figure is unknown, not zero` : 'Loading live channels…'}
-      actions={
-        <>
-          <div className="flex items-center rounded-lg border border-black/10 bg-white">
-            <button type="button" className="p-1.5 text-brand-dark-gray hover:text-brand-black disabled:opacity-30" aria-label="Earlier month" disabled={months[0] === month} onClick={() => setMonth(months[Math.max(0, months.indexOf(month) - 1)])}>
-              <Icon.chevronLeft className="h-4 w-4" />
-            </button>
-            <select className="bg-transparent py-1 text-[13px] font-medium outline-none" value={month} onChange={(event) => setMonth(event.target.value)} aria-label="Month">
-              {months.map((item) => (
-                <option key={item} value={item}>
-                  {item === today ? `This month · ${monthLabel(item)}` : monthLabel(item)}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="p-1.5 text-brand-dark-gray hover:text-brand-black disabled:opacity-30" aria-label="Later month" disabled={months[months.length - 1] === month} onClick={() => setMonth(months[Math.min(months.length - 1, months.indexOf(month) + 1)])}>
-              <Icon.chevronRight className="h-4 w-4" />
-            </button>
-          </div>
-          {isAdmin ? (
-            <button type="button" onClick={() => void refresh()} disabled={syncing} className="btn-outline gap-1.5 px-3 py-1.5 text-[13px]">
-              <Icon.refresh className={cx('h-4 w-4', syncing && 'animate-spin')} />
-              {syncing ? 'Refreshing…' : 'Refresh now'}
-            </button>
-          ) : null}
-        </>
-      }
-    />
+  const subtitle = data ? `${monthLabel(month)} · ${updatedLabel(data.generated_at)} · a blank figure is unknown, not zero` : 'Loading live channels…';
+  const controls = (
+    <>
+      <div className="flex items-center rounded-lg border border-black/10 bg-white">
+        <button type="button" className="p-1.5 text-brand-dark-gray hover:text-brand-black disabled:opacity-30" aria-label="Earlier month" disabled={months[0] === month} onClick={() => setMonth(months[Math.max(0, months.indexOf(month) - 1)])}>
+          <Icon.chevronLeft className="h-4 w-4" />
+        </button>
+        <select className="bg-transparent py-1 text-[13px] font-medium outline-none" value={month} onChange={(event) => setMonth(event.target.value)} aria-label="Month">
+          {months.map((item) => (
+            <option key={item} value={item}>
+              {item === today ? `This month · ${monthLabel(item)}` : monthLabel(item)}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="p-1.5 text-brand-dark-gray hover:text-brand-black disabled:opacity-30" aria-label="Later month" disabled={months[months.length - 1] === month} onClick={() => setMonth(months[Math.min(months.length - 1, months.indexOf(month) + 1)])}>
+          <Icon.chevronRight className="h-4 w-4" />
+        </button>
+      </div>
+      {isAdmin ? (
+        <button type="button" onClick={() => void refresh()} disabled={syncing} className="btn-outline gap-1.5 px-3 py-1.5 text-[13px]">
+          <Icon.refresh className={cx('h-4 w-4', syncing && 'animate-spin')} />
+          {syncing ? 'Refreshing…' : 'Refresh now'}
+        </button>
+      ) : null}
+    </>
   );
+
+  const body = (
+    <>
+      {authRequired ? <ErrorBox message="Your session ended. Reload the page to sign in again." onRetry={() => window.location.reload()} /> : null}
+      {error ? <div className="mb-4"><ErrorBox message={error} /></div> : null}
+      {data ? <Board data={data} month={month} onMonth={setMonth} embedded={embedded} /> : authRequired ? null : <PageSkeleton />}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <section className="mt-4" aria-label="Paid media">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[13px] font-semibold text-brand-black">Paid media</h2>
+            <p className="text-[11px] text-brand-dark-gray">{subtitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {controls}
+            <Link href="/paid" className="os-link">
+              Open page
+            </Link>
+          </div>
+        </div>
+        {body}
+      </section>
+    );
+  }
 
   return (
     <>
-      {header}
-      {authRequired ? <ErrorBox message="Your session ended. Reload the page to sign in again." onRetry={() => window.location.reload()} /> : null}
-      {error ? <div className="mb-4"><ErrorBox message={error} /></div> : null}
-      {data ? <Board data={data} month={month} onMonth={setMonth} /> : authRequired ? null : <PageSkeleton />}
+      <PageHeader title="Paid media" subtitle={subtitle} actions={controls} />
+      {body}
     </>
   );
 }
 
-function Board({ data, month, onMonth }: { data: DashboardPayload; month: string; onMonth: (month: string) => void }) {
+function Board({ data, month, onMonth, embedded = false }: { data: DashboardPayload; month: string; onMonth: (month: string) => void; embedded?: boolean }) {
   const { params, update } = useUrlState();
   const connectors = new Map<string, Connector>((data.connectors ?? []).map((item) => [item.name.toLowerCase(), item]));
   const pace = monthPace(month);
@@ -164,8 +185,8 @@ function Board({ data, month, onMonth }: { data: DashboardPayload; month: string
 
   return (
     <div className="space-y-4">
-      <SourceStrip items={sourceFlags({ connectors: data.connectors, odoo: data.site?.odoo, qualified: data.qualified })} />
-      {decisions.length ? (
+      {embedded ? null : <SourceStrip items={sourceFlags({ connectors: data.connectors, odoo: data.site?.odoo, qualified: data.qualified })} />}
+      {!embedded && decisions.length ? (
         <Panel title="Decide now" pad={false}>
           <ul className="divide-y divide-black/5">
             {decisions.map((item) => (
