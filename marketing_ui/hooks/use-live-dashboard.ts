@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { ApiError, syncSources } from '@/lib/os/client';
 import type { DashboardPayload } from '@/lib/os/types';
 
 export function useLiveDashboard(month: string | null) {
@@ -54,20 +55,7 @@ export function useLiveDashboard(month: string | null) {
     setSyncing(true);
     setError(null);
     try {
-      const res = await fetch('/api/os/sync', { method: 'POST' });
-      if (res.status === 401) {
-        setAuthRequired(true);
-        return;
-      }
-      if (res.status === 403) {
-        setError('Only an admin can refresh the live sources.');
-        return;
-      }
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.started === false) {
-        setError(typeof body.detail === 'string' ? body.detail : 'Refresh did not finish. Try again.');
-        return;
-      }
+      await syncSources();
       const query = month ? `?month=${encodeURIComponent(month)}` : '';
       const dash = await fetch(`/api/os/dashboard${query}`, { cache: 'no-store' });
       if (!dash.ok) {
@@ -76,8 +64,16 @@ export function useLiveDashboard(month: string | null) {
       }
       setData((await dash.json()) as DashboardPayload);
       setAuthRequired(false);
-    } catch {
-      setError('Refresh did not finish. Try again.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setAuthRequired(true);
+        return;
+      }
+      if (err instanceof ApiError && err.status === 403) {
+        setError('Only an admin can refresh the live sources.');
+        return;
+      }
+      setError(err instanceof Error ? err.message : 'Refresh did not finish. Try again.');
     } finally {
       setSyncing(false);
     }

@@ -168,6 +168,42 @@ async def run_sync() -> dict:
         return {"started": True, "connectors": outcome["connectors"], "odoo": odoo.get("state")}
 
 
+_job: asyncio.Task | None = None
+_last: dict = {"ok": True, "detail": None}
+
+
+def _job_running() -> bool:
+    return _job is not None and not _job.done()
+
+
+def sync_status() -> dict:
+    return {
+        "state": "running" if _job_running() else "idle",
+        "ok": bool(_last.get("ok", True)),
+        "detail": _last.get("detail"),
+    }
+
+
+async def _run_background() -> None:
+    global _last
+    try:
+        result = await run_sync()
+        started = bool(result.get("started"))
+        _last = {"ok": started, "detail": None if started else result.get("detail")}
+    except Exception as exc:  # noqa: BLE001
+        log.exception("manual marketing sync failed")
+        _last = {"ok": False, "detail": str(exc)}
+
+
+def request_sync() -> dict:
+    """Start a sync and return at once. The HTTP call must not wait on every source."""
+    global _job
+    if _job_running():
+        return {"started": True, "state": "running"}
+    _job = asyncio.create_task(_run_background())
+    return {"started": True, "state": "running"}
+
+
 async def sync_loop() -> None:
     """Pull ad accounts and profile stats twice a day. A failure retries in 15 minutes."""
     while True:

@@ -8,7 +8,7 @@ import { useSession } from '@/components/os/session';
 import { PaidMedia } from '@/components/os/live-dashboard';
 import { TimelineBoard } from '@/components/os/timeline-board';
 import { Avatar, ChannelTags, Empty, ErrorBox, PageHeader, PageSkeleton, Panel, Pill, PriorityDot, SourceStrip, Stat, StagePill, Trend, cx } from '@/components/os/ui';
-import { api, invalidate, useApi } from '@/lib/os/client';
+import { invalidate, syncSources, useApi } from '@/lib/os/client';
 import { decisionItems, monthPace, updatedLabel, type Decision } from '@/lib/os/decisions';
 import { compact, delta, dueLabel, longDate, meLabel, money, rangeLabel, shortDate, type Campaign, type Content, type Initiative, type Task } from '@/lib/os/model';
 import { sourceFlags } from '@/lib/os/sources';
@@ -105,7 +105,7 @@ export function Overview() {
     setSyncing(true);
     setSyncNote(null);
     try {
-      await api('sync', { method: 'POST' });
+      await syncSources();
       invalidate('overview', 'dashboard');
       setSyncNote('Sources refreshed.');
     } catch (err) {

@@ -63,6 +63,24 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   return body as T;
 }
 
+/** Start a source refresh and wait until it finishes. The POST itself returns immediately. */
+export async function syncSources(onProgress?: (elapsedSeconds: number) => void): Promise<void> {
+  const started = Date.now();
+  await api('sync', { method: 'POST' });
+  const deadline = started + 10 * 60_000;
+  for (;;) {
+    await wait(1000);
+    onProgress?.(Math.max(1, Math.round((Date.now() - started) / 1000)));
+    const status = await api<{ state?: string; ok?: boolean; detail?: string | null }>('sync');
+    if (status.state === 'running') {
+      if (Date.now() > deadline) throw new ApiError(504, 'Sync is still running. The cards will update when it finishes.');
+      continue;
+    }
+    if (status.ok === false) throw new ApiError(502, status.detail || 'Sync did not finish.');
+    return;
+  }
+}
+
 type Entry = { data?: unknown; at: number; promise?: Promise<unknown>; listeners: Set<() => void> };
 const cache = new Map<string, Entry>();
 

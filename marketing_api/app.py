@@ -64,7 +64,7 @@ from core.timeline import (
     update_lane,
     update_time_log,
 )
-from core.sync import run_sync, sync_loop
+from core.sync import request_sync, sync_loop, sync_status
 from core.work import archive_work, create_work, list_work, log_round, restore_work, update_work
 
 
@@ -398,7 +398,12 @@ async def tiktok_oauth_finish(body: TikTokCode, _admin: dict = Depends(require_a
 async def sync_now(_admin: dict = Depends(require_admin)) -> dict:
     if db() is None:
         raise HTTPException(status_code=503, detail="MONGODB_NOT_CONFIGURED")
-    return await run_sync()
+    return request_sync()
+
+
+@app.get("/api/v1/sync")
+async def read_sync(_user: dict = Depends(get_current_user)) -> dict:
+    return sync_status()
 
 
 @app.get("/api/v1/settings")

@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 
+import { Icon } from '@/components/os/icons';
+import { cx } from '@/components/os/ui';
 import { DASHBOARD_SECTIONS, PAID_ALSO, PAID_LEAD } from '@/lib/os/catalog';
+import { syncSources } from '@/lib/os/client';
 
 type Connector = { name: string; state: string; detail?: string; checked_on?: string };
 type SiteBlock = { state?: string; detail?: string };
@@ -12,6 +15,8 @@ export default function ConnectionsPage() {
   const [site, setSite] = useState<Record<string, SiteBlock>>({});
   const [fx, setFx] = useState('3.6725');
   const [message, setMessage] = useState<string | null>(null);
+  const [messageError, setMessageError] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   async function load() {
     const [conn, settings] = await Promise.all([
@@ -41,11 +46,17 @@ export default function ConnectionsPage() {
       }).then(async (res) => {
         const body = await res.json().catch(() => ({}));
         const detail = typeof body.detail === 'string' ? body.detail : '';
+        setMessageError(!res.ok);
         setMessage(res.ok ? 'TikTok connected.' : detail || 'TikTok connection failed. Admin access is required.');
         window.history.replaceState({}, '', '/connections');
         if (res.ok) {
-          await fetch('/api/os/sync', { method: 'POST' });
-          window.setTimeout(() => void load(), 2500);
+          try {
+            await syncSources();
+            await load();
+          } catch (err) {
+            setMessageError(true);
+            setMessage(err instanceof Error ? err.message : 'Sync did not finish.');
+          }
         }
       });
     }
@@ -57,6 +68,7 @@ export default function ConnectionsPage() {
     const body = await res.json().catch(() => ({}));
     if (!res.ok || !body.url) {
       const detail = typeof body.detail === 'string' ? body.detail : '';
+      setMessageError(true);
       setMessage(detail || 'TikTok connection failed. Admin access is required.');
       return;
     }
@@ -69,20 +81,26 @@ export default function ConnectionsPage() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ fx_usd_aed: Number(fx) }),
     });
+    setMessageError(!res.ok);
     setMessage(res.ok ? 'Rate saved.' : 'Save failed. Admin access is required.');
   }
 
   async function syncNow() {
+    if (syncing) return;
+    setSyncing(true);
+    setMessageError(false);
     setMessage('Refreshing sources…');
-    const res = await fetch('/api/os/sync', { method: 'POST' });
-    const body = await res.json().catch(() => ({}));
-    const detail = typeof body.detail === 'string' ? body.detail : '';
-    if (!res.ok || body.started === false) {
-      setMessage(detail || 'Sync failed. Admin access is required.');
-      return;
+    try {
+      await syncSources((seconds) => setMessage(`Refreshing sources… ${seconds}s`));
+      await load();
+      setMessageError(false);
+      setMessage('Sources refreshed.');
+    } catch (err) {
+      setMessageError(true);
+      setMessage(err instanceof Error ? err.message : 'Sync did not finish. Try again.');
+    } finally {
+      setSyncing(false);
     }
-    setMessage('Sources refreshed.');
-    await load();
   }
 
   const byName = new Map(connectors.map((item) => [item.name, item]));
@@ -101,7 +119,13 @@ export default function ConnectionsPage() {
           <h1 className="dash-title">Sources</h1>
           <p className="dash-desc">Keys stay on the marketing API. Sources refresh twice a day. Sync now is the extra check.</p>
         </div>
-        <button type="button" className="btn-primary px-5 py-2.5" onClick={() => void syncNow()}>Sync now</button>
+        <div className="flex flex-col items-end gap-2">
+          <button type="button" className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 disabled:opacity-60" onClick={() => void syncNow()} disabled={syncing}>
+            <Icon.refresh className={cx('h-4 w-4', syncing && 'animate-spin')} />
+            {syncing ? 'Syncing…' : 'Sync now'}
+          </button>
+          {message ? <p className={cx('max-w-sm text-right text-sm', messageError ? 'text-red-700' : 'text-brand-dark-gray')}>{message}</p> : null}
+        </div>
       </div>
 
       <section className="space-y-4">
@@ -152,7 +176,6 @@ export default function ConnectionsPage() {
         </label>
         <button type="button" className="btn-primary px-4 py-2" onClick={() => void saveFx()}>Save rate</button>
       </div>
-      {message ? <p className="text-sm text-brand-dark-gray">{message}</p> : null}
     </div>
   );
 }
