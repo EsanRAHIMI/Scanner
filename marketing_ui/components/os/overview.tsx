@@ -12,7 +12,7 @@ import { api, invalidate, useApi } from '@/lib/os/client';
 import { decisionItems, monthPace, updatedLabel, type Decision } from '@/lib/os/decisions';
 import { compact, delta, dueLabel, longDate, meLabel, money, rangeLabel, shortDate, type Campaign, type Content, type Initiative, type Task } from '@/lib/os/model';
 import { sourceFlags } from '@/lib/os/sources';
-import type { DashboardPayload, TargetRow } from '@/lib/os/types';
+import type { ChannelRow, DashboardPayload, TargetRow } from '@/lib/os/types';
 
 type Range = { from: string; to: string };
 type PaidRange = Range & {
